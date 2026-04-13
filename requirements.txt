@@ -1,0 +1,29 @@
+# ===================================================
+# Backend AI — Python dependencies
+# Cài đặt: pip install -r requirements.txt
+# ===================================================
+
+# --- Text Processing ---
+scikit-learn>=1.4.0         # Logistic Regression, SVM, TF-IDF, Isolation Forest
+transformers>=4.40.0        # PhoBERT (vinai/phobert-base)
+torch>=2.2.0                # PyTorch backend cho Transformers
+underthesea>=6.8.0          # Tokenizer tiếng Việt
+numpy>=1.26.0
+pandas>=2.2.0
+
+# --- Image Processing ---
+torch>=2.2.0                # dùng chung với Transformers
+torchvision>=0.17.0         # ResNet, MobileNet pretrained
+Pillow>=10.3.0              # Đọc/ghi ảnh
+open-clip-torch>=2.24.0     # CLIP zero-shot classification
+
+# --- LLM Integration ---
+google-generativeai>=0.7.0  # Gemini API
+openai>=1.30.0              # OpenAI GPT API
+python-dotenv>=1.0.0        # Đọc .env
+
+# --- Utility ---
+tqdm>=4.66.0                # Progress bar
+matplotlib>=3.8.0           # Visualization (notebooks)
+seaborn>=0.13.0
+jupyterlab>=4.1.0           # Jupyter Notebooks
