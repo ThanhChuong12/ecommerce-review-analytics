@@ -37,8 +37,10 @@ log = logging.getLogger("LazadaScraper")
 SESSION_DIR = Path("output") / "agent_sessions"
 PAGE_SIZE = 10  # fallback; actual size detected từ response đầu tiên
 
-# Thời gian chờ tối đa (giây) để user giải captcha trong khi phân trang
-CAPTCHA_WAIT_TIMEOUT = 90.0
+# Thời gian chờ (giây) mỗi chunk khi polling captcha
+CAPTCHA_POLL_CHUNK = 15.0
+# Thời gian tối đa chờ tự động trước khi hỏi người dùng
+CAPTCHA_AUTO_WAIT = 90.0
 
 _REVIEW_PATH = "mtop.lazada.review.item.getpcreviewlist"
 
@@ -410,31 +412,16 @@ class LazadaScraper:
                         except Exception:
                             continue
 
-                # ── Fallback 3: chờ user giải captcha (tối đa 90 giây) ─────
+                # ── Fallback 3: dừng & hỏi người dùng cho đến khi giải xong ──
                 if not page1_ok:
-                    print(
-                        "  [Lazada] ⚠️  Chưa nhận được reviews — có thể bị captcha/bot-check.\n"
-                        "  Đang chờ tối đa 90 giây để bạn giải thủ công trong browser...\n"
-                        "  (Sau khi giải xong, scraper sẽ tự tiếp tục)"
+                    page1_ok = await _captcha_pause_and_resume(
+                        got_response=got_response,
+                        check_fn=_has_real_data,
+                        context="trang đầu tiên",
                     )
-                    deadline = 90.0
-                    while deadline > 0 and not page1_ok:
-                        got_response.clear()
-                        chunk = min(15.0, deadline)
-                        try:
-                            await asyncio.wait_for(_await_event(got_response), timeout=chunk)
-                            if _has_real_data():
-                                page1_ok = True
-                            else:
-                                deadline -= chunk
-                        except asyncio.TimeoutError:
-                            deadline -= chunk
-                            if deadline > 0:
-                                print(f"  [Lazada] Vẫn chờ... còn {int(deadline)}s")
-
                     if not page1_ok:
                         print(
-                            "  [Lazada] ❌ Hết thời gian chờ. Không lấy được review.\n"
+                            "  [Lazada] ❌ Người dùng bỏ qua xác thực ban đầu.\n"
                             "  Thử xóa file session: output/agent_sessions/state_lazada.vn.json"
                         )
 
@@ -582,9 +569,8 @@ class LazadaScraper:
         """
         Chờ review API response sau khi click Next.
         - Nếu nhận được trong 10s → trả về True ngay.
-        - Nếu không (có thể do captcha/xác thực bot) → in cảnh báo,
-          chờ tối đa CAPTCHA_WAIT_TIMEOUT giây để user giải thủ công,
-          sau đó tiếp tục nếu nhận được response, hoặc trả về False.
+        - Nếu không → dừng & hỏi người dùng tương tác để tiếp tục,
+          không giới hạn số lần giải captcha.
         """
         # ── Bình thường: chờ 10s ──────────────────────────────────────────
         try:
@@ -594,30 +580,12 @@ class LazadaScraper:
             pass
 
         # ── Hết 10s mà không có response → nghi captcha ──────────────────
-        print(
-            "  [Lazada] ⚠️  Không nhận được response sau khi click Next.\n"
-            "  → Có thể Lazada đang yêu cầu xác thực (captcha/bot-check).\n"
-            f"  Đang chờ tối đa {int(CAPTCHA_WAIT_TIMEOUT)}s để bạn giải trong browser..."
+        # Nếu _await_event không timeout = response đã về → check_fn luôn True
+        return await _captcha_pause_and_resume(
+            got_response=got_response,
+            check_fn=lambda: True,
+            context="phân trang",
         )
-
-        deadline = CAPTCHA_WAIT_TIMEOUT
-        while deadline > 0:
-            got_response.clear()
-            chunk = min(15.0, deadline)
-            try:
-                await asyncio.wait_for(_await_event(got_response), timeout=chunk)
-                print("  [Lazada] ✅ Đã nhận được response sau khi giải xác thực — tiếp tục.")
-                return True
-            except asyncio.TimeoutError:
-                deadline -= chunk
-                if deadline > 0:
-                    print(f"  [Lazada] Vẫn chờ xác thực... còn {int(deadline)}s")
-
-        print(
-            "  [Lazada] ❌ Hết thời gian chờ xác thực. Dừng phân trang.\n"
-            "  Dữ liệu đã thu thập cho đến nay vẫn được lưu lại."
-        )
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -630,3 +598,83 @@ async def _await_event(event: asyncio.Event) -> None:
     while not event.is_set():
         await asyncio.sleep(0.05)
     event.clear()
+
+
+async def _captcha_pause_and_resume(
+    got_response: asyncio.Event,
+    check_fn,
+    context: str = "phân trang",
+) -> bool:
+    """
+    Cơ chế pause & resume khi gặp captcha / bot-check:
+
+    1. Chờ tự động CAPTCHA_AUTO_WAIT giây (polling CAPTCHA_POLL_CHUNK một lần)
+       → nếu response đến tự nhiên thì tiếp tục luôn.
+    2. Nếu vẫn không có → IN THÔNG BÁO RÕ RÀNG và hỏi người dùng:
+       - Nhấn Enter  → tiếp tục chờ thêm (có thể nhiều lần)
+       - Nhập 'n'    → bỏ qua, dừng scraping
+    Trả về True nếu cuối cùng nhận được dữ liệu, False nếu người dùng từ chối.
+    """
+    bar = "─" * 60
+    # Chờ tự động trước khi hỏi
+    deadline = CAPTCHA_AUTO_WAIT
+    while deadline > 0:
+        got_response.clear()
+        chunk = min(CAPTCHA_POLL_CHUNK, deadline)
+        try:
+            await asyncio.wait_for(_await_event(got_response), timeout=chunk)
+            if check_fn():
+                print("  [Lazada] ✅ Tự động nhận được response — tiếp tục.")
+                return True
+        except asyncio.TimeoutError:
+            pass
+        deadline -= chunk
+        if deadline > 0:
+            print(f"  [Lazada] ⏳ Đang chờ tự động... còn {int(deadline)}s")
+
+    # --- Hết chờ tự động: yêu cầu người dùng xác nhận ---
+    while True:
+        print(f"\n  {bar}")
+        print(f"  [Lazada] 🔒 BỊ CHẶN BOT ({context})")
+        print(f"  {bar}")
+        print("  Lazada đã kích hoạt captcha / xác thực bot.")
+        print("  👉 Hãy giải captcha trong cửa sổ browser đang mở.")
+        print("  Sau khi giải xong và thấy trang load lại bình thường:")
+        print("    ▸ Nhấn ENTER để tiếp tục thu thập dữ liệu")
+        print("    ▸ Nhập 'n' rồi Enter để dừng và lưu dữ liệu hiện có")
+        print(f"  {bar}")
+
+        # Đọc input trong thread riêng để không block event loop
+        loop = asyncio.get_event_loop()
+        try:
+            user_input = await loop.run_in_executor(
+                None,
+                lambda: input("  Bạn chọn [Enter/n]: ").strip().lower()
+            )
+        except (EOFError, KeyboardInterrupt):
+            print("\n  [Lazada] Dừng theo yêu cầu.")
+            return False
+
+        if user_input == "n":
+            print("  [Lazada] 🛑 Người dùng chọn dừng — lưu dữ liệu đã có.")
+            return False
+
+        # Người dùng nhấn Enter → chờ thêm CAPTCHA_AUTO_WAIT giây
+        print(f"  [Lazada] ⏳ Đang chờ response sau khi giải captcha ({int(CAPTCHA_AUTO_WAIT)}s)...")
+        deadline2 = CAPTCHA_AUTO_WAIT
+        while deadline2 > 0:
+            got_response.clear()
+            chunk = min(CAPTCHA_POLL_CHUNK, deadline2)
+            try:
+                await asyncio.wait_for(_await_event(got_response), timeout=chunk)
+                if check_fn():
+                    print("  [Lazada] ✅ Nhận được response sau khi giải captcha — tiếp tục!")
+                    return True
+            except asyncio.TimeoutError:
+                pass
+            deadline2 -= chunk
+            if deadline2 > 0:
+                print(f"  [Lazada] ⏳ Vẫn chờ... còn {int(deadline2)}s")
+
+        # Vẫn không nhận được → hỏi lại
+        print("  [Lazada] ⚠️  Vẫn chưa nhận được dữ liệu sau khi giải. Thử lại?")
