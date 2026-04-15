@@ -284,9 +284,23 @@ async def scrape_reviews(
     # Browser + Agent
     # ---------------------------------------------------------------------------
 
+    # Antibot-safe browser profile with proper headers & user-agent
     browser_profile = BrowserProfile(
         headless=headless,
         user_data_dir='./browser_data',
+        user_agent=(
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        ),
+        locale='vi-VN',
+        timezone_id='Asia/Ho_Chi_Minh',
+        viewport={'width': 1440, 'height': 900},
+        extra_http_headers={
+            'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+        },
+        args=['--disable-blink-features=AutomationControlled', '--disable-dev-shm-usage']
     )
     browser_session = BrowserSession(browser_profile=browser_profile)
 
