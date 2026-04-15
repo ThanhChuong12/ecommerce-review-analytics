@@ -21,9 +21,9 @@ URLS_TO_CRAWL: list[str] = [
     #"https://tiki.vn/dien-thoai-xiaomi-redmi-15-8gb-128gb-hang-chinh-hang-p278796276.html"
     #"https://tiki.vn/son-duong-moi-hieu-chinh-ung-hong-tu-nhien-lipice-sheer-color-p33597680.html",
     #"https://tiki.vn/dau-goi-selsun-chong-gau-sach-gau-het-ngua-da-dau-selsun-anti-dandruff-shampoo-50ml-p20541866.html",
-    "https://tiki.vn/sach-nguoi-giau-co-nhat-thanh-babylon-tai-ban-2020-p57325187.html?spid=57325188",
-    "https://tiki.vn/thung-48-hop-sua-nestle-milo-nuoc-180ml-hop-p10240037.html",
-    "https://tiki.vn/thung-sua-dau-nanh-fami-nguyen-chat-200ml-x-36-hop-p12629696.html",
+    #"https://tiki.vn/sach-nguoi-giau-co-nhat-thanh-babylon-tai-ban-2020-p57325187.html?spid=57325188",
+    #"https://tiki.vn/thung-48-hop-sua-nestle-milo-nuoc-180ml-hop-p10240037.html",
+    #"https://tiki.vn/thung-sua-dau-nanh-fami-nguyen-chat-200ml-x-36-hop-p12629696.html",
 
    
     # --- TGDD ---
@@ -31,7 +31,7 @@ URLS_TO_CRAWL: list[str] = [
     #"https://www.thegioididong.com/dtdd/iphone-16-pro",
     # "https://www.thegioididong.com/dtdd/iphone-15-pro-max-1tb",
     #"https://www.thegioididong.com/dtdd/iphone-15-pro-max-1tb",
-    "https://www.thegioididong.com/sac-dtdd/pin-sac-du-phong-10000mah-type-c-15w-ava-ds608a?utm_flashsale=1",
+    #"https://www.thegioididong.com/sac-dtdd/pin-sac-du-phong-10000mah-type-c-15w-ava-ds608a?utm_flashsale=1",
 
     # --- LAZADA ---
     # "https://www.lazada.vn/products/pdp-i150498381-s158167954.html"
