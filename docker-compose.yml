@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # 1. Cơ sở dữ liệu MongoDB
+  db:
+    image: mongo:latest
+    container_name: ecommerce_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # 2. Scraping Agent (Thu thập dữ liệu)
+  scraping_agent:
+    build: ./scraping_agent
+    container_name: scraping_agent_service
+    ports:
+      - "8001:8001" # Mở port để Node.js truyền Link Sản phẩm vào
+    volumes:
+      - ./data/raw:/app/data/raw # Chia sẻ thư mục chứa file CSV ra ngoài máy tính của bạn
+
+  # 3. AI Engine (Phân tích dữ liệu Đa phương thức)
+  ai_engine:
+    build: ./ai_engine
+    container_name: ai_engine_service
+    ports:
+      - "8000:8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      - ./data/raw:/app/data/raw # AI Engine đọc trực tiếp file CSV từ thư mục chia sẻ này
+    depends_on:
+      - db
+
+  # 4. Web Backend (Node.js Express)
+  web_backend:
+    build: ./web_platform/backend_server
+    container_name: web_backend_service
+    ports:
+      - "3000:3000"
+    environment:
+      - MONGO_URI=mongodb://db:27017/review_analytics
+      - AI_ENGINE_URL=http://ai_engine:8000
+      - SCRAPING_AGENT_URL=http://scraping_agent:8001 # Cấu hình để Node.js biết đường gọi Agent
+    depends_on:
+      - db
+      - ai_engine
+      - scraping_agent
+
+  # 5. Web Frontend (React + Tailwind)
+  frontend:
+    build: ./web_platform/frontend
+    container_name: react_frontend
+    ports:
+      - "3001:3000"
+    stdin_open: true
+    tty: true
+
+volumes:
+  mongo_data:
