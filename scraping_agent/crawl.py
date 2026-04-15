@@ -21,14 +21,17 @@ URLS_TO_CRAWL: list[str] = [
     #"https://tiki.vn/dien-thoai-xiaomi-redmi-15-8gb-128gb-hang-chinh-hang-p278796276.html"
     #"https://tiki.vn/son-duong-moi-hieu-chinh-ung-hong-tu-nhien-lipice-sheer-color-p33597680.html",
     #"https://tiki.vn/dau-goi-selsun-chong-gau-sach-gau-het-ngua-da-dau-selsun-anti-dandruff-shampoo-50ml-p20541866.html",
+    "https://tiki.vn/sach-nguoi-giau-co-nhat-thanh-babylon-tai-ban-2020-p57325187.html?spid=57325188",
     "https://tiki.vn/thung-48-hop-sua-nestle-milo-nuoc-180ml-hop-p10240037.html",
+    "https://tiki.vn/thung-sua-dau-nanh-fami-nguyen-chat-200ml-x-36-hop-p12629696.html",
 
    
     # --- TGDD ---
     #"https://www.thegioididong.com/dtdd/samsung-galaxy-a06-5g-6gb-128gb",
     #"https://www.thegioididong.com/dtdd/iphone-16-pro",
-    # "https://www.thegioididong.com/dtdd/iphone-15-pro-max-1tb"
-    #"https://www.thegioididong.com/dtdd/iphone-15-pro-max-1tb"
+    # "https://www.thegioididong.com/dtdd/iphone-15-pro-max-1tb",
+    #"https://www.thegioididong.com/dtdd/iphone-15-pro-max-1tb",
+    "https://www.thegioididong.com/sac-dtdd/pin-sac-du-phong-10000mah-type-c-15w-ava-ds608a?utm_flashsale=1",
 
     # --- LAZADA ---
     # "https://www.lazada.vn/products/pdp-i150498381-s158167954.html"
@@ -41,14 +44,14 @@ URLS_TO_CRAWL: list[str] = [
     # "https://www.lazada.vn/products/pdp-i2763102767-s13733926756.html"
     # "https://www.lazada.vn/products/pdp-i1597967647-s6853265058.html"
     #"https://www.lazada.vn/products/pdp-i1465875113-s6080623320.html",
-    "https://tiki.vn/thung-sua-dau-nanh-fami-nguyen-chat-200ml-x-36-hop-p12629696.html",
-    "https://www.lazada.vn/products/pdp-i1465875113-s6080623320.html",
-    "https://www.lazada.vn/products/pdp-i2195318921-s10444957817.html",
-    "https://www.lazada.vn/products/pdp-i386626369-s6969098092.html",
-    "https://www.lazada.vn/products/pdp-i2403373830-s11789805280.html",
-    "https://www.lazada.vn/products/pdp-i1201294236-s4480446952.html",
-    "https://www.lazada.vn/products/pdp-i1441626229-s13748512620.html",
-    "https://www.lazada.vn/products/pdp-i2322467271-s14759203112.html"
+    
+    # "https://www.lazada.vn/products/pdp-i1465875113-s6080623320.html",
+    # "https://www.lazada.vn/products/pdp-i2195318921-s10444957817.html",
+    # "https://www.lazada.vn/products/pdp-i386626369-s6969098092.html",
+    # "https://www.lazada.vn/products/pdp-i2403373830-s11789805280.html",
+    # "https://www.lazada.vn/products/pdp-i1201294236-s4480446952.html",
+    # "https://www.lazada.vn/products/pdp-i1441626229-s13748512620.html",
+    # "https://www.lazada.vn/products/pdp-i2322467271-s14759203112.html"
 
 ]
 
