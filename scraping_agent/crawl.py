@@ -19,6 +19,10 @@ URLS_TO_CRAWL: list[str] = [
     # --- TIKI ---
     #"https://tiki.vn/dien-thoai-samsung-galaxy-a36-5g-8gb-256gb-p277596856.html",
     #"https://tiki.vn/dien-thoai-xiaomi-redmi-15-8gb-128gb-hang-chinh-hang-p278796276.html"
+    #"https://tiki.vn/son-duong-moi-hieu-chinh-ung-hong-tu-nhien-lipice-sheer-color-p33597680.html",
+    #"https://tiki.vn/dau-goi-selsun-chong-gau-sach-gau-het-ngua-da-dau-selsun-anti-dandruff-shampoo-50ml-p20541866.html",
+    "https://tiki.vn/thung-48-hop-sua-nestle-milo-nuoc-180ml-hop-p10240037.html",
+
    
     # --- TGDD ---
     #"https://www.thegioididong.com/dtdd/samsung-galaxy-a06-5g-6gb-128gb",
@@ -36,7 +40,15 @@ URLS_TO_CRAWL: list[str] = [
     #"https://www.lazada.vn/products/pdp-i1538401873-s6471204336.html"
     # "https://www.lazada.vn/products/pdp-i2763102767-s13733926756.html"
     # "https://www.lazada.vn/products/pdp-i1597967647-s6853265058.html"
-    "https://www.lazada.vn/products/pdp-i1465875113-s6080623320.html"
+    #"https://www.lazada.vn/products/pdp-i1465875113-s6080623320.html",
+    "https://tiki.vn/thung-sua-dau-nanh-fami-nguyen-chat-200ml-x-36-hop-p12629696.html",
+    "https://www.lazada.vn/products/pdp-i1465875113-s6080623320.html",
+    "https://www.lazada.vn/products/pdp-i2195318921-s10444957817.html",
+    "https://www.lazada.vn/products/pdp-i386626369-s6969098092.html",
+    "https://www.lazada.vn/products/pdp-i2403373830-s11789805280.html",
+    "https://www.lazada.vn/products/pdp-i1201294236-s4480446952.html",
+    "https://www.lazada.vn/products/pdp-i1441626229-s13748512620.html",
+    "https://www.lazada.vn/products/pdp-i2322467271-s14759203112.html"
 
 ]
 
