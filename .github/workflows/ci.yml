@@ -1,0 +1,46 @@
+name: CI/CD Pipeline
+
+# Cấu hình: Chạy luồng này mỗi khi có người Push hoặc Pull Request vào nhánh main
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  # 1. Job kiểm tra Frontend và Backend (Node.js)
+  test-node-services:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    # Vào thư mục backend, cài đặt thư viện và kiểm tra lỗi cú pháp (nếu có script)
+    - name: Install dependencies (Backend)
+      run: |
+        cd web_platform/backend_server
+        npm install
+
+  # 2. Job kiểm tra AI Engine (Python)
+  test-python-services:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    # Cài đặt thử các thư viện xem có bị lỗi dependency (xung đột phiên bản) không
+    - name: Install dependencies (AI Engine)
+      run: |
+        cd ai_engine
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
