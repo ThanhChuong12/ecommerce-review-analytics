@@ -160,6 +160,7 @@ def _normalize_review(raw: dict, product_url: str, product_name: str) -> Review 
         clean_text = " ".join(str(text).split())
 
         return Review(
+            product_name=product_name,
             text=clean_text,
             rating=int(raw.get("rating") or raw.get("score") or 0),
             date=date_str,
@@ -221,12 +222,12 @@ class LazadaScraper:
         print(f"  itemId={item_id} | skuId={sku_id}")
 
         exporter = ReviewExporter(output_path, fmt)
-        raw_reviews = await self._scrape_async(url, max_reviews)
+        raw_reviews, product_name = await self._scrape_async(url, max_reviews)
 
         # Normalize + export (không cần dedup lại vì đã xử lý ở tầng raw)
         batch: list[Review] = []
         for raw in raw_reviews:
-            review = _normalize_review(raw, url, f"Lazada item {item_id}")
+            review = _normalize_review(raw, url, product_name)
             if review is not None:
                 batch.append(review)
 
@@ -241,7 +242,7 @@ class LazadaScraper:
     async def _scrape_async(self, product_url: str, max_reviews: int) -> list[dict]:
         """
         Mở browser, intercept review API responses trong khi click phân trang.
-        Trả về list raw review dicts (chưa normalize).
+        Trả về list raw review dicts (chưa normalize) và tên sản phẩm.
         """
         from playwright.async_api import async_playwright
 
@@ -250,6 +251,7 @@ class LazadaScraper:
         actual_page_size = PAGE_SIZE  # cập nhật từ response thực
         page_num = 1
         _seen_raw: set[str] = set()  # dedup ngay tại tầng raw
+        product_name: str = ''  # sẽ điền sau khi trang load
 
         # asyncio.Event báo hiệu khi có response mới về
         got_response = asyncio.Event()
@@ -348,11 +350,23 @@ class LazadaScraper:
                 page = await context.new_page()
                 page.on("response", _on_response)
 
-                # ── Bước 1: Mở trang sản phẩm và chờ review API ───────────
+                # ── Bước 1: Mở trang sản phẩm và chờ review API ─────────────────
                 got_response.clear()
                 await page.goto(product_url, wait_until="domcontentloaded", timeout=35_000)
                 await page.evaluate("window.scrollBy(0, document.body.scrollHeight * 0.5)")
                 await page.wait_for_timeout(2000)
+
+                # Lấy tên sản phẩm từ <h1> hoặc title trang
+                try:
+                    h1_el = page.locator('h1').first
+                    if await h1_el.count() > 0:
+                        product_name = (await h1_el.inner_text()).strip()
+                    if not product_name:
+                        title = await page.title()
+                        # Title Lazada thường: "Tên sản phẩm | Lazada.vn"
+                        product_name = title.split('|')[0].strip()
+                except Exception:
+                    pass
 
                 print(
                     "  [Lazada] Đang chờ review API...\n"
@@ -433,7 +447,7 @@ class LazadaScraper:
 
                 if not page1_ok:
                     await browser.close()
-                    return all_raw
+                    return all_raw, product_name
 
                 # Lưu session
                 try:
@@ -473,7 +487,7 @@ class LazadaScraper:
             log.error("[Lazada] Lỗi: %s", exc, exc_info=True)
             print(f"  [Lazada] ❌ {exc}")
 
-        return all_raw
+        return all_raw, product_name
 
     # ------------------------------------------------------------------
     # UI helpers

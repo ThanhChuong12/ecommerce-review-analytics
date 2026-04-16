@@ -16,6 +16,7 @@ HTML pattern đã xác nhận:
 import math
 import re
 from datetime import datetime
+from html import unescape
 from urllib.parse import urlparse
 
 import httpx
@@ -59,11 +60,13 @@ def _normalize_url(url: str) -> str:
 
 
 def _extract_slug(url: str) -> str:
-	"""Lấy phần slug từ URL TGDD.
+	"""Lấy phần slug sản phẩm từ URL TGDD.
 
 	  /dtdd/samsung-galaxy-a06-5g-6gb-128gb  →  samsung-galaxy-a06-5g-6gb-128gb
 	  /dt/iphone-16-pro-i-16612391          →  iphone-16-pro-i-16612391
+	  /dong-ho-deo-tay/casio-mtp-vd03d-7audf-nam  →  casio-mtp-vd03d-7audf-nam
 	"""
+	# Ưu tiên: các danh mục điện tử đã biết
 	m = re.search(
 		r'thegioididong\.com/(?:dtdd|dt|dien-thoai|laptop|tablet|may-tinh-bang)'
 		r'/([^/?#\s]+)',
@@ -71,6 +74,10 @@ def _extract_slug(url: str) -> str:
 	)
 	if m:
 		return m.group(1)
+	# Mở rộng: bất kỳ path 2 cấp /danh-muc/slug trên TGDD
+	m2 = re.search(r'thegioididong\.com/[^/?#\s]+/([^/?#\s]+)', url)
+	if m2:
+		return m2.group(1)
 	# Fallback: last path segment
 	parts = urlparse(url).path.strip('/').split('/')
 	if parts:
@@ -78,7 +85,7 @@ def _extract_slug(url: str) -> str:
 	raise ValueError(f'Cannot extract slug from TGDD URL: {url}')
 
 
-def _parse_cmt_blocks(html: str, product_url: str) -> list[Review]:
+def _parse_cmt_blocks(html: str, product_url: str, product_name: str = '') -> list[Review]:
 	"""Parse tất cả .cmt-top blocks trong HTML fragment."""
 	blocks = re.split(r'(?=<div class="cmt-top")', html)
 	reviews: list[Review] = []
@@ -87,7 +94,7 @@ def _parse_cmt_blocks(html: str, product_url: str) -> list[Review]:
 		if 'cmt-top-star' not in block:
 			continue
 		try:
-			r = _parse_one_block(block, product_url)
+			r = _parse_one_block(block, product_url, product_name)
 			if r:
 				reviews.append(r)
 		except Exception:
@@ -96,7 +103,16 @@ def _parse_cmt_blocks(html: str, product_url: str) -> list[Review]:
 	return reviews
 
 
-def _parse_one_block(block: str, product_url: str) -> Review | None:
+def _parse_one_block(block: str, product_url: str, product_name: str = '') -> Review | None:
+	# ----- Review ID: lấy từ data-id hoặc data-reviewid (nếu có) để dedup chính xác -----
+	review_id = ''
+	rid_m = (
+		re.search(r'data-(?:review)?id="(\d+)"', block)
+		or re.search(r'id="(?:cmt|review|comment)[_-]?(\d+)"', block)
+	)
+	if rid_m:
+		review_id = rid_m.group(1)
+
 	# ----- Rating: đếm iconcmt-starbuy -----
 	rating = len(re.findall(r'iconcmt-starbuy(?!")', block))
 	if rating == 0:
@@ -119,6 +135,7 @@ def _parse_one_block(block: str, product_url: str) -> Review | None:
 	if cm:
 		text = re.sub(r'<[^>]+>', ' ', cm.group(1))
 		text = re.sub(r'\s+', ' ', text).strip()
+		text = unescape(text)
 
 	# ----- Images -----
 	imgs = re.findall(
@@ -131,6 +148,8 @@ def _parse_one_block(block: str, product_url: str) -> Review | None:
 		return None
 
 	return Review(
+		review_id=review_id,
+		product_name=product_name,
 		text=text,
 		rating=rating,
 		date=date_str,
@@ -158,6 +177,7 @@ class TGDDScraper(BaseScraper):
 		self._site_id: str = '1'
 		self._product_url_clean: str = ''
 		self._total_reviews: int = 0
+		self._product_name: str = ''
 
 	# ------------------------------------------------------------------
 	# URL → product ID (slug, used only as a key here)
@@ -203,6 +223,12 @@ class TGDDScraper(BaseScraper):
 		self._object_id   = oid.group(1)
 		self._object_type = otype.group(1) if otype else '2'
 		self._site_id     = sid.group(1)   if sid   else '1'
+
+		# Product name — lấy từ thẻ <h1>, decode HTML entities thành Unicode
+		h1 = re.search(r'<h1[^>]*>\s*(.*?)\s*</h1>', html, re.IGNORECASE | re.DOTALL)
+		if h1:
+			raw_name = re.sub(r'<[^>]+>', '', h1.group(1)).strip()
+			self._product_name = unescape(raw_name)
 
 		print(f'  objectId={self._object_id} | type={self._object_type} | site={self._site_id}')
 
@@ -257,7 +283,7 @@ class TGDDScraper(BaseScraper):
 		product_url: str,
 	) -> list[Review]:
 		html = await self._post_comment_api(client, page)
-		return _parse_cmt_blocks(html, self._product_url_clean or product_url)
+		return _parse_cmt_blocks(html, self._product_url_clean or product_url, self._product_name)
 
 	async def _post_comment_api(
 		self, client: httpx.AsyncClient, page: int
