@@ -11,6 +11,7 @@ class Review(BaseModel):
 	"""A single product review."""
 
 	review_id: str = Field(default='', description='Native review ID from the platform (used for deduplication)')
+	product_name: str = Field(default='', description='Product name scraped from the product page')
 	text: str = Field(default='', description='Full review text content')
 	rating: int = Field(default=5, description='Star rating 1-5')
 	date: str = Field(default='', description='Review date as string')
