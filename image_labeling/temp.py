@@ -8,7 +8,6 @@ This is a standalone offline pipeline, not a backend service.
 from __future__ import annotations
 
 import argparse
-import base64
 import csv
 import hashlib
 import json
@@ -69,7 +68,6 @@ def _normalize_manifest_path(path_str: str) -> str:
 class ReviewRow:
     review_id: str
     product_url: str
-    product_name: str
     review_text: str
     rating: str
     date: str
@@ -200,7 +198,6 @@ def download_media(csv_inputs: list[str], timeout: float, seed: int | None) -> N
             review_id = _make_review_id(row, idx)
             review_text = str(row.get("text", ""))
             product_url = str(row.get("product_url", ""))
-            product_name = str(row.get("product_name", ""))
             rating = str(row.get("rating", ""))
             date = str(row.get("date", ""))
             urls = _parse_image_urls(str(row.get("image_urls", "")))
@@ -235,7 +232,6 @@ def download_media(csv_inputs: list[str], timeout: float, seed: int | None) -> N
                     {
                         "review_id": review_id,
                         "product_url": product_url,
-                        "product_name": product_name,
                         "review_text": review_text,
                         "rating": rating,
                         "date": date,
@@ -253,7 +249,6 @@ def download_media(csv_inputs: list[str], timeout: float, seed: int | None) -> N
         [
             "review_id",
             "product_url",
-            "product_name",
             "review_text",
             "rating",
             "date",
@@ -314,7 +309,6 @@ def extract_frames(frames_per_video: int, seed: int | None) -> None:
                     {
                         "review_id": review_id,
                         "product_url": row.get("product_url", ""),
-                        "product_name": row.get("product_name", ""),
                         "review_text": row.get("review_text", ""),
                         "rating": row.get("rating", ""),
                         "date": row.get("date", ""),
@@ -341,7 +335,6 @@ def extract_frames(frames_per_video: int, seed: int | None) -> None:
         [
             "review_id",
             "product_url",
-            "product_name",
             "review_text",
             "rating",
             "date",
@@ -401,7 +394,6 @@ def build_images_manifest() -> None:
                 {
                     "review_id": row.get("review_id", ""),
                     "product_url": row.get("product_url", ""),
-                    "product_name": row.get("product_name", ""),
                     "review_text": row.get("review_text", ""),
                     "rating": row.get("rating", ""),
                     "date": row.get("date", ""),
@@ -426,7 +418,6 @@ def build_images_manifest() -> None:
         [
             "review_id",
             "product_url",
-            "product_name",
             "review_text",
             "rating",
             "date",
@@ -438,14 +429,14 @@ def build_images_manifest() -> None:
     )
 
 
-def _build_prompt(review_text: str, product_name: str) -> str:
+def _build_prompt(review_text: str, product_url: str) -> str:
     return (
         "You are an expert e-commerce media verifier. "
-        "You will receive one image plus the review text and product name. "
+        "You will receive one image plus the review text and product URL/Name. "
         "Your task is to classify the image into EXACTLY ONE label based on its consistency with the review context.\n\n"
         "Return ONLY a valid JSON object like: {\"label\": \"your_choice\"}.\n"
         "Valid labels: 'intact', 'damaged', 'wrong_item', 'irrelevant'.\n\n"
-        "Label rules (CRITICAL: Cross-reference image with Review text and Product Name):\n"
+        "Label rules (CRITICAL: Cross-reference image with Review text and Product URL):\n"
         
         "- intact: The image shows the CORRECT product and is in good condition. "
         "IMPORTANT: Close-up shots, zoomed-in details (like logos, text, or brand mascots), and opened products showing the inside contents (e.g., milk powder inside a can) MUST be classified as 'intact' if they reasonably belong to the product.\n"
@@ -464,7 +455,7 @@ def _build_prompt(review_text: str, product_name: str) -> str:
         "4. Is it the CORRECT product (even if it's a close-up or inside view) and looks fine? -> 'intact'.\n\n"
         
         f"Review text: {review_text}\n"
-        f"Product name: {product_name}\n"
+        f"Product Info/URL: {product_url}\n"
     )
 
 
@@ -486,7 +477,6 @@ def _extract_json(text: str) -> dict | None:
 # Label ảnh
 def label_images(
     model_name: str,
-    provider: str,
     max_images: int | None,
     sleep_sec: float,
     copy_to_labels: bool,
@@ -505,36 +495,13 @@ def label_images(
                 already_labeled.add(row.get("image_path", ""))
 
     load_dotenv(find_dotenv(usecwd=True))
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise ValueError("GOOGLE_API_KEY is not set in your .env file.")
 
-    provider = provider.strip().lower()
-    client = None
+    from google import genai
 
-    if provider == "google":
-        api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError("GOOGLE_API_KEY is not set in your .env file.")
-        from google import genai
-
-        client = genai.Client(api_key=api_key)
-    elif provider in {"openai", "groq", "custom"}:
-        if provider == "openai":
-            api_key = os.getenv("OPENAI_API_KEY")
-            base_url = None
-        elif provider == "groq":
-            api_key = os.getenv("GROQ_API_KEY")
-            base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
-        else:
-            api_key = os.getenv("CUSTOM_API_KEY") or os.getenv("OPENAI_API_KEY")
-            base_url = os.getenv("CUSTOM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
-
-        if not api_key:
-            raise ValueError("API key is not set for the selected provider.")
-
-        from openai import OpenAI
-
-        client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
-    else:
-        raise ValueError(f"Unsupported provider: {provider}")
+    client = genai.Client(api_key=api_key)
 
     with open(IMAGES_MANIFEST, newline="", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
@@ -547,79 +514,43 @@ def label_images(
     for row in tqdm(rows[:limit], desc="label:images"):
         image_path = _resolve_path(row.get("image_path", ""))
         if not image_path.exists():
-            print(f"[label][skip] Missing file: {image_path}")
             continue
         if _normalize_manifest_path(row.get("image_path", "")) in already_labeled:
-            print(f"[label][skip] Already labeled: {image_path.name}")
             continue
 
         review_text = row.get("review_text", "")
         product_url = row.get("product_url", "")
-        product_name = row.get("product_name", "")
 
-        prompt = _build_prompt(review_text, product_name)
+        prompt = _build_prompt(review_text, product_url)
         try:
             with Image.open(image_path) as img:
                 rgb = img.convert("RGB")
                 buf = BytesIO()
                 rgb.save(buf, format="JPEG")
-                image_bytes = buf.getvalue()
-
-            if provider == "google":
-                from google import genai
-
                 image_part = genai.types.Part.from_bytes(
-                    data=image_bytes,
+                    data=buf.getvalue(),
                     mime_type="image/jpeg",
                 )
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[prompt, image_part],
-                )
-                raw_text = response.text or ""
-            else:
-                image_b64 = base64.b64encode(image_bytes).decode("ascii")
-                response = client.chat.completions.create(
-                    model=model_name,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{image_b64}",
-                                        "detail": "low",
-                                    },
-                                },
-                            ],
-                        }
-                    ],
-                )
-                raw_text = (response.choices[0].message.content or "").strip()
-
-            print(f"[label][model] {image_path.name}: {raw_text}")
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[prompt, image_part],
+            )
+            raw_text = response.text or ""
             data = _extract_json(raw_text)
-        except Exception as exc:
+        except Exception:
             raw_text = ""
             data = None
-            print(f"[label][error] {image_path.name}: {type(exc).__name__}: {exc}")
 
         label = None
         if data and isinstance(data, dict):
             label = data.get("label")
         if label not in IMAGE_LABELS:
-            print(
-                f"[label][skip] Invalid label: {image_path.name} | raw={raw_text[:200]!r}"
-            )
             continue
 
         labeled.append(
             {
                 "review_id": row.get("review_id", ""),
                 "product_url": product_url,
-                "product_name": product_name,
                 "review_text": review_text,
                 "rating": row.get("rating", ""),
                 "date": row.get("date", ""),
@@ -636,10 +567,8 @@ def label_images(
                     pass
                 else:
                     target.write_bytes(image_path.read_bytes())
-            except OSError as exc:
-                print(f"[label][error] Copy failed: {image_path.name}: {exc}")
-        else:
-            print(f"[label][info] Copy disabled: {image_path.name}")
+            except OSError:
+                pass
 
         if sleep_sec > 0:
             time.sleep(sleep_sec)
@@ -651,7 +580,6 @@ def label_images(
         [
             "review_id",
             "product_url",
-            "product_name",
             "review_text",
             "rating",
             "date",
@@ -689,14 +617,8 @@ def main() -> None:
 
     validate_p = sub.add_parser("validate", help="Validate images and remove corrupted files")
 
-    label_p = sub.add_parser("label", help="Auto-label images with a vision model")
-    label_p.add_argument(
-        "--provider",
-        choices=["google", "openai", "groq", "custom"],
-        default="openai",
-        help="Vision provider: google | openai | groq | custom",
-    )
-    label_p.add_argument("--model", default="gpt-4.1")
+    label_p = sub.add_parser("label", help="Auto-label images with Gemini Vision")
+    label_p.add_argument("--model", default="gemini-1.5-flash")
     label_p.add_argument("--max-images", type=int, default=None)
     label_p.add_argument("--sleep", type=float, default=0.3)
     label_p.add_argument("--no-copy", action="store_true")
@@ -716,7 +638,6 @@ def main() -> None:
         copy_to_labels = not args.no_copy
         label_images(
             model_name=args.model,
-            provider=args.provider,
             max_images=args.max_images,
             sleep_sec=args.sleep,
             copy_to_labels=copy_to_labels,
