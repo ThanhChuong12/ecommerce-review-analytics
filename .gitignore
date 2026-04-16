@@ -36,7 +36,23 @@ data/processed/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 scraping_agent/output/*
+scraping_agent/data/*
 !scraping_agent/output/.gitkeep
+
+# Thư mục xử lý Media & Ảnh
+image_labeling/frames/*
+image_labeling/raw_media/*
+image_labeling/data/*
+
+
+# Chặn theo định dạng
+*.csv
+*.mp4
+*.avi
+*.jpg
+*.jpeg
+*.png
+
 
 # --- Model weights (file lớn, dùng Git LFS nếu cần) ---
 backend_ai/models/*.pt
