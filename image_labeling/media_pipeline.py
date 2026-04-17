@@ -468,6 +468,36 @@ def _build_prompt(review_text: str, product_name: str) -> str:
     )
 
 
+def _build_batch_prompt(items: list[dict]) -> str:
+    header = (
+        "You are an expert e-commerce media verifier. "
+        "You will receive multiple images, each with its review text and product name. "
+        "Your task is to classify EACH image into EXACTLY ONE label based on its context.\n\n"
+        "Return ONLY a valid JSON array like: [{\"id\": 1, \"label\": \"intact\"}].\n"
+        "Valid labels: 'intact', 'damaged', 'wrong_item', 'irrelevant'.\n\n"
+        "Label rules (CRITICAL: Cross-reference image with Review text and Product Name):\n"
+        "- intact: The image shows the CORRECT product and is in good condition. "
+        "IMPORTANT: Close-up shots, zoomed-in details (like logos, text, or brand mascots), and opened products showing the inside contents (e.g., milk powder inside a can) MUST be classified as 'intact' if they reasonably belong to the product.\n"
+        "- damaged: The image shows the CORRECT product, but it is clearly broken, dented, or flawed.\n"
+        "- wrong_item: The image shows a real physical item, but it DOES NOT MATCH the product being sold. Use this for scam/mis-ship cases.\n"
+        "- irrelevant: The image is NOT a real product photo (memes, internet screenshots, black images, random selfies). "
+        "DO NOT use this label for close-up macro shots of the actual product.\n\n"
+        "Decision Logic:\n"
+        "1. Is it a meme or screenshot? -> 'irrelevant'.\n"
+        "2. Is it a real item but clearly the WRONG product? -> 'wrong_item'.\n"
+        "3. Is it the CORRECT product (even if it's a close-up or inside view) but broken/dented? -> 'damaged'.\n"
+        "4. Is it the CORRECT product (even if it's a close-up or inside view) and looks fine? -> 'intact'.\n\n"
+        "Items:\n"
+    )
+    lines = [header]
+    for item in items:
+        lines.append(f"ID: {item['id']}")
+        lines.append(f"Review text: {item['review_text']}")
+        lines.append(f"Product name: {item['product_name']}")
+        lines.append("")
+    return "\n".join(lines).strip() + "\n"
+
+
 def _extract_json(text: str) -> dict | None:
     try:
         return json.loads(text)
@@ -483,40 +513,16 @@ def _extract_json(text: str) -> dict | None:
         return None
 
 
-# Label ảnh
-def label_images(
-    model_name: str,
-    provider: str,
-    max_images: int | None,
-    sleep_sec: float,
-    copy_to_labels: bool,
-) -> None:
-    _ensure_dirs()
-
-    if not IMAGES_MANIFEST.exists():
-        raise ValueError("images.csv not found. Run build-images first.")
-
-    existing_labels: list[dict] = []
-    already_labeled: set[str] = set()
-    if LABELS_CSV.exists():
-        with open(LABELS_CSV, newline="", encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                existing_labels.append(row)
-                already_labeled.add(row.get("image_path", ""))
-
-    load_dotenv(find_dotenv(usecwd=True))
-
+def _init_provider(provider: str):
     provider = provider.strip().lower()
-    client = None
-
     if provider == "google":
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise ValueError("GOOGLE_API_KEY is not set in your .env file.")
         from google import genai
 
-        client = genai.Client(api_key=api_key)
-    elif provider in {"openai", "groq", "custom"}:
+        return provider, genai.Client(api_key=api_key)
+    if provider in {"openai", "groq", "custom"}:
         if provider == "openai":
             api_key = os.getenv("OPENAI_API_KEY")
             base_url = None
@@ -533,8 +539,36 @@ def label_images(
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
-    else:
-        raise ValueError(f"Unsupported provider: {provider}")
+        return provider, client
+
+    raise ValueError(f"Unsupported provider: {provider}")
+
+
+# Label ảnh
+def label_images(
+    model_name: str,
+    provider: str,
+    max_images: int | None,
+    sleep_sec: float,
+    copy_to_labels: bool,
+    batch_size: int,
+) -> None:
+    _ensure_dirs()
+
+    if not IMAGES_MANIFEST.exists():
+        raise ValueError("images.csv not found. Run build-images first.")
+
+    existing_labels: list[dict] = []
+    already_labeled: set[str] = set()
+    if LABELS_CSV.exists():
+        with open(LABELS_CSV, newline="", encoding="utf-8-sig") as f:
+            for row in csv.DictReader(f):
+                existing_labels.append(row)
+                already_labeled.add(row.get("image_path", ""))
+
+    load_dotenv(find_dotenv(usecwd=True))
+
+    provider, client = _init_provider(provider)
 
     with open(IMAGES_MANIFEST, newline="", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
@@ -544,7 +578,131 @@ def label_images(
     limit = max_images if max_images is not None else total
 
     print(f"[label] Images to label: {min(limit, len(rows))}")
-    for row in tqdm(rows[:limit], desc="label:images"):
+    rows_to_label = rows[:limit]
+    batch_size = max(1, int(batch_size))
+
+    if provider == "google" and batch_size > 1:
+        from google import genai
+
+        batch: list[dict] = []
+        for row in tqdm(rows_to_label, desc="label:images"):
+            image_path = _resolve_path(row.get("image_path", ""))
+            if not image_path.exists():
+                print(f"[label][skip] Missing file: {image_path}")
+                continue
+            if _normalize_manifest_path(row.get("image_path", "")) in already_labeled:
+                print(f"[label][skip] Already labeled: {image_path.name}")
+                continue
+
+            batch.append(row)
+            if len(batch) < batch_size:
+                continue
+
+            items = []
+            image_parts = []
+            for idx, item in enumerate(batch, start=1):
+                image_path = _resolve_path(item.get("image_path", ""))
+                try:
+                    with Image.open(image_path) as img:
+                        rgb = img.convert("RGB")
+                        buf = BytesIO()
+                        rgb.save(buf, format="JPEG")
+                        image_bytes = buf.getvalue()
+                    image_parts.append(
+                        genai.types.Part.from_bytes(
+                            data=image_bytes,
+                            mime_type="image/jpeg",
+                        )
+                    )
+                except Exception as exc:
+                    print(f"[label][error] {image_path.name}: {type(exc).__name__}: {exc}")
+                    continue
+
+                items.append(
+                    {
+                        "id": idx,
+                        "row": item,
+                        "image_path": image_path,
+                        "review_text": item.get("review_text", ""),
+                        "product_name": item.get("product_name", ""),
+                    }
+                )
+
+            if not items:
+                batch = []
+                continue
+
+            prompt = _build_batch_prompt(items)
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[prompt, *image_parts],
+                )
+                raw_text = response.text or ""
+                print(f"[label][model] batch={len(items)} | raw={raw_text[:300]!r}")
+                data = _extract_json(raw_text)
+            except Exception as exc:
+                data = None
+                print(f"[label][error] batch: {type(exc).__name__}: {exc}")
+
+            if not isinstance(data, list):
+                print("[label][skip] Invalid batch response (not a JSON array)")
+                batch = []
+                continue
+
+            labels_by_id = {}
+            for entry in data:
+                if not isinstance(entry, dict):
+                    continue
+                label = entry.get("label")
+                item_id = entry.get("id")
+                if label in IMAGE_LABELS and isinstance(item_id, int):
+                    labels_by_id[item_id] = label
+
+            for item in items:
+                label = labels_by_id.get(item["id"])
+                if label not in IMAGE_LABELS:
+                    print(
+                        f"[label][skip] Invalid label: {item['image_path'].name} | id={item['id']}"
+                    )
+                    continue
+
+                row = item["row"]
+                labeled.append(
+                    {
+                        "review_id": row.get("review_id", ""),
+                        "product_url": row.get("product_url", ""),
+                        "product_name": row.get("product_name", ""),
+                        "review_text": row.get("review_text", ""),
+                        "rating": row.get("rating", ""),
+                        "date": row.get("date", ""),
+                        "source_url": row.get("source_url", ""),
+                        "image_path": _normalize_manifest_path(row.get("image_path", "")),
+                        "label": label,
+                    }
+                )
+
+                if copy_to_labels:
+                    target = LABEL_DIR / label / item["image_path"].name
+                    try:
+                        if not target.exists():
+                            target.write_bytes(item["image_path"].read_bytes())
+                    except OSError as exc:
+                        print(f"[label][error] Copy failed: {item['image_path'].name}: {exc}")
+                else:
+                    print(f"[label][info] Copy disabled: {item['image_path'].name}")
+
+            if sleep_sec > 0:
+                time.sleep(sleep_sec)
+
+            batch = []
+
+        if batch:
+            rows_to_label = batch
+        else:
+            rows_to_label = []
+
+    for row in rows_to_label:
         image_path = _resolve_path(row.get("image_path", ""))
         if not image_path.exists():
             print(f"[label][skip] Missing file: {image_path}")
@@ -700,6 +858,12 @@ def main() -> None:
     label_p.add_argument("--max-images", type=int, default=None)
     label_p.add_argument("--sleep", type=float, default=0.3)
     label_p.add_argument("--no-copy", action="store_true")
+    label_p.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Batch size for Gemini (google) only. Use 5-10 to reduce calls.",
+    )
 
 
     args = parser.parse_args()
@@ -720,6 +884,7 @@ def main() -> None:
             max_images=args.max_images,
             sleep_sec=args.sleep,
             copy_to_labels=copy_to_labels,
+            batch_size=args.batch_size,
         )
 
 
