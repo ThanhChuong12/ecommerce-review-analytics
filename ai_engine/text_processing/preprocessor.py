@@ -1,6 +1,5 @@
 """
-Text preprocessing module for Vietnamese e-commerce reviews.
-Implements data cleaning, normalization, and tokenization.
+Robust Vietnamese text cleaning module for e-commerce review analytics.
 """
 
 from typing import Optional
@@ -9,40 +8,71 @@ import re
 import emoji
 from underthesea import word_tokenize
 
-from ai_engine.text_processing.config import (
-    URL_PATTERN,
-    HTML_PATTERN,
-    SPECIAL_CHAR_PATTERN,
-    WHITESPACE_PATTERN,
-    TEEN_CODE_DICT,
-    VI_STOPWORDS
-)
+from ai_engine.text_processing.config import HTML_PATTERN, TEEN_CODE_DICT, URL_PATTERN, WHITESPACE_PATTERN
 
 
-class TextPreprocessor:
+class TextCleaner:
     """
-    A comprehensive, production-ready pipeline for preprocessing Vietnamese text.
-    Handles cleaning, abbreviation normalization, tokenization, and stopword removal.
+    Production-grade Vietnamese text cleaner for noisy e-commerce reviews.
+
+    The pipeline is optimized for large-scale DataFrame processing with
+    precompiled regex patterns and stateless methods to support parallelism.
     """
+
+    _EMOJI_ALIAS_MAP = {
+        "smiling_face_with_heart_eyes": "tuyet_vời",
+        "smiling_face_with_hearts": "tuyet_vời",
+        "smiling_face": "tốt",
+        "beaming_face_with_smiling_eyes": "tốt",
+        "face_blowing_a_kiss": "tốt",
+        "grinning_face": "tốt",
+        "thumbs_up": "hài_lòng",
+        "red_heart": "yêu_thích",
+        "face_with_tears_of_joy": "vui",
+        "crying_face": "buồn",
+        "pensive_face": "buồn",
+        "angry_face": "tệ",
+        "face_with_symbols_on_mouth": "tệ",
+        "face_with_rolling_eyes": "tệ",
+        "disappointed_face": "tệ",
+    }
 
     def __init__(self) -> None:
-        """Initialize the preprocessor with precompiled resources."""
-        # Dictionaries could be dynamically re-loaded here if needed in the future
+        """Initialize the cleaner and compile all regex patterns once."""
         self.teen_code_dict = TEEN_CODE_DICT
-        self.stopwords = VI_STOPWORDS
+
+        # Precompile patterns to avoid re-allocation in massive batch runs.
+        self._phone_pattern = re.compile(
+            r"\b(?:\+?84|0)(?:[\s.\-]*\d){8,10}\b"
+        )
+        self._email_pattern = re.compile(
+            r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b"
+        )
+        self._mention_pattern = re.compile(r"@\w+")
+        self._emoji_alias_pattern = re.compile(r":([a-z0-9_+-]+):")
+        self._repeat_char_pattern = re.compile(r"([a-zA-ZÀ-Ỹà-ỹ])\1{2,}")
+        self._repeat_punct_pattern = re.compile(r"([.!?,])\1+")
+
+        # Keep basic punctuation and underscores used by word_tokenize/emoji aliases.
+        self._allowed_chars_pattern = re.compile(r"[^0-9a-zA-ZÀ-Ỹà-ỹ.,!?_\s]")
+
+        # Unicode-safe boundary for Vietnamese tokens without \b pitfalls.
         self._teen_code_pattern = self._build_teen_code_pattern()
 
     def _build_teen_code_pattern(self) -> re.Pattern:
         """
-        Build a regex pattern to replace teen code tokens efficiently.
+        Build a regex pattern to replace teen code tokens using Unicode-safe boundaries.
 
         Returns:
             re.Pattern: Compiled regex matching any teen code token.
         """
         if not self.teen_code_dict:
             return re.compile(r"$")
+
         escaped = [re.escape(key) for key in sorted(self.teen_code_dict, key=len, reverse=True)]
-        return re.compile(r"\b(" + "|".join(escaped) + r")\b")
+        boundary_left = r"(?:(?<=^)|(?<=\s)|(?<=[\.,!\?\(\)\{\}\[\]]))"
+        boundary_right = r"(?:(?=$)|(?=\s)|(?=[\.,!\?\(\)\{\}\[\]]))"
+        return re.compile(boundary_left + r"(" + "|".join(escaped) + r")" + boundary_right)
 
     def _coerce_text(self, text: Optional[object]) -> str:
         """
@@ -63,116 +93,92 @@ class TextPreprocessor:
         except Exception:
             return ""
 
+    def _replace_teen_code_match(self, match: re.Match) -> str:
+        """
+        Replace a teen code token using a dictionary lookup.
+
+        This is a method (not a nested function) to avoid per-call allocations
+        when processing millions of rows in a DataFrame.
+        """
+        token = match.group(1)
+        return self.teen_code_dict.get(token, token)
+
+    def _replace_emoji_alias(self, match: re.Match) -> str:
+        """
+        Map emoji aliases to sentiment-rich Vietnamese tokens.
+
+        Keeping emoji semantics helps sentiment models; we avoid stripping them.
+        """
+        alias = match.group(1)
+        mapped = self._EMOJI_ALIAS_MAP.get(alias)
+        return f" {mapped or alias} "
+
     def clean_text(self, text: str) -> str:
         """
-        Applies basic cleaning operations: lowercasing, HTML/URL removal,
-        emoji removal, and special character stripping.
-        
+        Clean and normalize a single text entry.
+
+        Pipeline steps:
+        1) Safeguard input
+        2) Lowercase
+        3) Remove URLs, HTML, phone numbers, emails, mentions
+        4) Demojize + map high-signal emojis to Vietnamese sentiment tokens
+        5) Reduce repeated characters and punctuation
+        6) Filter special characters (keep Vietnamese alnum + . , ! ? _)
+        7) Apply teen code normalization with Unicode-safe boundaries
+        8) Vietnamese word tokenization
+        9) Normalize whitespace
+
         Args:
-            text (str): The raw input string.
-            
+            text (str): Raw input string.
+
         Returns:
-            str: The cleaned string.
-        """
-        # 1. Convert text to lowercase
-        text = text.lower()
-
-        # 2. Remove URLs and HTML tags
-        text = URL_PATTERN.sub(' ', text)
-        text = HTML_PATTERN.sub(' ', text)
-
-        # 3. Remove emojis
-        # emoji.replace_emoji replaces emojis with a chosen string (default is empty string)
-        text = emoji.replace_emoji(text, replace='')
-
-        # 4. Remove special characters (keeping alphanumeric and Vietnamese chars)
-        text = SPECIAL_CHAR_PATTERN.sub(' ', text)
-
-        # 5. Normalize multiple whitespaces into a single space
-        text = WHITESPACE_PATTERN.sub(' ', text).strip()
-
-        return text
-
-    def normalize_teen_code(self, text: str) -> str:
-        """
-        Replaces social media abbreviations and 'teen code' with standard Vietnamese.
-        
-        Args:
-            text (str): The text to normalize.
-            
-        Returns:
-            str: The normalized text.
-        """
-        if not text:
-            return ""
-
-        def _replace(match: re.Match) -> str:
-            token = match.group(0)
-            return self.teen_code_dict.get(token, token)
-
-        return self._teen_code_pattern.sub(_replace, text)
-
-    def tokenize_vietnamese(self, text: str) -> str:
-        """
-        Tokenizes Vietnamese text using underthesea.
-        Words will be grouped using underscores (e.g., "băng_vệ_sinh").
-        
-        Args:
-            text (str): The text to tokenize.
-            
-        Returns:
-            str: Tokenized Vietnamese string.
-        """
-        if not text:
-            return ""
-        # format="text" joins syllables of a word with an underscore "_"
-        return word_tokenize(text, format="text")
-
-    def remove_stopwords(self, text: str) -> str:
-        """
-        Filters out stopwords from the tokenized text.
-        
-        Args:
-            text (str): The tokenized text containing underscores for compound words.
-            
-        Returns:
-            str: Text with stopwords removed.
-        """
-        words = text.split()
-        filtered_words = []
-        for word in words:
-            normalized = word.replace('_', ' ')
-            if normalized not in self.stopwords:
-                filtered_words.append(word)
-        return ' '.join(filtered_words)
-
-    def process(self, text: Optional[object], apply_stopwords: bool = True) -> str:
-        """
-        Executes the complete text processing pipeline in sequential order.
-        
-        Args:
-            text (Optional[str]): The raw input text. Can be None.
-            apply_stopwords (bool): Whether to filter out stopwords. Defaults to False.
-            
-        Returns:
-            str: The fully processed, tokenized text ready for ML models.
+            str: Cleaned and tokenized string.
         """
         raw_text = self._coerce_text(text)
         if not raw_text:
             return ""
 
-        # Step 1-3: Basic cleaning (lowercase, links, html, emojis, specials)
-        processed_text = self.clean_text(raw_text)
+        cleaned = raw_text.lower()
 
-        # Step 4: Map teen code and abbreviations
-        processed_text = self.normalize_teen_code(processed_text)
+        cleaned = URL_PATTERN.sub(" ", cleaned)
+        cleaned = HTML_PATTERN.sub(" ", cleaned)
+        cleaned = self._phone_pattern.sub(" ", cleaned)
+        cleaned = self._email_pattern.sub(" ", cleaned)
+        cleaned = self._mention_pattern.sub(" ", cleaned)
 
-        # Step 5: Vietnamese Specific Tokenization
-        processed_text = self.tokenize_vietnamese(processed_text)
+        # Preserve sentiment signals by converting emojis to aliases.
+        cleaned = emoji.demojize(cleaned, language="en")
+        cleaned = self._emoji_alias_pattern.sub(self._replace_emoji_alias, cleaned)
 
-        # Step 6: (Optional) Stopword removal
-        if apply_stopwords:
-            processed_text = self.remove_stopwords(processed_text)
+        cleaned = self._repeat_char_pattern.sub(r"\1", cleaned)
+        cleaned = self._repeat_punct_pattern.sub(r"\1", cleaned)
 
-        # Final cleanup of any lingering weird whitespaces
-        return WHITESPACE_PATTERN.sub(' ', processed_text).strip()
+        cleaned = self._allowed_chars_pattern.sub(" ", cleaned)
+
+        if cleaned:
+            cleaned = self._teen_code_pattern.sub(self._replace_teen_code_match, cleaned)
+
+        if cleaned:
+            cleaned = word_tokenize(cleaned, format="text")
+
+        return WHITESPACE_PATTERN.sub(" ", cleaned).strip()
+
+
+EXAMPLE_PARALLEL_USAGE = """
+Example (parallel DataFrame processing):
+
+from pandarallel import pandarallel
+import pandas as pd
+
+from ai_engine.text_processing.preprocessor import TextCleaner
+
+pandarallel.initialize(progress_bar=True)
+cleaner = TextCleaner()
+
+df = pd.read_csv("data/raw/all_reviews.csv")
+df["clean_text"] = df["text"].parallel_apply(cleaner.clean_text)
+
+# Alternative with swifter:
+import swifter
+df["clean_text"] = df["text"].swifter.apply(cleaner.clean_text)
+"""
