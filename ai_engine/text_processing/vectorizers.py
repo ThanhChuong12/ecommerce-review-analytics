@@ -28,6 +28,8 @@ class TextVectorizer:
 		self,
 		max_features: int = 10000,
 		ngram_range: tuple[int, int] = (1, 2),
+		min_df: Union[int, float] = 3,
+		max_df: Union[int, float] = 0.90,
 	) -> None:
 		"""
 		Initialize the TF-IDF vectorizer.
@@ -35,10 +37,16 @@ class TextVectorizer:
 		Args:
 			max_features: Maximum vocabulary size to control memory usage.
 			ngram_range: N-gram range to capture uni-grams and bi-grams.
+			min_df: Ignore terms that appear in fewer than this many documents.
+			max_df: Ignore terms that appear in more than this proportion of documents.
 		"""
 		self.vectorizer = TfidfVectorizer(
 			max_features=max_features,
 			ngram_range=ngram_range,
+			min_df=min_df,
+			max_df=max_df,
+			# Preserve 1-character sentiment words and underscore tokens.
+			token_pattern=r"(?u)\b\w+\b",
 		)
 		self._is_fitted = False
 

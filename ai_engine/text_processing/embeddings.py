@@ -29,15 +29,24 @@ class DeepEmbedder:
 		Args:
 			model_name: HuggingFace model identifier for Sentence-Transformers.
 		"""
-		self.device = "cuda" if torch.cuda.is_available() else "cpu"
+		if torch.cuda.is_available():
+			self.device = "cuda"
+		elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+			self.device = "mps"
+		else:
+			self.device = "cpu"
+
+		# Selecting the best available device prevents silent slowdowns
+		# and avoids OOM on smaller GPUs by letting users control batch size.
 		self.model = SentenceTransformer(model_name, device=self.device)
 
-	def encode(self, texts: TextInput) -> np.ndarray:
+	def encode(self, texts: TextInput, batch_size: int = 32) -> np.ndarray:
 		"""
 		Encode text(s) into dense vector representations.
 
 		Args:
 			texts: A single string or list of strings.
+			batch_size: Mini-batch size to prevent GPU/VRAM OOM.
 
 		Returns:
 			np.ndarray: Dense embeddings with shape (n, dim).
@@ -53,6 +62,7 @@ class DeepEmbedder:
 
 		embeddings = self.model.encode(
 			texts,
+			batch_size=batch_size,
 			convert_to_numpy=True,
 			show_progress_bar=False,
 			normalize_embeddings=True,
