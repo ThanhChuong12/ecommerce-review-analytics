@@ -10,7 +10,7 @@ from pathlib import Path
 
 from scraper.models import Review
 
-CSV_COLUMNS = ['text', 'rating', 'date', 'image_urls', 'product_url', 'scraped_at']
+CSV_COLUMNS = ['product_name', 'text', 'rating', 'date', 'image_urls', 'product_url', 'scraped_at']
 
 
 class ReviewExporter:
@@ -86,6 +86,7 @@ class ReviewExporter:
 				try:
 					writer.writerow(
 						{
+							'product_name': review.product_name,
 							'text': review.text,
 							'rating': review.rating,
 							'date': review.date,
