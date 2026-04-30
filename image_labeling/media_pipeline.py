@@ -513,12 +513,11 @@ def _extract_json(text: str) -> dict | None:
         return None
 
 
-<<<<<<< HEAD
 MAX_RETRIES = 6
 RETRY_STATUS = {429, 500, 502, 503, 504}
- 
+
 def _call_with_retry(fn, max_retries=MAX_RETRIES):
-    """Gọi fn(), retry với exponential backoff nếu gặp rate-limit."""
+    """Call fn() with exponential backoff on rate-limit errors."""
     for attempt in range(max_retries):
         try:
             return fn()
@@ -532,38 +531,16 @@ def _call_with_retry(fn, max_retries=MAX_RETRIES):
             )
             if is_rate and attempt < max_retries - 1:
                 wait = (2 ** attempt) + random.uniform(0.5, 1.5)
-                print(f"[retry] attempt {attempt+1}/{max_retries}, chờ {wait:.1f}s...")
+                print(f"[retry] attempt {attempt+1}/{max_retries}, wait {wait:.1f}s...")
                 time.sleep(wait)
             else:
-                raise  # lỗi khác hoặc hết lần retry → raise bình thường
+                raise
 
 
-# Label ảnh
-def label_images(
-    model_name: str,
-    provider: str,
-    max_images: int | None,
-    sleep_sec: float,
-    copy_to_labels: bool,
-) -> None:
-    _ensure_dirs()
-
-    if not IMAGES_MANIFEST.exists():
-        raise ValueError("images.csv not found. Run build-images first.")
-
-    existing_labels: list[dict] = []
-    already_labeled: set[str] = set()
-    if LABELS_CSV.exists():
-        with open(LABELS_CSV, newline="", encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                existing_labels.append(row)
-                already_labeled.add(row.get("image_path", ""))
-
+def _init_provider(provider: str):
+    """Initialize and return (provider_name, client) for the given provider."""
     load_dotenv(find_dotenv(usecwd=True))
 
-=======
-def _init_provider(provider: str):
->>>>>>> a02a79541b5662449be20ca6381242e84d1cfc39
     provider = provider.strip().lower()
     if provider == "google":
         api_key = os.getenv("GOOGLE_API_KEY")
@@ -571,23 +548,18 @@ def _init_provider(provider: str):
             raise ValueError("GOOGLE_API_KEY is not set in your .env file.")
         from google import genai
 
-<<<<<<< HEAD
-        client = genai.Client(api_key=api_key)
-    elif provider in {"openai", "groq", "together", "custom"}:
-=======
         return provider, genai.Client(api_key=api_key)
-    if provider in {"openai", "groq", "custom"}:
->>>>>>> a02a79541b5662449be20ca6381242e84d1cfc39
+
+    if provider in {"openai", "groq", "together", "custom"}:
         if provider == "openai":
             api_key = os.getenv("OPENAI_API_KEY")
             base_url = None
         elif provider == "groq":
             api_key = os.getenv("GROQ_API_KEY")
             base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
-        elif provider == "together":    
+        elif provider == "together":
             api_key = os.getenv("TOGETHER_API_KEY")
             base_url = "https://api.together.xyz/v1"
-
         else:
             api_key = os.getenv("CUSTOM_API_KEY") or os.getenv("OPENAI_API_KEY")
             base_url = os.getenv("CUSTOM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
