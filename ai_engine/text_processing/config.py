@@ -30,12 +30,6 @@ WHITESPACE_PATTERN = re.compile(r'\s+')
 # Comprehensive mapping for teen code, social media abbreviations, and e-commerce typos
 TEEN_CODE_DICT = {
     "bvs": "băng vệ sinh",
-    "ok": "tốt",
-    "okie": "tốt",
-    "oki": "tốt",
-    "okila": "tốt",
-    "oke": "tốt",
-    "sp": "sản phẩm",
     "chất": "chất lượng",
     "đc": "được",
     "dc": "được",
@@ -63,9 +57,6 @@ TEEN_CODE_DICT = {
     "size": "kích cỡ",
     "nv": "nhân viên",
     "nvbh": "nhân viên bán hàng",
-    "ship": "giao hàng",
-    "shipper": "người giao hàng",
-    "shiper": "người giao hàng",
     "nhah": "nhanh",
     "thix": "thích",
     "sài": "dùng",
@@ -74,9 +65,6 @@ TEEN_CODE_DICT = {
     "date": "hạn sử dụng",
     "mn": "mọi người",
     "mng": "mọi người",
-    "sop": "cửa hàng",
-    "shop": "cửa hàng",
-    "xốp": "cửa hàng",
     "st": "siêu thị",
     "lun": "luôn",
     "vs": "với",
@@ -97,6 +85,23 @@ TEEN_CODE_DICT = {
     "v": "vậy",
     "z": "vậy",
     "zậy": "vậy",
+}
+
+# Mapping specific high-frequency e-commerce emojis directly to Vietnamese text
+EMOJI_DICT = {
+    "⭐️": " tuyệt_vời ",
+    "⭐": " tuyệt_vời ",
+    "🌟": " tuyệt_vời ",
+    "❤": " yêu_thích ",
+    "❤️": " yêu_thích ",
+    "👍": " tốt ",
+    "😊": " vui_vẻ ",
+    "🙄": " chán ",
+    "😍": " tuyệt_vời ",
+    "😘": " yêu_thích ",
+    "😞": " tệ ",
+    "😡": " tệ ",
+    "😭": " buồn ",
 }
 
 # Vietnamese filler words without emotional/sentiment weight

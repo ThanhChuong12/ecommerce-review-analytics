@@ -8,7 +8,7 @@ import re
 import emoji
 from underthesea import word_tokenize
 
-from ai_engine.text_processing.config import HTML_PATTERN, TEEN_CODE_DICT, URL_PATTERN, WHITESPACE_PATTERN
+from ai_engine.text_processing.config import HTML_PATTERN, TEEN_CODE_DICT, URL_PATTERN, WHITESPACE_PATTERN, EMOJI_DICT
 
 
 class TextCleaner:
@@ -18,24 +18,6 @@ class TextCleaner:
     The pipeline is optimized for large-scale DataFrame processing with
     precompiled regex patterns and stateless methods to support parallelism.
     """
-
-    _EMOJI_ALIAS_MAP = {
-        "smiling_face_with_heart_eyes": "tuyet_vời",
-        "smiling_face_with_hearts": "tuyet_vời",
-        "smiling_face": "tốt",
-        "beaming_face_with_smiling_eyes": "tốt",
-        "face_blowing_a_kiss": "tốt",
-        "grinning_face": "tốt",
-        "thumbs_up": "hài_lòng",
-        "red_heart": "yêu_thích",
-        "face_with_tears_of_joy": "vui",
-        "crying_face": "buồn",
-        "pensive_face": "buồn",
-        "angry_face": "tệ",
-        "face_with_symbols_on_mouth": "tệ",
-        "face_with_rolling_eyes": "tệ",
-        "disappointed_face": "tệ",
-    }
 
     def __init__(self) -> None:
         """Initialize the cleaner and compile all regex patterns once."""
@@ -49,7 +31,15 @@ class TextCleaner:
             r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b"
         )
         self._mention_pattern = re.compile(r"@\w+")
-        self._emoji_alias_pattern = re.compile(r":([a-z0-9_+-]+):")
+        
+        # Build regex pattern for custom emoji dictionary
+        self.emoji_dict = EMOJI_DICT
+        if self.emoji_dict:
+            escaped_emojis = [re.escape(e) for e in sorted(self.emoji_dict.keys(), key=len, reverse=True)]
+            self._emoji_pattern = re.compile(r"(" + "|".join(escaped_emojis) + r")")
+        else:
+            self._emoji_pattern = re.compile(r"$")
+
         self._repeat_char_pattern = re.compile(r"([a-zA-ZÀ-Ỹà-ỹ])\1{2,}")
         self._repeat_punct_pattern = re.compile(r"([.!?,])\1+")
 
@@ -58,6 +48,21 @@ class TextCleaner:
 
         # Unicode-safe boundary for Vietnamese tokens without \b pitfalls.
         self._teen_code_pattern = self._build_teen_code_pattern()
+
+        # Gibberish detection patterns
+        self.VOWELS = "aeiouyáàảãạăắằẳẵặâấầẩẫậéèẻẽẹêếềểễệíìỉĩịóòỏõọôốồổỗộơớờởỡợúùủũụưứừửữựýỳỷỹỵ"
+        consonants = "bcdfghjklmnpqrstvwxzđBCDFGHJKLMNPQRSTVWXZĐ"
+        self._gibberish_consonants_pattern = re.compile(rf"[{consonants}]{{5,}}", re.IGNORECASE)
+        self._gibberish_no_vowel_pattern = re.compile(rf"(?:^|\s)[^\s\d{self.VOWELS}]{{8,}}(?:$|\s)", re.IGNORECASE)
+
+    def _remove_gibberish(self, text: str) -> str:
+        """
+        Detect and remove gibberish text (e.g., random keys like "jfjjdks") to prevent
+        vocabulary matrix pollution. If the text is overwhelmingly gibberish, returns "".
+        """
+        if self._gibberish_consonants_pattern.search(text) or self._gibberish_no_vowel_pattern.search(text):
+            return ""
+        return text
 
     def _build_teen_code_pattern(self) -> re.Pattern:
         """
@@ -103,15 +108,11 @@ class TextCleaner:
         token = match.group(1)
         return self.teen_code_dict.get(token, token)
 
-    def _replace_emoji_alias(self, match: re.Match) -> str:
+    def _replace_custom_emoji(self, match: re.Match) -> str:
         """
-        Map emoji aliases to sentiment-rich Vietnamese tokens.
-
-        Keeping emoji semantics helps sentiment models; we avoid stripping them.
+        Map predefined e-commerce emojis directly into Vietnamese string tokens.
         """
-        alias = match.group(1)
-        mapped = self._EMOJI_ALIAS_MAP.get(alias)
-        return f" {mapped or alias} "
+        return self.emoji_dict.get(match.group(1), match.group(1))
 
     def clean_text(self, text: str) -> str:
         """
@@ -121,18 +122,12 @@ class TextCleaner:
         1) Safeguard input
         2) Lowercase
         3) Remove URLs, HTML, phone numbers, emails, mentions
-        4) Demojize + map high-signal emojis to Vietnamese sentiment tokens
+        4) Map high-signal emojis to Vietnamese text and clear remaining emojis
         5) Reduce repeated characters and punctuation
         6) Filter special characters (keep Vietnamese alnum + . , ! ? _)
         7) Apply teen code normalization with Unicode-safe boundaries
         8) Vietnamese word tokenization
         9) Normalize whitespace
-
-        Args:
-            text (str): Raw input string.
-
-        Returns:
-            str: Cleaned and tokenized string.
         """
         raw_text = self._coerce_text(text)
         if not raw_text:
@@ -146,9 +141,12 @@ class TextCleaner:
         cleaned = self._email_pattern.sub(" ", cleaned)
         cleaned = self._mention_pattern.sub(" ", cleaned)
 
-        # Preserve sentiment signals by converting emojis to aliases.
-        cleaned = emoji.demojize(cleaned, language="en")
-        cleaned = self._emoji_alias_pattern.sub(self._replace_emoji_alias, cleaned)
+        # Map high frequency emojis to text
+        if self.emoji_dict:
+            cleaned = self._emoji_pattern.sub(self._replace_custom_emoji, cleaned)
+            
+        # Remove remaining unknown emojis explicitly
+        cleaned = emoji.replace_emoji(cleaned, replace="")
 
         cleaned = self._repeat_char_pattern.sub(r"\1", cleaned)
         cleaned = self._repeat_punct_pattern.sub(r"\1", cleaned)
@@ -157,6 +155,9 @@ class TextCleaner:
 
         if cleaned:
             cleaned = self._teen_code_pattern.sub(self._replace_teen_code_match, cleaned)
+
+        if cleaned:
+            cleaned = self._remove_gibberish(cleaned)
 
         if cleaned:
             cleaned = word_tokenize(cleaned, format="text")
