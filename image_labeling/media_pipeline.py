@@ -6,7 +6,7 @@ This is a standalone offline pipeline, not a backend service.
 """
 
 from __future__ import annotations
-
+import random
 import argparse
 import base64
 import csv
@@ -483,6 +483,30 @@ def _extract_json(text: str) -> dict | None:
         return None
 
 
+MAX_RETRIES = 6
+RETRY_STATUS = {429, 500, 502, 503, 504}
+ 
+def _call_with_retry(fn, max_retries=MAX_RETRIES):
+    """Gọi fn(), retry với exponential backoff nếu gặp rate-limit."""
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except Exception as exc:
+            msg = str(exc).lower()
+            code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+            is_rate = (
+                "429" in msg or "rate" in msg
+                or "quota" in msg or "limit" in msg
+                or code in RETRY_STATUS
+            )
+            if is_rate and attempt < max_retries - 1:
+                wait = (2 ** attempt) + random.uniform(0.5, 1.5)
+                print(f"[retry] attempt {attempt+1}/{max_retries}, chờ {wait:.1f}s...")
+                time.sleep(wait)
+            else:
+                raise  # lỗi khác hoặc hết lần retry → raise bình thường
+
+
 # Label ảnh
 def label_images(
     model_name: str,
@@ -516,13 +540,17 @@ def label_images(
         from google import genai
 
         client = genai.Client(api_key=api_key)
-    elif provider in {"openai", "groq", "custom"}:
+    elif provider in {"openai", "groq", "together", "custom"}:
         if provider == "openai":
             api_key = os.getenv("OPENAI_API_KEY")
             base_url = None
         elif provider == "groq":
             api_key = os.getenv("GROQ_API_KEY")
             base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+        elif provider == "together":    
+            api_key = os.getenv("TOGETHER_API_KEY")
+            base_url = "https://api.together.xyz/v1"
+
         else:
             api_key = os.getenv("CUSTOM_API_KEY") or os.getenv("OPENAI_API_KEY")
             base_url = os.getenv("CUSTOM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
@@ -572,16 +600,13 @@ def label_images(
                     data=image_bytes,
                     mime_type="image/jpeg",
                 )
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[prompt, image_part],
-                )
+                response = _call_with_retry(lambda: client.models.generate_content(
+                model=model_name, contents=[prompt, image_part]))
                 raw_text = response.text or ""
             else:
                 image_b64 = base64.b64encode(image_bytes).decode("ascii")
-                response = client.chat.completions.create(
-                    model=model_name,
-                    messages=[
+                response = _call_with_retry(lambda: client.chat.completions.create(
+                model=model_name, messages=[
                         {
                             "role": "user",
                             "content": [
@@ -595,9 +620,9 @@ def label_images(
                                 },
                             ],
                         }
-                    ],
-                )
+                ]))
                 raw_text = (response.choices[0].message.content or "").strip()
+                
 
             print(f"[label][model] {image_path.name}: {raw_text}")
             data = _extract_json(raw_text)
@@ -692,7 +717,7 @@ def main() -> None:
     label_p = sub.add_parser("label", help="Auto-label images with a vision model")
     label_p.add_argument(
         "--provider",
-        choices=["google", "openai", "groq", "custom"],
+        choices=["google", "openai", "groq", "custom", "together"],
         default="openai",
         help="Vision provider: google | openai | groq | custom",
     )
