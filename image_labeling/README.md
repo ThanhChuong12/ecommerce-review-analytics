@@ -87,13 +87,13 @@ python media_pipeline.py build-images
 ### 5) Auto-label (multi-provider)
 
 ```bash
-python media_pipeline.py label --provider <google|openai|groq|custom> --model <MODEL_NAME> --max-images 200 --sleep 0.8
+python media_pipeline.py label --provider <google|openai|groq|custom> --model <MODEL_NAME> --max-images 200 --sleep 0.8 --batch-size 1
 ```
 
 Ví dụ:
 
 ```bash
-python media_pipeline.py label --provider google --model "gemini-2.0-flash" --max-images 1000 --sleep 0.8
+python media_pipeline.py label --provider google --model "gemini-2.0-flash" --max-images 1000 --sleep 0.8 --batch-size 8
 python media_pipeline.py label --provider openai --model "gpt-4.1" --max-images 1000 --sleep 0.8
 ```
 
@@ -106,3 +106,4 @@ Lệnh này sẽ ghi `data/manifests/labels.csv` và (mặc định) copy ảnh 
 - Nếu model không chắc chắn hoặc ảnh quá mờ/khó nhận dạng, nên label `irrelevant`.
 - Muốn tái lập kết quả random, dùng `--seed` khi download/extract.
 - Nếu dùng API key free dễ bị rate-limit, nên chạy theo batch 1000-2000 ảnh/lần và thêm `--sleep 0.6` đến `1.0` giây. Chạy lại lệnh sẽ tự skip ảnh đã label rồi.
+- Gemini hỗ trợ batch đa ảnh: dùng `--batch-size 5` đến `10` để giảm số lượt gọi (chỉ áp dụng khi `--provider google`).
