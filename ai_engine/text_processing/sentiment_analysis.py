@@ -4,13 +4,106 @@ Semantic review analysis using zero-shot classification and dense embeddings.
 
 from __future__ import annotations
 
-from typing import Dict, List
+import re
+from typing import Dict, List, Any
 
 import torch
 from transformers import pipeline
 
 from ai_engine.llm_integration.llm_client import LLMFallbackClient
 from ai_engine.text_processing.embeddings import DeepEmbedder
+
+
+# Define domain-specific sentiment lexicons
+POSITIVE_LEXICON = [
+    "tốt", "tuyệt", "đẹp", "ưng", "nhanh", "chất lượng", "ok", 
+    "xuất sắc", "đỉnh", "hài lòng", "ổn", "xịn", "rẻ", "thơm", "ngon", "10 điểm", "hoàn hảo", "chắc chắn",
+    "thích", "dễ thương", "tuyệt vời", "mịn", "rõ nét", "nhỏ gọn", "tiện lợi", "chuẩn", "chính hãng", "uy tín", "đáng tiền", "dễ xài", "cứng cáp"
+]
+
+NEGATIVE_LEXICON = [
+    "tệ", "chậm", "xấu", "kém", "thất vọng", "lỗi", "bẩn", 
+    "hư", "trễ", "chán", "móp", "rách", "fake", "đắt", "mắc", 
+    "lừa đảo", "dỏm", "giả", "dìm", "sai", "nhầm",
+    "không ưng", "không đẹp", "phí tiền", "xước", "vỡ", "nứt", "kém chất lượng", "không giống", "khác hình", "tức", "hỏng"
+]
+
+# Compile regex patterns for negations before sentiments
+NEGATION_MODIFIERS = r"(không|chưa|chẳng.có|đếch)"
+
+# Format lexicons for regex (handle spaces if any)
+_pos_regex_list = [w.replace(" ", r"\s+") for w in POSITIVE_LEXICON]
+_neg_regex_list = [w.replace(" ", r"\s+") for w in NEGATIVE_LEXICON]
+
+# Exact word boundary matching for sentiments
+POS_PATTERN = re.compile(r"\b(" + "|".join(_pos_regex_list) + r")\b", re.IGNORECASE)
+NEG_PATTERN = re.compile(r"\b(" + "|".join(_neg_regex_list) + r")\b", re.IGNORECASE)
+
+# E.g., Match "không tốt", "chưa hài lòng", "không đẹp"
+NEGATED_POS_PATTERN = re.compile(rf"\b{NEGATION_MODIFIERS}\s+(" + "|".join(_pos_regex_list) + r")\b", re.IGNORECASE)
+# Match "không xấu", "không trễ"
+NEGATED_NEG_PATTERN = re.compile(rf"\b{NEGATION_MODIFIERS}\s+(" + "|".join(_neg_regex_list) + r")\b", re.IGNORECASE)
+
+def has_true_positive(text: str) -> bool:
+    """Check if there are true positive words not preceded by negation."""
+    # Temporarily remove negated positive words (e.g., 'không tốt' -> remove) to avoid false positives
+    text_without_neg_pos = NEGATED_POS_PATTERN.sub("", text)
+    return bool(POS_PATTERN.search(text_without_neg_pos))
+
+def has_true_negative(text: str) -> bool:
+    """Check if there are true negative words, or negated positive words."""
+    # 'không tốt' acts as negative
+    if NEGATED_POS_PATTERN.search(text):
+        return True
+    
+    text_without_neg_neg = NEGATED_NEG_PATTERN.sub("", text)
+    return bool(NEG_PATTERN.search(text_without_neg_neg))
+
+def assign_heuristic_label(row: Any) -> str:
+    """
+    Assign weakly supervised labels using N-gram negation lookaround and rating gravity.
+    Returns 'ambiguous' when rating contradicts text or context is mixed/unclear.
+    Relaxed to reduce LLM API calls for clear ratings.
+    """
+    try:
+        if isinstance(row, str):
+            text = row.lower()
+            rating = 0
+        else:
+            text = str(row.get('cleaned_text', '')).lower()
+            rating = int(row.get('rating', 0))
+    except (ValueError, AttributeError):
+        return 'ambiguous'
+    
+    has_pos = has_true_positive(text)
+    has_neg = has_true_negative(text)
+    
+    # If no rating provided
+    if rating == 0:
+        if has_pos and not has_neg: return 'tích cực'
+        if has_neg and not has_pos: return 'tiêu cực'
+        return 'ambiguous'
+
+    # Safe assumption for 4-5 stars: if it doesn't contain negative words, it's positive.
+    if rating >= 4:
+        if has_neg:
+            return 'ambiguous' # Mixed or contradiction
+        return 'tích cực'
+        
+    # Safe assumption for 1-2 stars: if it doesn't contain positive words, it's negative.
+    if rating <= 2:
+        if has_pos:
+            return 'ambiguous' # Mixed or contradiction
+        return 'tiêu cực'
+        
+    # For 3 stars, rely purely on lexical presence
+    if rating == 3:
+        if has_pos and not has_neg: return 'tích cực'
+        if has_neg and not has_pos: return 'tiêu cực'
+        if not has_pos and not has_neg: return 'trung lập'
+        return 'ambiguous'
+        
+    return 'ambiguous'
 
 
 class NextGenReviewAnalyzer:
