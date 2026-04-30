@@ -202,6 +202,7 @@ async def scrape_reviews(
         total: int = 0
         target: int = max_reviews
         seen: set = set()
+        product_name: str = ''
 
     state = _State()
 
@@ -227,7 +228,21 @@ async def scrape_reviews(
                 continue
 
             try:
+                # Lấy tên sản phẩm lần đầu tiên, cache cho các review sau
+                if not state.product_name:
+                    try:
+                        page = await browser_session.get_current_page()
+                        h1_text = await page.locator('h1').first.inner_text(timeout=2000)
+                        if h1_text and h1_text.strip():
+                            state.product_name = h1_text.strip()
+                        else:
+                            title = await page.title()
+                            state.product_name = title.split('|')[0].strip()
+                    except Exception:
+                        pass
+
                 review = Review(
+                    product_name=state.product_name,
                     text=text,
                     rating=raw.get('rating', 5),
                     date=raw.get('date', ''),
