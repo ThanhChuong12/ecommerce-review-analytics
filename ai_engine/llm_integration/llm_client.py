@@ -1,5 +1,5 @@
 """
-Multi-provider LLM client for sentiment fallback analysis.
+Multi-provider LLM client with cascading fallback routing.
 """
 
 from __future__ import annotations
@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Dict
+from typing import Dict, List
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,17 +15,18 @@ logger = logging.getLogger(__name__)
 
 class LLMFallbackClient:
     """
-    Strategy-style client that switches between Gemini, OpenAI, and Grok (xAI).
-
-    The provider is chosen via the LLM_PROVIDER environment variable. The
-    response is forced into a strict JSON payload:
-    {"sentiment": "tích cực" | "tiêu cực" | "trung lập"}
+    Client that implements a cascading fallback strategy.
+    
+    It will attempt to call LLM providers in the exact order specified in 
+    the provider_chain. If a provider fails, it logs the warning and seamlessly 
+    routes the request to the next available provider.
     """
 
     _allowed_labels = {"tích cực", "tiêu cực", "trung lập"}
 
-    def __init__(self, provider: str | None = None, timeout: float = 15.0) -> None:
-        self.provider = (provider or os.getenv("LLM_PROVIDER", "gemini")).lower()
+    def __init__(self, provider_chain: List[str] | None = None, timeout: float = 15.0) -> None:
+        # Define the routing priority: Gemini first, Groq second
+        self.provider_chain = provider_chain or ["gemini", "groq"]
         self.timeout = timeout
         self.system_prompt = (
             "Bạn là một chuyên gia phân tích cảm xúc bình luận e-commerce tiếng Việt. "
@@ -36,29 +37,41 @@ class LLMFallbackClient:
 
     def analyze(self, text: str) -> Dict[str, str]:
         """
-        Analyze sentiment via the selected LLM provider.
-
-        Returns a safe default if the provider fails, times out, or produces
-        invalid JSON.
+        Execute the cascading fallback loop across configured providers.
         """
         if not text:
             return {"sentiment": "trung lập"}
 
-        try:
-            if self.provider == "gemini":
-                raw = self._call_gemini(text)
-            elif self.provider == "openai":
-                raw = self._call_openai(text)
-            elif self.provider in {"grok", "xai", "x-ai"}:
-                raw = self._call_grok(text)
-            else:
-                logger.error("Unsupported LLM provider: %s", self.provider)
-                return {"sentiment": "trung lập"}
-        except Exception as exc:
-            logger.error("LLM fallback failed: %s", exc)
+        raw_response = None
+
+        # Iterate through the providers based on priority
+        for provider in self.provider_chain:
+            try:
+                if provider == "gemini":
+                    raw_response = self._call_gemini(text)
+                elif provider == "groq":
+                    raw_response = self._call_groq(text)
+                elif provider == "openai":
+                    raw_response = self._call_openai(text)
+                else:
+                    logger.warning("Unsupported provider in chain: %s", provider)
+                    continue
+
+                # If successful (no exception raised and response exists), break the loop
+                if raw_response:
+                    break
+                    
+            except Exception as exc:
+                # Log the failure and let the loop naturally proceed to the next provider
+                logger.warning("Provider '%s' failed: %s. Routing to the next...", provider, exc)
+                continue
+
+        # If the loop finishes but raw_response is still empty, all providers failed
+        if not raw_response:
+            logger.error("All LLM providers in the fallback chain failed.")
             return {"sentiment": "trung lập"}
 
-        return self._parse_response(raw)
+        return self._parse_response(raw_response)
 
     def _user_prompt(self, text: str) -> str:
         return (
@@ -69,12 +82,12 @@ class LLMFallbackClient:
     def _call_gemini(self, text: str) -> str:
         try:
             import google.generativeai as genai
-        except Exception as exc:  # pragma: no cover - optional dependency
+        except ImportError as exc:  # pragma: no cover
             raise RuntimeError("google-generativeai is not installed") from exc
 
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            raise RuntimeError("GEMINI_API_KEY is not configured")
+            raise RuntimeError("GEMINI_API_KEY is not configured in .env")
 
         genai.configure(api_key=api_key)
         generation_config = {
@@ -83,7 +96,7 @@ class LLMFallbackClient:
             "top_k": 1,
             "max_output_tokens": 20,
         }
-        model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest")
         model = genai.GenerativeModel(
             model_name=model_name,
             generation_config=generation_config,
@@ -93,18 +106,19 @@ class LLMFallbackClient:
         response = model.generate_content(self._user_prompt(text))
         return getattr(response, "text", "") or ""
 
-    def _call_openai(self, text: str) -> str:
+    def _call_groq(self, text: str) -> str:
         try:
             from openai import OpenAI
-        except Exception as exc:  # pragma: no cover - optional dependency
+        except ImportError as exc:  # pragma: no cover
             raise RuntimeError("openai is not installed") from exc
 
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not configured")
+            raise RuntimeError("GROQ_API_KEY is not configured in .env")
 
-        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-        client = OpenAI(api_key=api_key)
+        model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+        
         response = client.chat.completions.create(
             model=model,
             messages=[
@@ -117,18 +131,18 @@ class LLMFallbackClient:
         )
         return response.choices[0].message.content or ""
 
-    def _call_grok(self, text: str) -> str:
+    def _call_openai(self, text: str) -> str:
         try:
             from openai import OpenAI
-        except Exception as exc:  # pragma: no cover - optional dependency
+        except ImportError as exc:  # pragma: no cover
             raise RuntimeError("openai is not installed") from exc
 
-        api_key = os.getenv("GROK_API_KEY")
+        api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise RuntimeError("GROK_API_KEY is not configured")
+            raise RuntimeError("OPENAI_API_KEY is not configured in .env")
 
-        model = os.getenv("GROK_MODEL", "grok-2-latest")
-        client = OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        client = OpenAI(api_key=api_key)
         response = client.chat.completions.create(
             model=model,
             messages=[
@@ -173,6 +187,6 @@ class LLMFallbackClient:
 
 def ask_llm(text: str) -> str:
     """
-    Backward-compatible helper returning a sentiment string.
+    Backward-compatible helper.
     """
     return LLMFallbackClient().analyze(text).get("sentiment", "trung lập")
