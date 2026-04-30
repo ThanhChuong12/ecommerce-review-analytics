@@ -32,9 +32,7 @@ dist/
 
 # --- Dữ liệu (không commit dữ liệu thô/lớn) ---
 data/raw/*
-data/processed/*
 !data/raw/.gitkeep
-!data/processed/.gitkeep
 scraping_agent/output/*
 scraping_agent/data/*
 !scraping_agent/output/.gitkeep
@@ -47,6 +45,7 @@ image_labeling/data/*
 
 # Chặn theo định dạng
 *.csv
+!data/processed/processed_labeled_reviews.csv
 *.mp4
 *.avi
 *.jpg
