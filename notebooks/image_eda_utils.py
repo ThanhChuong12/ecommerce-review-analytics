@@ -45,9 +45,11 @@ def stratified_sample(df, sample_size, random_seed, stratified=True):
         # Calculate exactly how many per group
         n_classes = df['label'].nunique()
         per_class = max(1, sample_size // n_classes)
-        return df.groupby('label', group_keys=False).apply(
-            lambda x: x.sample(min(len(x), per_class), random_state=random_seed)
-        )
+        sampled_indices = []
+        for label, group in df.groupby('label'):
+            n_sample = min(len(group), per_class)
+            sampled_indices.extend(group.sample(n_sample, random_state=random_seed).index)
+        return df.loc[sampled_indices]
     else:
         return df.sample(sample_size, random_state=random_seed)
 
@@ -81,7 +83,7 @@ def plot_pixel_distributions(images, labels, output_dir):
     
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'pixel_distribution.png'))
-    plt.close()
+    plt.show()
 
 def analyze_class_imbalance(df, imbalance_ratio, output_dir):
     class_counts = df['label'].value_counts()
@@ -97,7 +99,7 @@ def analyze_class_imbalance(df, imbalance_ratio, output_dir):
     plt.xlabel('Class Label')
     plt.ylabel('Count')
     plt.savefig(os.path.join(output_dir, 'class_distribution.png'))
-    plt.close()
+    plt.show()
     
     return class_counts, is_imbalanced
 
@@ -152,7 +154,7 @@ def analyze_brightness_contrast(images, labels, output_dir):
     
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'brightness_contrast_boxplot.png'))
-    plt.close()
+    plt.show()
     return metrics_df.groupby('label').mean()
 
 # 3. Preprocessing & Ablation
@@ -217,7 +219,7 @@ def analyze_resize_quality(original_images, labels, resize_targets, output_dir, 
     plt.ylabel('SSIM Score')
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.savefig(os.path.join(output_dir, 'ssim_curve.png'))
-    plt.close()
+    plt.show()
     
     return pd.DataFrame(results)
 
@@ -248,7 +250,7 @@ def analyze_color_spaces(images, labels, k_components=50, output_dir=None, knn_k
     plt.ylabel('Cumulative Explained Variance Ratio')
     if output_dir:
         plt.savefig(os.path.join(output_dir, 'color_space_pca.png'))
-    plt.close()
+    plt.show()
     
     return pd.DataFrame(results)
 
@@ -295,7 +297,11 @@ def apply_augmentation_pipeline(images, labels, output_dir, knn_k=5):
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
         A.Rotate(limit=30, p=0.5),
-        A.RandomResizedCrop(height=images.shape[1], width=images.shape[2], scale=(0.7, 1.0), p=0.5),
+        A.RandomResizedCrop(
+            size=(images.shape[1], images.shape[2]),
+            scale=(0.7, 1.0),
+            p=0.5
+        ),
         A.GaussNoise(var_limit=(10.0, 50.0), p=0.5),
         A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5)
     ])
@@ -311,7 +317,7 @@ def apply_augmentation_pipeline(images, labels, output_dir, knn_k=5):
     aug_features = aug_images[:sample_size].reshape(sample_size, -1)
     
     combined_features = np.vstack([orig_features, aug_features])
-    tsne = TSNE(n_components=2, perplexity=30, n_iter=1000, random_state=42)
+    tsne = TSNE(n_components=2, perplexity=30, max_iter=1000, random_state=42)
     tsne_results = tsne.fit_transform(combined_features)
     
     plt.figure(figsize=(10, 8))
@@ -320,7 +326,7 @@ def apply_augmentation_pipeline(images, labels, output_dir, knn_k=5):
     plt.title('t-SNE: Original vs Augmented Features')
     plt.legend()
     plt.savefig(os.path.join(output_dir, 'augmentation_tsne.png'))
-    plt.close()
+    plt.show()
     
     acc_orig = evaluate_ablation(images.reshape(len(images), -1), labels, k=knn_k)
     acc_aug = evaluate_ablation(aug_images.reshape(len(aug_images), -1), labels, k=knn_k)
@@ -350,7 +356,7 @@ def perform_pca_analysis(images, labels, output_dir):
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.savefig(os.path.join(output_dir, 'pca_scree_plot.png'))
-    plt.close()
+    plt.show()
     
     # 2D PCA Visualization
     plt.figure(figsize=(8, 6))
@@ -358,17 +364,17 @@ def perform_pca_analysis(images, labels, output_dir):
     sns.scatterplot(x='PC1', y='PC2', hue='label', data=df_pca, palette='tab10', alpha=0.7)
     plt.title('2D PCA Projection')
     plt.savefig(os.path.join(output_dir, 'pca_2d.png'))
-    plt.close()
+    plt.show()
     
     # t-SNE Visualization on PCA features
-    tsne = TSNE(n_components=2, perplexity=30, n_iter=1000, random_state=42)
+    tsne = TSNE(n_components=2, perplexity=30, max_iter=1000, random_state=42)
     tsne_features = tsne.fit_transform(pca_features[:, :min(50, n_comp)])
     df_tsne = pd.DataFrame({'Dim1': tsne_features[:, 0], 'Dim2': tsne_features[:, 1], 'label': labels})
     plt.figure(figsize=(8, 6))
     sns.scatterplot(x='Dim1', y='Dim2', hue='label', data=df_tsne, palette='tab10', alpha=0.7)
     plt.title('2D t-SNE Projection')
     plt.savefig(os.path.join(output_dir, 'tsne_2d.png'))
-    plt.close()
+    plt.show()
     
     return {'n_90': n_90, 'n_95': n_95, 'n_99': n_99}
 
@@ -413,7 +419,7 @@ def analyze_edge_detection(images, labels, output_dir, knn_k=5):
     sns.boxplot(x='Method', y='Density', hue='Label', data=df_melt)
     plt.title('Edge Density Distribution by Class')
     plt.savefig(os.path.join(output_dir, 'edge_density_boxplot.png'))
-    plt.close()
+    plt.show()
     
     # ANOVA
     anova_results = {}

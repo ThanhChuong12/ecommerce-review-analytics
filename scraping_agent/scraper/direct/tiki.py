@@ -34,6 +34,10 @@ class TikiScraper(BaseScraper):
 	PAGE_SIZE = 20
 	DELAY_SEC = 0.4
 
+	def __init__(self) -> None:
+		super().__init__()
+		self._product_name: str = ''
+
 	# ------------------------------------------------------------------
 	# URL parser
 	# ------------------------------------------------------------------
@@ -68,7 +72,22 @@ class TikiScraper(BaseScraper):
 			)
 			resp.raise_for_status()
 			data = resp.json()
-			total = data.get('paginationInfo', {}).get('totalPage')
+			# Tiki API mới dùng 'paging', cũ dùng 'paginationInfo'
+			paging = data.get('paging') or data.get('paginationInfo') or {}
+			total = paging.get('last_page') or paging.get('totalPage')
+			
+			# Lấy tên sản phẩm từ product API (gọi song song vì đã có client)
+			try:
+				prod_resp = await client.get(
+					f'https://tiki.vn/api/v2/products/{product_id}',
+					headers=_HEADERS,
+				)
+				if prod_resp.status_code == 200:
+					prod_data = prod_resp.json()
+					self._product_name = prod_data.get('name') or prod_data.get('product_name') or ''
+			except Exception:
+				pass
+			
 			return int(total) if total else None
 		except Exception:
 			return None  # unknown, will stop when pages return empty
@@ -104,6 +123,17 @@ class TikiScraper(BaseScraper):
 				# Native review ID — dùng làm dedup key chính xác hơn hash nội dung
 				review_id = str(item.get('id') or '')
 
+				# Product name — ưu tiên dùng cache từ _get_total_pages,
+				# fallback sang item.get('product') nếu vẫn chưa có
+				if not self._product_name:
+					product_info = item.get('product') or {}
+					self._product_name = (
+						product_info.get('name')
+						or product_info.get('product_name')
+						or item.get('product_name')
+						or ''
+					)
+
 				# Image URLs — Tiki stores full_path or url
 				raw_imgs = item.get('images') or []
 				img_urls = [
@@ -125,6 +155,7 @@ class TikiScraper(BaseScraper):
 				reviews.append(
 					Review(
 						review_id=review_id,
+						product_name=self._product_name,
 						text=text,
 						rating=int(item.get('rating', 5)),
 						date=date_str,

@@ -15,52 +15,45 @@ Hỗ trợ: tiki.vn | thegioididong.com | lazada.vn
 # ============================================================
 #  ĐẶT DANH SÁCH URL CẦN CÀO VÀO ĐÂY
 # ============================================================
-_URLS_TEMP: list[str] = [
+URLS_TO_CRAWL: list[str] = [
     # --- TIKI ---
     #"https://tiki.vn/dien-thoai-samsung-galaxy-a36-5g-8gb-256gb-p277596856.html",
-    "https://tiki.vn/dien-thoai-xiaomi-redmi-15-8gb-128gb-hang-chinh-hang-p278796276.html"
-    "https://tiki.vn/son-duong-moi-hieu-chinh-ung-hong-tu-nhien-lipice-sheer-color-p33597680.html",
-    "https://tiki.vn/dau-goi-selsun-chong-gau-sach-gau-het-ngua-da-dau-selsun-anti-dandruff-shampoo-50ml-p20541866.html",
-    "https://tiki.vn/sach-nguoi-giau-co-nhat-thanh-babylon-tai-ban-2020-p57325187.html?spid=57325188",
-    "https://tiki.vn/thung-48-hop-sua-nestle-milo-nuoc-180ml-hop-p10240037.html",
-    "https://tiki.vn/thung-sua-dau-nanh-fami-nguyen-chat-200ml-x-36-hop-p12629696.html",
+    #"https://tiki.vn/dien-thoai-xiaomi-redmi-15-8gb-128gb-hang-chinh-hang-p278796276.html",
+    #"https://tiki.vn/son-duong-moi-hieu-chinh-ung-hong-tu-nhien-lipice-sheer-color-p33597680.html",
+    #"https://tiki.vn/dau-goi-selsun-chong-gau-sach-gau-het-ngua-da-dau-selsun-anti-dandruff-shampoo-50ml-p20541866.html",
+    #"https://tiki.vn/sach-nguoi-giau-co-nhat-thanh-babylon-tai-ban-2020-p57325187.html?spid=57325188",
+    #"https://tiki.vn/thung-48-hop-sua-nestle-milo-nuoc-180ml-hop-p10240037.html",
+    #"https://tiki.vn/thung-sua-dau-nanh-fami-nguyen-chat-200ml-x-36-hop-p12629696.html",
 
    
     # --- TGDD ---
-    "https://www.thegioididong.com/dtdd/samsung-galaxy-a06-5g-6gb-128gb",
-    "https://www.thegioididong.com/dtdd/iphone-16-pro",
-     "https://www.thegioididong.com/dtdd/iphone-15-pro-max-1tb",
-    "https://www.thegioididong.com/dtdd/iphone-15-pro-max-1tb",
-    "https://www.thegioididong.com/sac-dtdd/pin-sac-du-phong-10000mah-type-c-15w-ava-ds608a?utm_flashsale=1",
+    #"https://www.thegioididong.com/dtdd/samsung-galaxy-a06-5g-6gb-128gb",
+    #"https://www.thegioididong.com/dtdd/iphone-16-pro",
+    # "https://www.thegioididong.com/dtdd/iphone-15-pro-max-1tb",
+    #"https://www.thegioididong.com/dtdd/iphone-15-pro-max-1tb",
+    #"https://www.thegioididong.com/sac-dtdd/pin-sac-du-phong-10000mah-type-c-15w-ava-ds608a?utm_flashsale=1",
 
     # --- LAZADA ---
-    #"https://www.lazada.vn/products/pdp-i150498381-s158167954.html"
-    "https://www.lazada.vn/products/pdp-i246452966-s316699339.html",
-    "https://www.lazada.vn/products/pdp-i150498381-s158167954.html"
-    "https://www.lazada.vn/products/pdp-i2756708-s3347924.html"
-    "https://www.lazada.vn/products/trung-nguyen-legend-ca-phe-rang-xay-sang-tao-1-bich-340gr-i353468040-s578424935.html"
-    "https://www.lazada.vn/products/pdp-i249064037-s327413856.html"
-    "https://www.lazada.vn/products/pdp-i1538401873-s6471204336.html"
-    "https://www.lazada.vn/products/pdp-i2763102767-s13733926756.html"
-    "https://www.lazada.vn/products/pdp-i1597967647-s6853265058.html"
-    "https://www.lazada.vn/products/pdp-i1465875113-s6080623320.html",
-    "https://www.lazada.vn/products/pdp-i2195318921-s10444957817.html",
-    "https://www.lazada.vn/products/pdp-i386626369-s6969098092.html",
-    "https://www.lazada.vn/products/pdp-i2403373830-s11789805280.html",
-    "https://www.lazada.vn/products/pdp-i1201294236-s4480446952.html",
-    "https://www.lazada.vn/products/pdp-i1441626229-s13748512620.html",
-    "https://www.lazada.vn/products/pdp-i2322467271-s14759203112.html"
+    # "https://www.lazada.vn/products/pdp-i150498381-s158167954.html",
+    #"https://www.lazada.vn/products/pdp-i246452966-s316699339.html",
+    #"https://www.lazada.vn/products/pdp-i150498381-s158167954.html",
+    #"https://www.lazada.vn/products/pdp-i2756708-s3347924.html",
+    #"https://www.lazada.vn/products/trung-nguyen-legend-ca-phe-rang-xay-sang-tao-1-bich-340gr-i353468040-s578424935.html",
+    #"https://www.lazada.vn/products/pdp-i249064037-s327413856.html",
+    #"https://www.lazada.vn/products/pdp-i1538401873-s6471204336.html",
+    # "https://www.lazada.vn/products/pdp-i2763102767-s13733926756.html",
+    # "https://www.lazada.vn/products/pdp-i1597967647-s6853265058.html",
+    #"https://www.lazada.vn/products/pdp-i1465875113-s6080623320.html",
+    
+    # "https://www.lazada.vn/products/pdp-i1465875113-s6080623320.html",
+    # "https://www.lazada.vn/products/pdp-i2195318921-s10444957817.html",
+    # "https://www.lazada.vn/products/pdp-i386626369-s6969098092.html",
+    # "https://www.lazada.vn/products/pdp-i2403373830-s11789805280.html",
+    # "https://www.lazada.vn/products/pdp-i1201294236-s4480446952.html",
+    # "https://www.lazada.vn/products/pdp-i1441626229-s13748512620.html",
+    # "https://www.lazada.vn/products/pdp-i2322467271-s14759203112.html",
 
 ]
-
-# Loại bỏ URL trùng (nếu có) và tự động xóa các URL bị duplicate khỏi list
-_SEEN_URLS = set()
-URLS_TO_CRAWL: list[str] = []
-for url in _URLS_TEMP:
-    url_normalized = url.lower().strip()
-    if url_normalized and url_normalized not in _SEEN_URLS:
-        _SEEN_URLS.add(url_normalized)
-        URLS_TO_CRAWL.append(url)
 
 # ============================================================
 #  CẤU HÌNH
@@ -110,69 +103,16 @@ def _site_label(url: str) -> str:
 
 
 def _safe_filename(url: str) -> str:
-    """
-    Tạo tên file CSV rút gọn: {platform}-{product_name}.csv
-    Ví dụ: lazada-trung-nguyen-legend-ca-phe.csv
-    """
+    """Tạo tên file CSV an toàn từ URL."""
     import re
-    platform = _site_label(url)
-    
-    # Extract product name từ các nền tảng khác nhau
-    product_name = ""
-    url_lower = url.lower()
-    
-    if "tiki.vn" in url_lower:
-        # Tiki: https://tiki.vn/[product-name]-p[id].html
-        match = re.search(r"/([^/]+?)-p\d+", url)
-        if match:
-            product_name = match.group(1)
-    
-    elif "thegioididong.com" in url_lower:
-        # TGDD: https://www.thegioididong.com/dtdd/[product-name]
-        # hoặc: /dtdd/[product-name]?...
-        match = re.search(r"/dtdd/([^/?]+)", url)
-        if match:
-            product_name = match.group(1)
-        elif re.search(r"/sac-dtdd/([^/?]+)", url):
-            match = re.search(r"/sac-dtdd/([^/?]+)", url)
-            if match:
-                product_name = match.group(1)
-    
-    elif "lazada.vn" in url_lower:
-        # Lazada: 
-        # https://www.lazada.vn/products/[name]-i[id]-s[id].html
-        # hoặc: /products/pdp-i[id]-s[id].html
-        match = re.search(r"/products/([^/-][^?]*?)(?:-i\d+|-p\d+|\?|$)", url)
-        if match:
-            product_name = match.group(1).rstrip("-")
-            # Nếu tên chỉ là "pdp", lấy ID thay vào
-            if product_name == "pdp":
-                match = re.search(r"i(\d+)", url)
-                if match:
-                    product_name = f"product-{match.group(1)[:8]}"
-    
-    elif "shopee" in url_lower:
-        # Shopee: https://shopee.vn/[product-name]-i[id].[id]
-        match = re.search(r"/([^/]+?)-i\d+\.\d+", url)
-        if match:
-            product_name = match.group(1)
-    
-    # Làm sạch product_name: decode URL encoding, giữ chữ-số và dấu gạch
-    if not product_name:
-        product_name = "unknown"
-    
-    # Decode URL encoding
-    try:
-        product_name = __import__("urllib.parse", fromlist=["unquote"]).unquote(product_name)
-    except:
-        pass
-    
-    # Giữ chỉ ký tự an toàn: chữ cái, số, dấu gạch, dấu chấm
-    product_name = re.sub(r"[^a-zA-Z0-9\-_.]", "-", product_name)
-    product_name = re.sub(r"-+", "-", product_name).strip("-")
-    product_name = product_name[:50]  # Giới hạn độ dài
-    
-    return f"{platform}-{product_name}.csv"
+    label = _site_label(url)
+    # Lấy slug/path cuối URL, giữ lại ký tự an toàn
+    slug = url.split("//", 1)[-1]          # bỏ https://
+    slug = re.sub(r"[^a-zA-Z0-9_\-]", "_", slug)
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    slug = slug[:60]                        # giới hạn độ dài
+    ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{label}_{slug}_{ts}.csv"
 
 
 def _row_key(row: dict) -> str:
@@ -272,18 +212,14 @@ async def _crawl_one(
     print(f"  Đang lưu vào: {output_path.name}")
     print(bar)
 
-    # Shopee: force headless=True (faster browser launch)
-    # Lazada: use LAZADA_HEADLESS for manual CAPTCHA if needed
-    is_shopee = 'shopee' in url.lower()
-    headless_mode = True if is_shopee else LAZADA_HEADLESS
-    
+    # Truyền headless cho Lazada qua dispatcher; dispatcher đọc 'headless' argument
     total_saved = await _dispatch(
         url=url,
         output_path=str(output_path),
         fmt="csv",
         max_reviews=MAX_REVIEWS,
-        llm_provider="auto",
-        headless=headless_mode,
+        llm_provider="auto",    # chỉ dùng Approach 1 — không cần LLM
+        headless=LAZADA_HEADLESS,
     )
     return total_saved
 
