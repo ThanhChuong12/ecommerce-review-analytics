@@ -18,6 +18,7 @@ import albumentations as A
 from scipy.stats import kstest, f_oneway
 from tqdm import tqdm
 import warnings
+from IPython.display import display
 warnings.filterwarnings('ignore')
 
 # 1. Data Loading & Sampling
@@ -66,7 +67,356 @@ def load_images(df, target_size=(128, 128), color_space=cv2.COLOR_BGR2RGB):
             labels.append(row['label'])
     return np.array(images), np.array(labels)
 
-# 2. Basic EDA
+def _resolve_path(raw, base_dir):
+    """Return an accessible path, trying three fallback strategies.
+
+    1. Use *raw* as-is if the file already exists.
+    2. Normalise OS separators then resolve relative to *base_dir*.
+    3. Keep only the last two path components (label/filename) and anchor
+       under *base_dir* — handles stale Windows prefixes on Linux.
+    """
+    import os
+    if os.path.isfile(raw):
+        return raw
+    if base_dir is None:
+        return raw
+    normalised = raw.replace("\\", os.sep).replace("/", os.sep)
+    candidate = os.path.normpath(os.path.join(base_dir, normalised))
+    if os.path.isfile(candidate):
+        return candidate
+    parts = normalised.split(os.sep)
+    if len(parts) >= 2:
+        candidate2 = os.path.join(base_dir, *parts[-2:])
+        if os.path.isfile(candidate2):
+            return candidate2
+    return raw
+
+
+def analyze_resolution_distribution(df, output_dir, low_res_threshold=64, base_dir=None):
+    """Profile native image resolution across the dataset.
+
+    Reads every image at its original size (no resize), then produces width
+    and height histograms, a Width × Height scatter plot coloured by label,
+    a descriptive statistics table, and a count of images below
+    *low_res_threshold* × *low_res_threshold* pixels.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain columns ``path`` and ``label``.
+    output_dir : str
+        Directory where ``resolution_distribution.png`` is saved.
+    low_res_threshold : int
+        Images whose width or height is below this value are flagged
+        (default 64).
+    base_dir : str or None
+        Absolute path to the labeled image root.  Required when ``df['path']``
+        stores relative or Windows-style paths that do not resolve in the
+        current working directory.  Pass the ``LABELED_DIR`` variable from
+        the notebook configuration cell.
+    """
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    from PIL import Image
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    widths, heights, ratios, lbls = [], [], [], []
+    failed = 0
+
+    for _, row in df.iterrows():
+        path_col = "filepath" if "filepath" in df.columns else "path"
+        resolved = _resolve_path(str(row[path_col]), base_dir)
+        try:
+            with Image.open(resolved) as img:
+                w, h = img.size
+                widths.append(w)
+                heights.append(h)
+                ratios.append(round(w / h, 4))
+                lbls.append(row["label"])
+        except Exception:
+            failed += 1
+
+    if failed:
+        hint = "" if base_dir else " Pass base_dir=LABELED_DIR to resolve relative paths."
+        print(f"[WARNING] Could not open {failed} image(s) — skipped.{hint}")
+
+    res_df = pd.DataFrame({"width": widths, "height": heights,
+                           "aspect_ratio": ratios, "label": lbls})
+
+    if res_df.empty:
+        print("[ERROR] Resolution DataFrame is empty. "
+              "Verify that 'path' values point to accessible files.")
+        return res_df
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+
+    axes[0].hist(res_df["width"], bins=40, color="steelblue", edgecolor="white")
+    axes[0].set_title("Width Distribution")
+    axes[0].set_xlabel("Width (px)")
+    axes[0].set_ylabel("Frequency")
+
+    axes[1].hist(res_df["height"], bins=40, color="darkorange", edgecolor="white")
+    axes[1].set_title("Height Distribution")
+    axes[1].set_xlabel("Height (px)")
+    axes[1].set_ylabel("Frequency")
+
+    label_list = sorted(res_df["label"].unique())
+    cmap = plt.cm.tab10(np.linspace(0, 1, max(len(label_list), 1)))
+    for lbl, color in zip(label_list, cmap):
+        sub = res_df[res_df["label"] == lbl]
+        axes[2].scatter(sub["width"], sub["height"],
+                        label=lbl, alpha=0.4, s=10, color=color)
+    axes[2].set_title("Width × Height by Label")
+    axes[2].set_xlabel("Width (px)")
+    axes[2].set_ylabel("Height (px)")
+    axes[2].legend(markerscale=2, fontsize=8)
+
+    plt.tight_layout()
+    save_path = os.path.join(output_dir, "resolution_distribution.png")
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.show()
+    print(f"Saved → {save_path}")
+
+    print("\nResolution descriptive statistics:")
+    print(res_df[["width", "height", "aspect_ratio"]].describe().round(1).to_string())
+
+    n_total = len(res_df)
+    low_res = res_df[(res_df["width"] < low_res_threshold) |
+                     (res_df["height"] < low_res_threshold)]
+    print(f"\nImages below {low_res_threshold}×{low_res_threshold} px: "
+          f"{len(low_res)} ({len(low_res) / n_total * 100:.2f}%)")
+    if not low_res.empty:
+        print(low_res.groupby("label").size().rename("count")
+              .reset_index().to_string(index=False))
+
+    return res_df
+
+
+def detect_brightness_contrast_outliers(
+        images, labels, df_sampled, output_dir,
+        low_brightness=50.0, high_brightness=200.0, low_contrast=20.0):
+    """Flag images that are too dark, overexposed, or low-contrast.
+
+    Converts each image to grayscale via luminance weighting, computes
+    per-image mean intensity (brightness proxy) and standard deviation
+    (contrast proxy), then applies the supplied thresholds to identify
+    outliers.
+
+    Parameters
+    ----------
+    images : array-like, shape (N, H, W, 3)
+        Pixel values in [0, 1] or [0, 255].
+    labels : array-like, length N
+        Class label for each image.
+    df_sampled : pd.DataFrame
+        Must contain a ``path`` column aligned with *images*.
+    output_dir : str
+        Directory where ``outlier_report.csv`` is saved.
+    low_brightness : float
+        Mean intensity below this value → flagged ``too_dark``.
+    high_brightness : float
+        Mean intensity above this value → flagged ``overexposed``.
+    low_contrast : float
+        Std intensity below this value → flagged ``low_contrast``.
+
+    Returns
+    -------
+    outlier_df : pd.DataFrame
+        Full per-image record.
+    abnormal_df : pd.DataFrame
+        Subset where at least one flag is raised.
+    """
+    import os
+    import numpy as np
+    import pandas as pd
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    imgs = np.array(images, dtype=np.float32)
+    if imgs.max() <= 1.0:
+        imgs = imgs * 255.0
+
+    records = []
+    path_col = "filepath" if "filepath" in df_sampled.columns else "path"
+    paths = df_sampled[path_col].tolist()
+
+    for img, lbl, path in zip(imgs, labels, paths):
+        gray = 0.2989 * img[..., 0] + 0.5870 * img[..., 1] + 0.1140 * img[..., 2]
+        mean_val = float(gray.mean())
+        std_val = float(gray.std())
+        flags = []
+        if mean_val < low_brightness:
+            flags.append("too_dark")
+        if mean_val > high_brightness:
+            flags.append("overexposed")
+        if std_val < low_contrast:
+            flags.append("low_contrast")
+        records.append({"path": path, "label": lbl,
+                        "mean_intensity": round(mean_val, 2),
+                        "std_intensity": round(std_val, 2),
+                        "flags": ", ".join(flags) if flags else "normal"})
+
+    outlier_df = pd.DataFrame(records)
+    abnormal_df = outlier_df[outlier_df["flags"] != "normal"].copy()
+    n = len(outlier_df)
+
+    print("=" * 55)
+    print(f"  Images inspected      : {n}")
+    print(f"  Outliers detected     : {len(abnormal_df)} ({len(abnormal_df) / n * 100:.1f}%)")
+    print(f"\n  Thresholds applied:")
+    print(f"    Too dark            : mean_intensity < {low_brightness}")
+    print(f"    Overexposed         : mean_intensity > {high_brightness}")
+    print(f"    Low contrast        : std_intensity  < {low_contrast}")
+    print("=" * 55)
+
+    if not abnormal_df.empty:
+        summary = (abnormal_df.groupby(["label", "flags"])
+                   .size().reset_index(name="count"))
+        print("\nOutlier breakdown by label and flag type:")
+        print(summary.to_string(index=False))
+        save_path = os.path.join(output_dir, "outlier_report.csv")
+        abnormal_df.to_csv(save_path, index=False)
+        print(f"\nOutlier report saved → {save_path}")
+    else:
+        print("\nNo outliers detected under the current thresholds.")
+
+    return outlier_df, abnormal_df
+
+
+def analyze_duplicate_report(dup_df, output_dir):
+    """Perform deep analysis of a pHash duplicate report.
+
+    Classifies each pair as *intra-class* or *cross-class*, visualises the
+    Hamming distance distribution, and builds a cross-class co-occurrence
+    heatmap to surface images potentially borrowed from another label or
+    incorrectly annotated.
+
+    Parameters
+    ----------
+    dup_df : pd.DataFrame
+        Columns: ``img1``, ``img2``, ``distance``.
+        Output of ``detect_duplicates_phash()``.
+    output_dir : str
+        Directory where ``duplicate_analysis.png`` and
+        ``cross_class_duplicates.csv`` are saved.
+
+    Returns
+    -------
+    pd.DataFrame
+        *dup_df* augmented with ``label1``, ``label2``, ``pair_type``.
+    """
+    import os
+    import matplotlib.pyplot as plt
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    if dup_df.empty:
+        print("No duplicate pairs found in the report.")
+        return dup_df
+
+    # Auto-detect column names for the two image path columns
+    # and the distance column — accommodates different naming conventions.
+    cols = dup_df.columns.tolist()
+
+    def _find_col(candidates):
+        for c in candidates:
+            if c in cols:
+                return c
+        # Fallback: return the first column whose name contains any candidate substring
+        for c in candidates:
+            matches = [col for col in cols if c.lower() in col.lower()]
+            if matches:
+                return matches[0]
+        return None
+
+    col_img1 = _find_col(["img1", "path1", "image1", "file1", "src"])
+    col_img2 = _find_col(["img2", "path2", "image2", "file2", "dst"])
+    col_dist = _find_col(["distance", "dist", "hamming"])
+
+    if col_img1 is None or col_img2 is None:
+        print(f"[ERROR] Cannot identify image path columns in dup_df.\n"
+              f"        Available columns: {cols}\n"
+              f"        Expected names like: img1/img2, path1/path2, image1/image2.")
+        return dup_df
+
+    if col_dist is None:
+        print(f"[WARNING] Cannot identify distance column. Available: {cols}")
+        col_dist = cols[-1]  # best guess: last column
+
+    print(f"[INFO] Using columns — img1: '{col_img1}', img2: '{col_img2}', "
+          f"distance: '{col_dist}'")
+
+    def _extract_label(path_str):
+        parts = str(path_str).replace("\\", "/").split("/")
+        return parts[-2] if len(parts) >= 2 else "unknown"
+
+    df = dup_df.copy()
+    df["label1"] = df[col_img1].apply(_extract_label)
+    df["label2"] = df[col_img2].apply(_extract_label)
+    df["pair_type"] = df.apply(
+        lambda r: "intra-class" if r["label1"] == r["label2"] else "cross-class",
+        axis=1)
+
+    total = len(df)
+    intra = df[df["pair_type"] == "intra-class"]
+    cross = df[df["pair_type"] == "cross-class"]
+    exact = df[df[col_dist] == 0]
+    cross_exact = cross[cross[col_dist] == 0]
+
+    print("=" * 55)
+    print(f"  Total duplicate pairs      : {total}")
+    print(f"  Intra-class pairs          : {len(intra):>5} ({len(intra) / total * 100:.1f}%)")
+    print(f"  Cross-class pairs          : {len(cross):>5} ({len(cross) / total * 100:.1f}%)")
+    print(f"  Exact duplicates (dist=0)  : {len(exact):>5} ({len(exact) / total * 100:.1f}%)")
+    print(f"  Cross-class exact          : {len(cross_exact):>5}  ← potential mislabelling")
+    print("=" * 55)
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+
+    axes[0].hist(df[col_dist], bins=11, range=(-0.5, 10.5),
+                 color="steelblue", edgecolor="white")
+    axes[0].set_title("Hamming Distance Distribution (all pairs)")
+    axes[0].set_xlabel("Hamming Distance")
+    axes[0].set_ylabel("Number of pairs")
+
+    if not cross.empty:
+        import numpy as np
+        cross_counts = (cross.groupby(["label1", "label2"])
+                        .size().reset_index(name="count"))
+        all_labels = sorted(set(df["label1"]) | set(df["label2"]))
+        pivot = (cross_counts.pivot(index="label1", columns="label2", values="count")
+                 .reindex(index=all_labels, columns=all_labels).fillna(0))
+        im = axes[1].imshow(pivot.values, cmap="Reds", aspect="auto")
+        axes[1].set_xticks(range(len(pivot.columns)))
+        axes[1].set_yticks(range(len(pivot.index)))
+        axes[1].set_xticklabels(pivot.columns, rotation=30, ha="right")
+        axes[1].set_yticklabels(pivot.index)
+        axes[1].set_title("Cross-class Duplicate Co-occurrence Matrix")
+        plt.colorbar(im, ax=axes[1], label="Number of pairs")
+    else:
+        axes[1].text(0.5, 0.5, "No cross-class duplicates found",
+                     ha="center", va="center", transform=axes[1].transAxes)
+        axes[1].axis("off")
+
+    plt.tight_layout()
+    save_path = os.path.join(output_dir, "duplicate_analysis.png")
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.show()
+    print(f"Saved → {save_path}")
+
+    if not cross_exact.empty:
+        display_cols = ["img1", "label1", "img2", "label2", "distance"]
+        print(f"\nCross-class exact duplicate pairs — priority review (n={len(cross_exact)}):")
+        print(cross_exact[display_cols].head(20).to_string(index=False))
+        save_path2 = os.path.join(output_dir, "cross_class_duplicates.csv")
+        cross_exact[display_cols].to_csv(save_path2, index=False)
+        print(f"Priority review list saved → {save_path2}")
+
+    return df
+
 def plot_pixel_distributions(images, labels, output_dir):
     plt.figure(figsize=(15, 5))
     colors = ['r', 'g', 'b']
@@ -297,11 +647,7 @@ def apply_augmentation_pipeline(images, labels, output_dir, knn_k=5):
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
         A.Rotate(limit=30, p=0.5),
-        A.RandomResizedCrop(
-            size=(images.shape[1], images.shape[2]),
-            scale=(0.7, 1.0),
-            p=0.5
-        ),
+        A.RandomResizedCrop(height=images.shape[1], width=images.shape[2], scale=(0.7, 1.0), p=0.5),
         A.GaussNoise(var_limit=(10.0, 50.0), p=0.5),
         A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5)
     ])
