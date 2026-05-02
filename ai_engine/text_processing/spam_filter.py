@@ -1,28 +1,5 @@
 """
 spam_filter.py
-<<<<<<< HEAD
---------------
-Lọc đánh giá seeding / spam sử dụng:
-  - Isolation Forest (unsupervised anomaly detection)
-  - SVM (Support Vector Machine)
-
-TODO:
-  - [ ] Load dataset và tiền xử lý văn bản
-  - [ ] Huấn luyện / load mô hình Isolation Forest
-  - [ ] Huấn luyện / load mô hình SVM
-  - [ ] So sánh hiệu năng (Precision, Recall, F1-score)
-  - [ ] Export kết quả sang data/processed/
-"""
-
-def filter_spam_isolation_forest(reviews: list) -> list:
-    """Lọc spam bằng Isolation Forest."""
-    raise NotImplementedError("TODO: Implement Isolation Forest filter")
-
-
-def filter_spam_svm(reviews: list) -> list:
-    """Lọc spam bằng SVM."""
-    raise NotImplementedError("TODO: Implement SVM filter")
-=======
 ==============
 
 Rule-based spam and seeding detector for Vietnamese e-commerce reviews
@@ -984,4 +961,3 @@ def summarize_spam(df: pd.DataFrame) -> dict:
                     "pct": round(count / total * 100, 2) if total else 0.0,
                 }
     return stats
->>>>>>> ac06e097fa2802d7815cbe75e8cc45348ad1f276
