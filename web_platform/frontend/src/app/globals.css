@@ -1,0 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=Momo+Trust+Display&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,200..1000;1,200..1000&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@300..700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bellota+Text:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap');
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-momo: 'Momo Trust Display', sans-serif;
+  --font-nunito: 'Nunito', sans-serif;
+  --font-quicksand: 'Quicksand', san-serif;
+  --font-bellota: 'Bellota Text', san-serif;
+  --font-playfair: 'Playfair Display', san-serif;
+}
+
+@layer base {
+  body {
+    @apply transition-colors duration-300;
+  }
+}
+
+.glass-panel {
+  @apply bg-slate-900/40 backdrop-blur-xl border border-white/10 shadow-2xl rounded-3xl;
+}
