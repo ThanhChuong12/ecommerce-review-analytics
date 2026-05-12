@@ -9,16 +9,16 @@
 ## Tổng quan hệ thống
 
 ```
-scraping_agent  ──►  data/raw  ──►  backend_ai  ──►  data/processed  ──►  web_app
+scraping_agent  ──►  data/raw  ──►  ai_engine   ──►  data/processed  ──►  web_app
     (Crawler)          (Raw)       (AI Pipeline)       (Analyzed)        (Dashboard)
 ```
 
 | Module | Công nghệ | Người phụ trách |
 |---|---|---|
 | `scraping_agent` | Playwright, httpx, browser-use | — |
-| `backend_ai/text_processing` | Scikit-learn, PhoBERT, Transformers | — |
-| `backend_ai/image_processing` | CLIP, ResNet, MobileNet | — |
-| `backend_ai/llm_integration` | Gemini API, OpenAI API | — |
+| `ai_engine/text_processing` | Scikit-learn, PhoBERT, Transformers | — |
+| `ai_engine/image_processing` | CLIP, ResNet, MobileNet, Albumentations | — |
+| `ai_engine/llm_integration` | Gemini API, OpenAI API | — |
 | `web_app/frontend` | React.js, Plotly | — |
 | `web_app/backend_server` | Node.js, Express.js | — |
 
@@ -47,13 +47,15 @@ multimodal-review-analytics/
 │   │       └── lazada.py       # LazadaScraper (Playwright)
 │   └── output/                 # Kết quả cào (không commit)
 │
-├── backend_ai/                 # AI Pipeline (Python)
+├── ai_engine/                  # AI Pipeline (Python)
 │   ├── text_processing/
 │   │   ├── spam_filter.py      # Isolation Forest + SVM
 │   │   └── sentiment_analysis.py  # TF-IDF vs PhoBERT
 │   ├── image_processing/
 │   │   ├── zero_shot_clip.py   # Phát hiện ảnh rác bằng CLIP
-│   │   └── defect_detection.py # Nhận diện hàng lỗi (ResNet/MobileNet)
+│   │   ├── defect_detection.py # Nhận diện hàng lỗi (ResNet/MobileNet)
+│   │   └── augmentation/       # Data augmentation cho defect detection
+│   │       └── transforms.py   # Albumentations pipeline
 │   ├── llm_integration/
 │   │   └── llm_client.py       # Gemini/GPT API: tổng hợp insight
 │   └── models/                 # File trọng số mô hình đã train
@@ -63,17 +65,19 @@ multimodal-review-analytics/
 │   └── backend_server/         # Node.js/Express API Gateway
 │
 ├── notebooks/                  # Jupyter Notebooks thử nghiệm & so sánh mô hình
+├── scripts/                    # Scripts tiện ích
+│   └── validate_augmentation.py # Script kiểm tra augmentation trực quan
 ├── docs/                       # Đề cương, báo cáo PDF
 ├── .env.example                # Template cấu hình API keys
 ├── .gitignore
-└── requirements.txt            # Thư viện Python cho backend_ai
+└── requirements.txt            # Thư viện Python cho ai_engine
 ```
 
 ---
 
 ## Cài đặt
 
-### 1. Backend AI (Python)
+### 1. AI Engine (Python)
 ```bash
 python -m venv .venv
 .venv\Scripts\activate          # Windows
@@ -203,6 +207,19 @@ Mỗi review được lưu với các cột:
 | `image_urls` | URL ảnh đính kèm (nhiều URL cách nhau bằng `\|`) |
 | `product_url` | URL sản phẩm gốc |
 | `scraped_at` | Thời điểm cào (ISO 8601) |
+
+## Image Augmentation Pipeline
+
+Hệ thống cung cấp module Image Augmentation tại `ai_engine/image_processing/augmentation/transforms.py` sử dụng thư viện `Albumentations` để xử lý mất cân bằng dữ liệu cho lớp `defect` (chỉ định cấu hình riêng biệt cho 2 class, sau đó tích hợp vào `PyTorch Dataset` và `DataLoader`).
+
+- Pipeline cho `defect`: áp dụng biến đổi vừa phải (Flip, Rotate, GaussNoise, Brightness/Contrast) để giữ đặc trưng dị tật, kết thúc bằng Resize(224, 224) và ImageNet Normalize.
+- Pipeline cho `no-defect`: không thay đổi (chỉ Resize và Normalize).
+
+**Tạo ảnh mẫu để kiểm tra trực quan:**
+```bash
+python scripts/validate_augmentation.py
+```
+Kết quả ảnh được sinh ra sẽ lưu ở `data/processed/aug_samples/`.
 
 ---
 
