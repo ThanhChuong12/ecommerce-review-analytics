@@ -16,3 +16,14 @@ Mã nguồn cho pipeline xử lý ngôn ngữ tự nhiên (`text_baseline.py` v�
 ### Files Changed:
 - `ai_engine/models/text_baseline.py`
 - `ai_engine/scripts/train_text_baseline.py`
+
+## Cập nhật - Performance & Comparative Training (Tháng 5/2026)
+
+Mã nguồn được thay đổi để tăng tốc độ huấn luyện cũng như đánh giá A/B Testing giữa Cost-sensitive Learning và Oversampling (SMOTE):
+
+1. **Tối ưu tốc độ huấn luyện**: 
+   - `LinearSVC`: Thêm tham số `dual="auto"` giúp tự động chuyển đổi logic tối ưu cho Sparse Matrix (TF-IDF matrix). Tăng độ hội tụ.
+   - `LogisticRegression`: Kích hoạt multi-threading (`n_jobs=-1`) để chạy song song. Đi kèm với việc thay đổi sang thuật giải `solver='lbfgs'` đáp ứng tương thích cho n_jobs.
+2. **Automated Multi-Model Evaluation**:
+   - `train_text_baseline.py` được cải tiến với vòng lặp cho một mảng các `configurations`, huấn luyện liên tục 3 biến thể: "Logistic Regression /w Cost-sensitive", "Linear SVM /w Cost-sensitive", và "Logistic Regression /w SMOTE".
+   - Tự động hóa đánh giá và sinh artifact cho 3 models vào thư mục mới: `artifacts/models`.

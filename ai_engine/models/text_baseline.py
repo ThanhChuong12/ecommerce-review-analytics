@@ -62,9 +62,9 @@ class TextBaselineModel:
 
         # 2. Initialize Classifier with explicit cost-sensitive learning
         if self.classifier_type == 'svm':
-            clf = LinearSVC(random_state=self.random_state, class_weight='balanced')
-        elif self.classifier_type == 'lr':
-            clf = LogisticRegression(random_state=self.random_state, class_weight='balanced', max_iter=1000)
+            clf = LinearSVC(random_state=self.random_state, class_weight='balanced', dual="auto")
+        elif self.classifier_type in ['lr', 'logreg']:
+            clf = LogisticRegression(random_state=self.random_state, class_weight='balanced', max_iter=1000, solver='lbfgs', n_jobs=-1)
         else:
             raise ValueError(f"Unsupported classifier_type: {self.classifier_type}")
 

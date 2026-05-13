@@ -57,31 +57,50 @@ def main() -> None:
     )
     logger.info("Data split successfully with stratified sampling.")
 
-    # 3. Train Logistic Regression Model (Cost-Sensitive Learning, No SMOTE by default)
-    logger.info("\n--- TRAINING LOGISTIC REGRESSION ---")
-    lr_model = TextBaselineModel(classifier_type='lr', use_smote=False)
-    lr_model.train(X_train, y_train)
-    
-    # Evaluation
-    y_pred_lr = lr_model.predict(X_test)
-    logger.info("Classification Report (Logistic Regression - Balanced Weights):")
-    logger.info("\n" + classification_report(y_test, y_pred_lr))
-    
-    # Save Model
-    lr_model.save_model('ai_engine/models/weights/text_lr_balanced.pkl')
+    # Output directory for saving model artifacts
+    artifacts_dir = 'artifacts/models'
+    os.makedirs(artifacts_dir, exist_ok=True)
 
-    # 4. Train Linear SVM Model (For comparison)
-    logger.info("\n--- TRAINING LINEAR SVM ---")
-    svm_model = TextBaselineModel(classifier_type='svm', use_smote=False)
-    svm_model.train(X_train, y_train)
-    
-    # Evaluation
-    y_pred_svm = svm_model.predict(X_test)
-    logger.info("Classification Report (SVM - Balanced Weights):")
-    logger.info("\n" + classification_report(y_test, y_pred_svm))
-    
-    # Save Model
-    svm_model.save_model('ai_engine/models/weights/text_svm_balanced.pkl')
+    # 3. Multi-Model Training Block for A/B Comparison
+    configurations = [
+        {
+            'name': 'Logistic Regression (Cost-Sensitive)',
+            'classifier_type': 'logreg',
+            'use_smote': False,
+            'save_name': 'text_lr_balanced.pkl'
+        },
+        {
+            'name': 'Linear SVM (Cost-Sensitive)',
+            'classifier_type': 'svm',
+            'use_smote': False,
+            'save_name': 'text_svm_balanced.pkl'
+        },
+        {
+            'name': 'Logistic Regression (SMOTE)',
+            'classifier_type': 'logreg',
+            'use_smote': True,
+            'save_name': 'text_lr_smote.pkl'
+        }
+    ]
+
+    for config in configurations:
+        logger.info(f"\n{'='*60}\n--- TRAINING {config['name'].upper()} ---\n{'='*60}")
+        
+        # Initialize and Train
+        model = TextBaselineModel(
+            classifier_type=config['classifier_type'], 
+            use_smote=config['use_smote']
+        )
+        model.train(X_train, y_train)
+        
+        # Evaluate
+        y_pred = model.predict(X_test)
+        logger.info(f"Classification Report - {config['name']}:")
+        logger.info("\n" + classification_report(y_test, y_pred))
+        
+        # Save Artifact
+        save_path = os.path.join(artifacts_dir, config['save_name'])
+        model.save_model(save_path)
 
 if __name__ == "__main__":
     main()
