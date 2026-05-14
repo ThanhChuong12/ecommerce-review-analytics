@@ -1,29 +1,200 @@
-# Text Model Documentation
+# Text Baseline Model — Architecture & Reference Guide
 
-## Cập nhật - Code Refactoring (Tháng 5/2026)
+> **Current version**: Weighted Soft-Voting Ensemble (May 2026)
 
-Mã nguồn cho pipeline xử lý ngôn ngữ tự nhiên (`text_baseline.py` và `train_text_baseline.py`) đã được refactor để tuân thủ các chuẩn mực kỹ thuật dành cho kĩ sư ML:
+---
 
-1. **Architecture & OOP**: Mã được bọc trong các Class với trách nhiệm duy nhất (SOLID). Tránh sử dụng global context.
-2. **Readability & Typing**: Bổ sung đầy đủ type hinting (với `typing` module) cho toàn bộ arguments và return types. Các biến số được phân định rõ ràng.
-3. **Documentation**: Thêm documentation chuẩn Google (Google-style docstrings) cho tất cả các Classes và Methods, mô tả chi tiết logic bên trong.
-4. **Robustness**: Thay thế hoàn toàn hàm `print()` mặc định bằng `logging` để dễ dàng quản lý log và theo dõi (tracking) trong môi trường production. Bổ sung Error Handling với khối lượng code ngoại lệ (ex: `FileNotFoundError`).
-5. **ML Best Practices**: 
-   - Sử dụng `imblearn.pipeline.Pipeline` thay cho `sklearn.pipeline.Pipeline`.
-   - Cố định `random_state` xuyên suốt pipeline để tạo tính lặp lại (reproducibility).
-   - Đặt chiến lược ưu tiên **Cost-Sensitive Learning** (`class_weight='balanced'`) thay vì lạm dụng SMOTE ở dạng cấu hình mặc định nhằm xử lý vấn đề imbalanced classes một cách hiệu quả hơn mà không can thiệp vào phân bố tự nhiên trước khi chứng minh được sự cần thiết của SMOTE. (SMOTE trở thành một attribute dưới dạng cờ `--use_smote=True/False`).
+## Table of Contents
 
-### Files Changed:
-- `ai_engine/models/text_baseline.py`
-- `ai_engine/scripts/train_text_baseline.py`
+1. [Architecture Overview](#1-architecture-overview)
+2. [Component Reference](#2-component-reference)
+3. [Automatic Weight Algorithm](#3-automatic-weight-algorithm)
+4. [Benchmark Experiments](#4-benchmark-experiments)
+5. [Usage](#5-usage)
+6. [Changelog](#6-changelog)
 
-## Cập nhật - Performance & Comparative Training (Tháng 5/2026)
+---
 
-Mã nguồn được thay đổi để tăng tốc độ huấn luyện cũng như đánh giá A/B Testing giữa Cost-sensitive Learning và Oversampling (SMOTE):
+## 1. Architecture Overview
 
-1. **Tối ưu tốc độ huấn luyện**: 
-   - `LinearSVC`: Thêm tham số `dual="auto"` giúp tự động chuyển đổi logic tối ưu cho Sparse Matrix (TF-IDF matrix). Tăng độ hội tụ.
-   - `LogisticRegression`: Kích hoạt multi-threading (`n_jobs=-1`) để chạy song song. Đi kèm với việc thay đổi sang thuật giải `solver='lbfgs'` đáp ứng tương thích cho n_jobs.
-2. **Automated Multi-Model Evaluation**:
-   - `train_text_baseline.py` được cải tiến với vòng lặp cho một mảng các `configurations`, huấn luyện liên tục 3 biến thể: "Logistic Regression /w Cost-sensitive", "Linear SVM /w Cost-sensitive", và "Logistic Regression /w SMOTE".
-   - Tự động hóa đánh giá và sinh artifact cho 3 models vào thư mục mới: `artifacts/models`.
+```
+Raw Text Input
+      │
+      ▼
+┌─────────────────────────────┐
+│   TF-IDF Vectorizer         │  max_features=15 000, ngram=(1,2), sublinear_tf=True
+│   (Sparse Feature Matrix)   │
+└──────────────┬──────────────┘
+               │
+        use_smote?
+       ┌───────┴───────┐
+      YES              NO
+       │               │
+       ▼               │
+┌─────────────┐        │
+│    SMOTE    │        │   Over-samples minority classes in TF-IDF space
+└──────┬──────┘        │
+       └───────────────┤
+                       ▼
+       ┌───────────────────────────────────────────────────┐
+       │           Soft-Voting Ensemble                    │
+       │                                                   │
+       │  ┌────────────────┐  w₁ (auto / manual)          │
+       │  │ Logistic Reg.  │ ──────────────────────────┐  │
+       │  │ (LR)           │                           │  │
+       │  └────────────────┘                           │  │
+       │                                               ▼  │
+       │  ┌────────────────┐  w₂  ┌──────────────────────┐│
+       │  │ LinearSVC      │ ────▶│  Weighted Average of  ││
+       │  │ + Calibration  │      │  Predicted Proba       ││ ── argmax ──▶ Label
+       │  └────────────────┘  w₃  └──────────────────────┘│
+       │                                               ▲  │
+       │  ┌────────────────┐                           │  │
+       │  │ Random Forest  │ ──────────────────────────┘  │
+       │  │ (RF)           │                               │
+       │  └────────────────┘                               │
+       └───────────────────────────────────────────────────┘
+```
+
+---
+
+## 2. Component Reference
+
+### 2.1 TF-IDF Vectorizer
+
+| Parameter       | Value        | Rationale                                               |
+|-----------------|--------------|---------------------------------------------------------|
+| `max_features`  | `15 000`     | Wider vocabulary improves RF diversity                  |
+| `ngram_range`   | `(1, 2)`     | Captures phrase-level sentiment cues                    |
+| `sublinear_tf`  | `True`       | `log(1+tf)` — reduces dominance of high-frequency terms |
+| `min_df`        | `3`          | Prunes hapax legomena                                   |
+| `max_df`        | `0.85`       | Removes corpus-wide stop words                          |
+
+### 2.2 Base Estimators
+
+| Estimator               | Class                     | Key Params                                     |
+|-------------------------|---------------------------|------------------------------------------------|
+| Logistic Regression     | `LogisticRegression`      | `class_weight='balanced'`, `solver='lbfgs'`, `max_iter=1000` |
+| Calibrated LinearSVC    | `CalibratedClassifierCV(LinearSVC(...), cv=3)` | `class_weight='balanced'`, `dual='auto'` — calibration adds `predict_proba` |
+| Random Forest           | `RandomForestClassifier`  | `n_estimators=200`, `class_weight='balanced'`  |
+
+> **Why `CalibratedClassifierCV` for SVM?**  
+> `LinearSVC` is 10–100× faster than `SVC(kernel='linear')` on sparse TF-IDF matrices
+> but does not natively expose `predict_proba`. `CalibratedClassifierCV` wraps it with
+> isotonic regression calibration, adding the probability outputs required for soft voting.
+
+### 2.3 SMOTE (Optional)
+
+- Applies **Synthetic Minority Over-sampling Technique** to the TF-IDF output matrix.
+- Positioned *after* TF-IDF inside the `imblearn.pipeline.Pipeline`, ensuring it is
+  only applied to training folds (no data leakage).
+- Default strategy: all minority classes are up-sampled to match the majority class count.
+
+---
+
+## 3. Automatic Weight Algorithm
+
+When `weights=None` (default), `TextEnsembleModel.fit()` invokes
+`compute_auto_weights()` before training the full ensemble.
+
+### Algorithm Steps
+
+```
+for each estimator E in [LR, Calibrated SVM, RF]:
+    X_tfidf ← TF-IDF.fit_transform(X_train)
+    scores  ← cross_val_score(E, X_tfidf, y_train, cv=5, scoring='f1_macro')
+    w_E     ← mean(scores)
+
+weights ← [w_LR, w_SVM, w_RF]
+VotingClassifier(weights=weights)
+```
+
+### Rationale
+
+| Property                | Effect                                                  |
+|-------------------------|---------------------------------------------------------|
+| F1-macro as weight      | Naturally emphasises recall for minority classes        |
+| Proportional (not fixed)| The best-performing model receives a larger vote share  |
+| CV before full fit      | Weights reflect generalisation, not just training fit   |
+
+---
+
+## 4. Benchmark Experiments
+
+The training script (`train_text_baseline.py`) runs four experiments:
+
+| Exp ID | SMOTE | Weights       | Purpose                              |
+|--------|-------|---------------|--------------------------------------|
+| EXP-1  | No    | Auto (F1-CV)  | **Primary** — balanced cost-sensitive |
+| EXP-2  | Yes   | Auto (F1-CV)  | **Primary** — SMOTE + smart weights  |
+| EXP-3  | No    | Equal [1,1,1] | Control — no weighting               |
+| EXP-4  | Yes   | Equal [1,1,1] | Control — SMOTE without weighting    |
+
+Artifacts are saved to `artifacts/models/`:
+
+```
+artifacts/models/
+├── ensemble_no_smote_auto_weights.pkl   ← EXP-1
+├── ensemble_smote_auto_weights.pkl      ← EXP-2
+├── ensemble_no_smote_equal_weights.pkl  ← EXP-3
+└── ensemble_smote_equal_weights.pkl     ← EXP-4
+```
+
+---
+
+## 5. Usage
+
+### Training
+
+```bash
+# From project root
+python ai_engine/scripts/train_text_baseline.py
+```
+
+### Python API
+
+```python
+from ai_engine.models.text_baseline import TextEnsembleModel
+
+# --- Training ---
+model = TextEnsembleModel(use_smote=False)   # weights=None → auto-computed
+model.fit(X_train, y_train)
+model.save("artifacts/models/my_ensemble.pkl")
+
+# --- Inference ---
+loaded = TextEnsembleModel.load("artifacts/models/my_ensemble.pkl")
+labels = loaded.predict(X_test)           # array of class labels
+probas = loaded.predict_proba(X_test)     # shape (n_samples, n_classes)
+
+# --- Manual weights (override auto-computation) ---
+model_manual = TextEnsembleModel(use_smote=True, weights=[0.85, 0.80, 0.78])
+model_manual.fit(X_train, y_train)
+```
+
+---
+
+## 6. Changelog
+
+### May 2026 — v3.0: Weighted Soft-Voting Ensemble
+
+- **New class**: `TextEnsembleModel` replaces `TextBaselineModel`.
+- **New**: Automatic F1-proportional weight computation (`compute_auto_weights()`).
+- **New**: `CalibratedClassifierCV(LinearSVC)` for probability-calibrated SVM.
+- **New**: Four-experiment SMOTE vs. No-SMOTE benchmark in training script.
+- **New**: Formatted comparison table printed at end of training run.
+- **Improved**: `save()` / `load()` serialise the full `TextEnsembleModel` instance
+  (weights + pipeline), not just the raw pipeline.
+- **Improved**: `sublinear_tf=True` and `max_features=15 000` in TF-IDF.
+- **Docs**: This file rewritten in English with architecture diagram and algorithm table.
+
+### May 2026 — v2.0: Performance & Comparative Training
+
+- `LinearSVC` upgraded with `dual="auto"` for sparse-matrix optimisation.
+- `LogisticRegression` switched to multi-threaded `n_jobs=-1` with `lbfgs` solver.
+- Automated multi-model evaluation loop across 3 configurations.
+
+### May 2026 — v1.0: OOP Refactor & Code Standards
+
+- Initial `TextBaselineModel` class with type hints and Google-style docstrings.
+- `imblearn.pipeline.Pipeline` adopted; SMOTE made optional via flag.
+- `logging` replaces `print()` throughout; `random_state` enforced for reproducibility.

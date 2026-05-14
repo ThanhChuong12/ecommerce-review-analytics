@@ -206,6 +206,80 @@ Mỗi review được lưu với các cột:
 
 ---
 
+## Text Sentiment Analysis — Weighted Soft-Voting Ensemble
+
+> Full technical reference: [`docs/TEXT_MODEL.md`](docs/TEXT_MODEL.md)
+
+### Architecture
+
+```
+Raw Text
+  │
+  ▼
+TF-IDF (max_features=15 000, ngram=(1,2), sublinear_tf=True)
+  │
+  ├─ [optional] SMOTE over-sampling
+  │
+  ▼
+Soft-Voting Ensemble
+  ├── LogisticRegression          (weight: w₁ — auto-computed from macro-F1 CV)
+  ├── CalibratedClassifierCV      (weight: w₂ — wraps LinearSVC for predict_proba)
+  └── RandomForestClassifier      (weight: w₃ — cognitive diversity via tree-based model)
+  │
+  ▼
+Predicted Sentiment Label
+```
+
+### Base Estimators
+
+| Estimator | Class | Imbalance Strategy |
+|---|---|---|
+| LR | `LogisticRegression` | `class_weight='balanced'` |
+| SVM | `CalibratedClassifierCV(LinearSVC)` | `class_weight='balanced'` + isotonic calibration |
+| RF | `RandomForestClassifier` | `class_weight='balanced'` |
+
+### Automatic Weight Computation
+
+When `weights=None`, the model runs **5-fold cross-validation** on each base estimator independently
+over TF-IDF features, uses the resulting **macro-F1 scores as ensemble weights**, and then trains
+the full ensemble. Models that generalise better receive proportionally larger votes.
+
+### Quick Start
+
+```bash
+# Install ML dependencies
+pip install -r ai_engine/requirements.txt
+
+# Run all 4 benchmark experiments (SMOTE × Weights)
+python ai_engine/scripts/train_text_baseline.py
+```
+
+Artifacts are saved to `artifacts/models/`:
+
+```
+artifacts/models/
+├── ensemble_no_smote_auto_weights.pkl    # EXP-1 — primary
+├── ensemble_smote_auto_weights.pkl       # EXP-2 — primary (SMOTE)
+├── ensemble_no_smote_equal_weights.pkl   # EXP-3 — control
+└── ensemble_smote_equal_weights.pkl      # EXP-4 — control (SMOTE)
+```
+
+### Python API
+
+```python
+from ai_engine.models.text_baseline import TextEnsembleModel
+
+model = TextEnsembleModel(use_smote=False)   # weights computed automatically
+model.fit(X_train, y_train)
+labels = model.predict(X_test)
+probas = model.predict_proba(X_test)
+
+model.save("artifacts/models/my_ensemble.pkl")
+loaded = TextEnsembleModel.load("artifacts/models/my_ensemble.pkl")
+```
+
+---
+
 ## Ghi chú phát triển
 
 - **Thử nghiệm mô hình**: Lưu notebook và bảng so sánh Accuracy/F1 vào `notebooks/`
