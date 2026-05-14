@@ -221,6 +221,28 @@ python scripts/validate_augmentation.py
 ```
 Kết quả ảnh được sinh ra sẽ lưu ở `data/processed/aug_samples/`.
 
+### Chuẩn bị dữ liệu training
+
+Chuyển ảnh đã gán nhãn từ `image_labeling/` sang cấu trúc thư mục training:
+
+```bash
+python scripts/prepare_dataset.py
+```
+
+Mapping nhãn: `damaged` → `defect/`, `intact` → `no-defect/`, `irrelevant` & `wrong_item` → bỏ qua.
+
+### Huấn luyện mô hình ResNet50
+
+```bash
+# Chạy mặc định (10 epochs, batch_size=16, lr=1e-4)
+python scripts/train_defect_model.py
+
+# Tùy chỉnh
+python scripts/train_defect_model.py --epochs 20 --batch-size 32 --lr 0.0001
+```
+
+Mô hình tốt nhất sẽ được lưu tại `ai_engine/models/resnet50_defect.pth`.
+
 ---
 
 ## Ghi chú phát triển

@@ -38,11 +38,13 @@ scraping_agent/data/*
 !scraping_agent/output/.gitkeep
 
 # Thư mục xử lý Media & Ảnh
-image_labeling/frames/*
-image_labeling/raw_media/*
-image_labeling/data/*
-
-
+image_labeling/data/
+image_labeling/frames/
+image_labeling/raw_media/
+image_labeling.zip
+data.zip
+data/processed/training_images.zip
+ai_engine/models/*.pth
 # Chặn theo định dạng
 *.csv
 !data/processed/processed_labeled_reviews.csv
