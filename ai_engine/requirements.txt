@@ -46,3 +46,8 @@ pandas>=2.2.0
 
 # ── Model serialisation ───────────────────────────────────────────────────────
 joblib>=1.3.0
+
+# Image Model (Transfer Learning)
+torch>=2.2.0
+torchvision>=0.17.0
+Pillow>=10.0.0

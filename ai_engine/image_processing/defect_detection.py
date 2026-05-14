@@ -13,15 +13,22 @@ TODO:
 """
 
 import os
-import cv2
 import torch
 import torch.nn as nn
 from pathlib import Path
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader
 from torchvision import models
 
-# Import Augmentation Pipeline đã viết ở Bước trước
-from ai_engine.image_processing.augmentation.transforms import get_defect_transforms, get_normal_transforms
+try:
+    # pyrefly: ignore [missing-import]
+    import cv2
+    from ai_engine.image_processing.augmentation.transforms import (
+        get_defect_transforms,
+        get_normal_transforms,
+    )
+    _CV2_AVAILABLE = True
+except ImportError:
+    _CV2_AVAILABLE = False
 
 class ProductDefectDataset(Dataset):
     """
@@ -139,3 +146,47 @@ def detect_defect_resnet(image_path: str) -> dict:
 def detect_defect_mobilenet(image_path: str) -> dict:
     """Nhận diện hàng lỗi bằng MobileNet. Returns dict với label và confidence."""
     raise NotImplementedError("TODO: Implement MobileNet inference here")
+
+
+# =============================================================================
+# DEMO ONLY — Xóa section này khi tích hợp vào production pipeline chính
+# Dùng bởi: demo_server.py
+# =============================================================================
+import logging as _logging
+import os as _os
+
+_logger = _logging.getLogger(__name__)
+
+_MOBILENET_WEIGHTS = _os.getenv(
+    "MOBILENET_WEIGHTS_PATH",
+    "ai_engine/models/weights/mobilenet_v3_defect.pt",
+)
+_RESNET_WEIGHTS = _os.getenv(
+    "RESNET_WEIGHTS_PATH",
+    "ai_engine/models/weights/resnet50_defect.pt",
+)
+
+_mobilenet_model = None
+_resnet_model = None
+
+
+def _load_mobilenet_demo():
+    global _mobilenet_model
+    if _mobilenet_model is None:
+        from ai_engine.models.image_baseline import ImageBaselineModel
+        _mobilenet_model = ImageBaselineModel.load(_MOBILENET_WEIGHTS)
+        _logger.info("MobileNetV3 defect model loaded.")
+    return _mobilenet_model
+
+
+def detect_defect_mobilenet_demo(image_path: str) -> dict:
+    """[DEMO] Inference voi MobileNetV3 da train. Dung trong demo_server.py."""
+    if not _os.path.exists(_MOBILENET_WEIGHTS):
+        raise RuntimeError(
+            f"Weights not found at '{_MOBILENET_WEIGHTS}'. "
+            "Run: python ai_engine/scripts/train_image_baseline.py"
+        )
+    return _load_mobilenet_demo().predict(image_path)
+# =============================================================================
+# END DEMO
+# =============================================================================

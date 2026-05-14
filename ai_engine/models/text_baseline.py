@@ -33,13 +33,21 @@ from typing import List, Optional
 import joblib
 import numpy as np
 import pandas as pd
+# pyrefly: ignore [missing-import]
 from imblearn.over_sampling import SMOTE
+# pyrefly: ignore [missing-import]
 from imblearn.pipeline import Pipeline as ImbPipeline
+# pyrefly: ignore [missing-import]
 from sklearn.calibration import CalibratedClassifierCV
+# pyrefly: ignore [missing-import]
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+# pyrefly: ignore [missing-import]
 from sklearn.feature_extraction.text import TfidfVectorizer
+# pyrefly: ignore [missing-import]
 from sklearn.linear_model import LogisticRegression
+# pyrefly: ignore [missing-import]
 from sklearn.model_selection import cross_val_score
+# pyrefly: ignore [missing-import]
 from sklearn.svm import LinearSVC
 
 # ---------------------------------------------------------------------------
