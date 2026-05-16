@@ -27,3 +27,7 @@ tqdm>=4.66.0                # Progress bar
 matplotlib>=3.8.0           # Visualization (notebooks)
 seaborn>=0.13.0
 jupyterlab>=4.1.0           # Jupyter Notebooks
+
+# --- Text Augmentation ---
+googletrans==4.0.0rc1       # Back-translation (vi->en->vi) cho data augmentation
+# deepl>=1.18.0             # (Tùy chọn) DeepL API - cần DEEPL_API_KEY trong .env
