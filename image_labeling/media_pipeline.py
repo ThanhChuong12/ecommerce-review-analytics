@@ -274,6 +274,7 @@ def extract_frames(frames_per_video: int, seed: int | None) -> None:
     if not MEDIA_MANIFEST.exists():
         raise ValueError("media.csv not found. Run download first.")
 
+    # pyrefly: ignore [missing-import]
     import cv2
 
     images_rows: list[dict] = []
