@@ -56,3 +56,15 @@ class Review(BaseModel):
 		"""Auto-fill scraped_at if not provided."""
 		if not self.scraped_at:
 			self.scraped_at = datetime.now().isoformat()
+
+
+class SimilarProduct(BaseModel):
+	"""Một sản phẩm tương tự / gợi ý liên quan."""
+
+	name:      str   = Field(default='', description='Tên sản phẩm')
+	url:       str   = Field(default='', description='URL sản phẩm')
+	price:     int   = Field(default=0,  description='Giá (VND)')
+	rating:    float = Field(default=0.0, description='Điểm đánh giá trung bình (0-5)')
+	sold:      int   = Field(default=0,  description='Số lượng đã bán')
+	image_url: str   = Field(default='', description='URL ảnh bìa sản phẩm')
+	source:    str   = Field(default='', description="Nguồn: 'tiki' | 'lazada' | 'shopee'")
