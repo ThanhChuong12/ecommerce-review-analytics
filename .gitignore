@@ -55,12 +55,21 @@ ai_engine/models/*.pth
 *.png
 
 
-# --- Model weights (file lớn, dùng Git LFS nếu cần) ---
-backend_ai/models/*.pt
-backend_ai/models/*.pth
-backend_ai/models/*.bin
-backend_ai/models/*.onnx
-!backend_ai/models/.gitkeep
+# --- Model weights (dung Git LFS neu can) ---
+ai_engine/models/weights/*.pt
+ai_engine/models/weights/*.pth
+ai_engine/models/weights/*.bin
+ai_engine/models/weights/*.onnx
+
+# --- Labeled dataset (anh lon, khong commit) ---
+labeled/
+
+# --- Thu muc test tam thoi ---
+test_*/
+
+# --- Scratch / one-off scripts (chi o root) ---
+/test_*.py
+/run_eval.py
 
 # --- OS ---
 .DS_Store
