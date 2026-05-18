@@ -1,145 +1,217 @@
 ---
 name: senior-ml-engineer
 description: >
-  Production-grade ML engineering for this e-commerce review analytics project.
-  Use when training spam/sentiment models, building scraping pipelines, deploying
-  AI inference endpoints, implementing MLOps workflows, or integrating LLMs/RAG
-  into the platform. Covers PyTorch, Scikit-learn, MLflow, feature engineering,
-  model monitoring, and automated retraining.
+  Production-grade ML engineering for ecommerce-review-analytics.
+  Use when: train/evaluate spam/sentiment/defect models, scraping pipeline,
+  MLOps, LLM integration, data augmentation, or deploy AI endpoints.
+  This skill auto-updates plan.md after each completed task.
 ---
 
-# Senior ML Engineer Skill
+# Senior ML Engineer — Ecommerce Review Analytics
 
-Skill chuyên biệt cho dự án **ecommerce-review-analytics**: xây dựng và vận hành các
-hệ thống ML phân tích review sản phẩm từ Tiki, Lazada, Shopee.
+## MANDATORY WORKFLOW — Read before doing anything
 
-## Project Context
+```
+STEP 1: Read plan.md
+        └── Identify which task the user is requesting
+        └── Check dependencies (what must be done first?)
+
+STEP 2: Execute the task
+        └── Follow patterns in this file
+        └── Do not skip checklist items
+
+STEP 3: Run quality gate
+        └── python .agents/skills/senior-ml-engineer/scripts/quality_gate.py --task <name>
+        └── If FAIL → auto-improve and re-run
+
+STEP 4: Update plan.md
+        └── Change [ ] → [x] for completed task
+        └── Record actual metrics
+        └── Write improvement suggestions
+
+STEP 5: Report to user (in Vietnamese)
+        └── Summarize what was done, results
+        └── Highlight next improvement opportunities
+```
+
+> CRITICAL: After every task, MUST update plan.md and run quality gate. No exceptions.
+
+---
+
+## Project Structure
 
 ```
 ecommerce-review-analytics/
-├── ai_engine/                  # Core ML: training, inference, text/image processing
-│   ├── text_processing/        # Augmentation, spam detection, sentiment
-│   ├── image_processing/       # Defect detection (baseline model đang dev)
-│   └── *.py                    # Model training & evaluation scripts
-├── scraping_agent/             # Data collection: Tiki / Lazada / Shopee
-│   └── scraper/direct/         # Site-specific scrapers (httpx + Playwright)
-├── scripts/                    # Training & evaluation entry points
+├── ai_engine/
+│   ├── text_processing/
+│   │   ├── spam_filter.py        ← 21 rule flags
+│   │   ├── augmentation.py       ← Back-translation vi→en→vi
+│   │   ├── sentiment_analysis.py ← Lexicon + Zero-shot + LLM fallback
+│   │   ├── preprocessor.py
+│   │   ├── embeddings.py
+│   │   └── vectorizers.py
+│   ├── image_processing/
+│   │   ├── defect_detection.py   ← ResNet50 + MobileNetV3
+│   │   └── augmentation/
+│   ├── llm_integration/
+│   │   └── llm_client.py         ← Gemini + OpenAI fallback
+│   └── models/                   ← .pkl, .pth artifacts
+├── scraping_agent/
+│   ├── scraper/dispatcher.py     ← 3-tier: Direct→Playwright→LLM
+│   └── similar_products_fetcher.py
+├── scripts/
 │   ├── train_spam_model.py
-│   └── evaluate_models.py
-├── web_platform/               # Backend API (Node.js) + frontend
-└── docs/                       # Experiment docs & evaluation reports
+│   ├── train_defect_model.py
+│   ├── evaluate_models.py
+│   └── prepare_dataset.py
+├── data/processed/
+└── .agents/skills/senior-ml-engineer/
+    ├── SKILL.md
+    ├── plan.md                   ← Task tracker (update after each task)
+    ├── scripts/
+    │   ├── quality_gate.py
+    │   ├── auto_train_pipeline.py
+    │   └── deploy_model.py
+    └── references/
 ```
 
-## When to Use This Skill
+---
 
-- Train hoặc evaluate spam/sentiment/image defect models
-- Thêm data augmentation pipeline hoặc feature engineering
-- Tích hợp model inference vào backend API
-- Thiết lập MLflow tracking, model versioning
-- Tối ưu scraping pipeline để thu thập training data
-- Implement RAG hoặc LLM integration cho review analysis
-- Debug model performance, xử lý class imbalance
+## Quality Targets
 
-## Quick Start
+| Model | Metric | Pass | Fail |
+|-------|--------|------|------|
+| Spam detection | F1 macro | ≥ 0.90 | < 0.80 |
+| Sentiment | F1 macro | ≥ 0.82 | < 0.70 |
+| Defect detection | F1 macro | ≥ 0.85 | < 0.75 |
+| Inference | ms/req | < 200 | > 500 |
+| Scraping | success% | > 90% | < 70% |
 
-```bash
-# Train spam detection model
-python scripts/train_spam_model.py --config configs/spam.yaml
-
-# Evaluate models
-python scripts/evaluate_models.py --model-path models/spam_v2.pkl
-
-# Deploy model pipeline
-python scripts/model_deployment_pipeline.py --input data/ --output results/
-
-# Build RAG system
-python scripts/rag_system_builder.py --target ai_engine/ --analyze
-
-# Monitor ML metrics
-python scripts/ml_monitoring_suite.py --config config.yaml --deploy
-```
+---
 
 ## Tech Stack
 
 | Category | Tools |
 |---|---|
-| **ML Frameworks** | Scikit-learn, PyTorch, XGBoost, Transformers |
-| **Text Processing** | PhoBERT, underthesea, TextAugmentation |
-| **Data** | Pandas, NumPy, Playwright, httpx |
-| **Experiment Tracking** | MLflow, Weights & Biases |
-| **Deployment** | FastAPI, Docker, Redis (queue) |
-| **Monitoring** | Prometheus, custom drift detection |
+| ML | Scikit-learn, PyTorch, XGBoost, Transformers |
+| Vietnamese NLP | underthesea, PhoBERT (vinai/phobert-base) |
+| Augmentation | Back-translation (googletrans/deepl), Albumentations |
+| Tracking | MLflow, joblib |
+| Deployment | FastAPI:8000, Redis+BullMQ |
+| Scraping | Playwright, httpx, LLM fallback |
 
-## Development Workflow
+---
 
-### 1. Data Collection & Validation
+## Task Workflows
 
-- Scrape via `scraping_agent/` → validate schema → check class distribution
-- Log data stats (n_samples, label_ratio, source_breakdown) trước khi train
+### Train / Retrain Model
 
-### 2. Feature Engineering & Augmentation
+```bash
+# 1. Check data balance
+python scripts/prepare_dataset.py --check-balance
 
-- Text: tokenize, normalize Vietnamese, apply augmentation (`ai_engine/text_processing/augmentation.py`)
-- Image: resize, normalize, augment với albumentations (`ai_engine/image_processing/`)
-- Luôn fit transform trên train set, transform test set riêng biệt
+# 2. Augment if imbalance > 3x
+python ai_engine/text_processing/augmentation.py \
+    --data-path data/processed/reviews_labeled.csv \
+    --multiply 2 --output-path data/processed/reviews_augmented.csv
 
-### 3. Training
+# 3. Train
+python scripts/train_spam_model.py \
+    --data-path data/processed/reviews_augmented.csv \
+    --contamination 0.1 \
+    --save-path ai_engine/models/spam_iforest.pkl
 
-- Dùng MLflow để track experiments
-- Log: accuracy, F1, confusion matrix, training time
-- Lưu model artifact + preprocessing pipeline cùng nhau
+# 4. Evaluate
+python scripts/evaluate_models.py spam \
+    --model-path ai_engine/models/spam_iforest.pkl \
+    --data-path data/processed/reviews_test.csv
 
-### 4. Evaluation
-
-- Báo cáo: accuracy, precision, recall, F1, ROC-AUC
-- So sánh với baseline (simple heuristics)
-- Test trên real scraped data (out-of-distribution check)
-
-### 5. Deployment
-
-- Expose qua FastAPI endpoint trong `web_platform/backend/`
-- Queue inference nặng qua Redis worker (`web_platform/backend/queue/worker.mjs`)
-- Health check + fallback khi model unavailable
-
-## ML Engineering Checklist
-
-- [ ] Accuracy target đạt (spam: ≥ 90% F1)
-- [ ] Inference latency < 200ms/request
-- [ ] Model artifact versioned + reproducible
-- [ ] Data leakage không xảy ra (train/val/test split đúng)
-- [ ] Class imbalance được xử lý (oversampling / class weights)
-- [ ] Experiment logged đầy đủ trong MLflow
-- [ ] Model có thể load lại từ artifact (test pickle/joblib)
-- [ ] Monitoring alert khi accuracy drop > 5%
-
-## Reference Documentation
-
-| File | Nội dung |
-|---|---|
-| `references/mlops_production_patterns.md` | MLOps patterns: versioning, CI/CD cho model |
-| `references/llm_integration_guide.md` | Tích hợp LLM vào pipeline phân tích review |
-| `references/rag_system_architecture.md` | RAG architecture cho Q&A về sản phẩm |
-
-## Decision Tree: Chọn Approach
-
+# 5. Quality gate
+python .agents/skills/senior-ml-engineer/scripts/quality_gate.py \
+    --task spam_detection --model-path ai_engine/models/spam_iforest.pkl
 ```
-Task mới?
-├── Có data labeled?
-│   ├── Có → Train supervised model (spam/sentiment)
-│   └── Không → Dùng LLM zero-shot / thu thập label trước
-│
-├── Text hay Image?
-│   ├── Text → ai_engine/text_processing/
-│   └── Image → ai_engine/image_processing/
-│
-└── Scale data lớn (>100k)?
-    ├── Có → Batch processing qua Redis queue
-    └── Không → Inference trực tiếp qua API
+
+### Deploy Model
+
+```bash
+python .agents/skills/senior-ml-engineer/scripts/deploy_model.py \
+    --model-path ai_engine/models/spam_iforest.pkl --model-type spam
+
+curl -X POST http://localhost:8000/analyze-text \
+    -H "Content-Type: application/json" \
+    -d '{"text": "San pham tot", "rating": 5}'
 ```
+
+---
 
 ## Common Pitfalls
 
-- **Vietnamese text**: Dùng `underthesea` để tokenize, không dùng whitespace split
-- **Shopee price**: Giá Shopee × 100000, cần chia trước khi dùng làm feature
-- **Class imbalance spam**: Thường 80-90% không spam → dùng `class_weight='balanced'`
-- **Playwright timeout**: Tăng timeout lên 30s+ cho Lazada/Shopee (anti-bot chậm)
+| Pitfall | Correct | Wrong |
+|---------|---------|-------|
+| Vietnamese tokenize | `underthesea.word_tokenize(text)` | `text.split()` |
+| Shopee price | `price // 100_000` if > 10B | raw price |
+| Train/val split | `StratifiedShuffleSplit` | `train_test_split` |
+| Class imbalance | `class_weight='balanced'` | default |
+| CSV encoding | `encoding='utf-8-sig'` (Windows) | `utf-8` |
+
+---
+
+## plan.md Update Format (after each task)
+
+```markdown
+### [x] Task name
+
+**Completed:** DD/MM/YYYY HH:MM
+**Results:**
+- F1 Score: 0.921 (target ≥ 0.90) ✅
+- Latency: 145ms (target < 200ms) ✅
+
+**Notes:** Brief description of issues and solutions.
+
+**Improvement suggestions:**
+- [ ] Fine-tune PhoBERT to push F1 to 0.95+
+- [ ] Cache model to reduce latency below 50ms
+```
+
+---
+
+## Auto-Improvement Loop (when quality gate FAILS)
+
+```
+1. Diagnose:
+   - Low F1? → Check class imbalance → Increase augmentation multiply
+   - High latency? → Add model cache / batch inference
+   - Scrape fail? → Check anti-bot / add retry with backoff
+
+2. Auto-fix if possible:
+   - Increase n_estimators (Isolation Forest)
+   - Increase augmentation multiply
+   - Add request delay for scraper
+
+3. Retrain and re-evaluate
+
+4. If still FAIL after 3 attempts → Report to user with explanation
+```
+
+---
+
+## Quick Reference
+
+```bash
+# Full spam pipeline
+python scripts/train_spam_model.py \
+    --data-path data/processed/reviews.csv \
+    --output-csv data/processed/reviews_spam_labeled.csv
+
+# Sanity check all models
+python scripts/evaluate_models.py sanity
+
+# Augmentation demo
+python ai_engine/text_processing/augmentation.py --demo
+
+# Quality gate all
+python .agents/skills/senior-ml-engineer/scripts/quality_gate.py --task all
+
+# Deploy all models
+python .agents/skills/senior-ml-engineer/scripts/deploy_model.py --all
+```
