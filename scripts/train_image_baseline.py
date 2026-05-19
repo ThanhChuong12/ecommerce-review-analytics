@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 
 # Thêm project root vào sys.path để import ai_engine đúng
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from ai_engine.models.image_baseline import ImageBaselineModel
