@@ -190,3 +190,5 @@ def ask_llm(text: str) -> str:
     Backward-compatible helper.
     """
     return LLMFallbackClient().analyze(text).get("sentiment", "trung lập")
+
+# Cập nhật Chain-of-Thought (CoT) Prompt cho Gemini
