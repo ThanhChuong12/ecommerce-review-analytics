@@ -15,7 +15,7 @@ Experiments
 | EXP-4  | Yes      | Equal [1,1,1]|
 +--------+----------+--------------+
 
-Artifacts are saved to ``<project_root>/artifacts/models/``.
+Artifacts are saved to ``<project_root>/artifacts/models/baselines/``.
 
 Usage
 -----
@@ -42,7 +42,7 @@ from sklearn.model_selection import train_test_split
 # ---------------------------------------------------------------------------
 # Ensure the project root is importable regardless of how the script is invoked
 # ---------------------------------------------------------------------------
-_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 _DATA_PATH: str = os.path.join(_PROJECT_ROOT, "data", "processed", "processed_labeled_reviews.csv")
-_ARTIFACTS_DIR: str = os.path.join(_PROJECT_ROOT, "artifacts", "models")
+_ARTIFACTS_DIR: str = os.path.join(_PROJECT_ROOT, "artifacts", "models", "baselines")
 _TEXT_COL: str = "cleaned_text"
 _LABEL_COL: str = "sentiment_label"
 _TEST_SIZE: float = 0.20

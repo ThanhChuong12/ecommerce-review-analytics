@@ -80,3 +80,11 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
+
+# Bỏ qua toàn bộ nội dung trong thư mục models và plots
+artifacts/models/**/*
+artifacts/plots/**/*
+
+# NHƯNG giữ lại file .gitkeep để duy trì cấu trúc thư mục trên GitHub
+!artifacts/models/**/.gitkeep
+!artifacts/plots/**/.gitkeep
