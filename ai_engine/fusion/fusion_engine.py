@@ -1,0 +1,1 @@
+# Tính Trust Score từ PhoBERT + ResNet/CLIP (Cảm hứng từ MDSBR)

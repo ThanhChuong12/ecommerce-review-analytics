@@ -50,6 +50,8 @@ def _clean_text(text: str) -> str:
     Returns:
         Lightly cleaned string ready for the tokeniser.
     """
+    # Giới hạn dấu câu lặp lại (VD: !!! -> !!)
+    text = re.sub(r'([.?!])\1+', r'\1\1', text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 

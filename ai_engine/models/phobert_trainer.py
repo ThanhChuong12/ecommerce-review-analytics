@@ -74,10 +74,8 @@ class FocalLoss(nn.Module):
             raise ValueError(
                 f"alpha must have length {num_classes}, got {alpha.shape[0]}."
             )
-        # Normalise alpha so its mean == 1.0, preserving scale.
-        normalised = alpha / alpha.mean()
         # Register as buffer so it moves with .to(device) automatically.
-        self.register_buffer("alpha", normalised)
+        self.register_buffer("alpha", alpha)
         self.gamma = gamma
         self.num_classes = num_classes
         self.eps = eps
@@ -240,16 +238,18 @@ class FocalLossTrainer(Trainer):
             return alpha
 
         if class_counts is not None:
-            total = sum(class_counts.values())
-            weights = torch.tensor(
-                [
-                    total / (num_classes * class_counts.get(c, 1))
-                    for c in range(num_classes)
-                ],
-                dtype=torch.float,
-            )
+            # Sử dụng Square Root Smoothing để tránh alpha quá nhỏ cho lớp majority
+            counts = torch.tensor([class_counts.get(c, 1) for c in range(num_classes)], dtype=torch.float)
+            smoothed_counts = torch.sqrt(counts)
+            
+            # Trọng số tỷ lệ nghịch với căn bậc hai của số lượng
+            weights = 1.0 / smoothed_counts
+            
+            # Chuẩn hóa sao cho tổng các trọng số = num_classes (Trung bình = 1.0)
+            weights = weights / weights.sum() * num_classes
+            
             logger.info(
-                "Computed inverse-frequency alpha from class_counts %s → %s",
+                "Computed square-root smoothed alpha from class_counts %s → %s",
                 class_counts,
                 weights.tolist(),
             )
