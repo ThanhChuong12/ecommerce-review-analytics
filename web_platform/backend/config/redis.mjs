@@ -13,6 +13,8 @@ const redisConnection = new Redis({
     password: token,
     tls: {}, // bắt buộc cho upstash
     maxRetriesPerRequest: null, // bắt buộc cho bullMQ
+    // keepAlive: 10000,
+    // family: 0
 });
 
 

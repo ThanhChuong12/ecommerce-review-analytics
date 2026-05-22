@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Loader2, CheckCircle, AlertTriangle, MessageSquare, TrendingUp, Bot, Sparkles,
   ShieldAlert, ShieldCheck, AlertOctagon, Filter, Image as ImageIcon, List, ShoppingCart,
-  X, ArrowLeftIcon, Download
+  X, ArrowLeftIcon, Download, Smile, Frown
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
@@ -17,6 +17,109 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
 type Status = 'PROCESSING' | 'COMPLETED' | 'ERROR';
+
+// ─── Word Cloud ────────────────────────────────────────────────────────────
+type Kw = { text: string; value: number };
+type PlacedWord = {
+  text: string; cx: number; cy: number;
+  ww: number; wh: number;
+  fontSize: number; fontWeight: number; fill: string; vertical: boolean;
+};
+
+function placeWords(words: Kw[], W: number, H: number, colors: string[]): PlacedWord[] {
+  const sorted = [...words].sort((a, b) => b.value - a.value);
+  const maxV = sorted[0]?.value || 60;
+  const placed: PlacedWord[] = [];
+
+  sorted.forEach((word, idx) => {
+    const ratio = (word.value || 10) / maxV;
+    const fontSize = Math.round(11 + ratio * 38);
+    const fontWeight = ratio > 0.72 ? 900 : ratio > 0.48 ? 700 : ratio > 0.28 ? 600 : 500;
+    const cIdx = Math.min(Math.floor((1 - ratio) * colors.length), colors.length - 1);
+    const fill = colors[cIdx];
+    const vertical = idx === 2 || idx === 6 || idx === 10;
+
+    const charW = fontSize * 0.56;
+    const charH = fontSize * 1.25;
+    const ww = vertical ? charH * 1.05 : word.text.length * charW;
+    const wh = vertical ? word.text.length * charW : charH;
+
+    let ok = false;
+    for (let step = 0; step < 800; step++) {
+      const t = step * 0.15;
+      const r = 0.85 * t;
+      const cx = W / 2 + r * Math.cos(t);
+      const cy = H / 2 + r * Math.sin(t) * 0.72;
+      if (cx - ww / 2 < 3 || cy - wh / 2 < 3 || cx + ww / 2 > W - 3 || cy + wh / 2 > H - 3) continue;
+      let collide = false;
+      for (const p of placed) {
+        if (Math.abs(cx - p.cx) < (ww + p.ww) / 2 + 3 && Math.abs(cy - p.cy) < (wh + p.wh) / 2 + 3) {
+          collide = true; break;
+        }
+      }
+      if (!collide) { placed.push({ text: word.text, cx, cy, ww, wh, fontSize, fontWeight, fill, vertical }); ok = true; break; }
+    }
+    if (!ok) {
+      for (let a = 0; a < 30; a++) {
+        const cx = ww / 2 + 4 + Math.random() * (W - ww - 8);
+        const cy = wh / 2 + 4 + Math.random() * (H - wh - 8);
+        let collide = false;
+        for (const p of placed) {
+          if (Math.abs(cx - p.cx) < (ww + p.ww) / 2 + 2 && Math.abs(cy - p.cy) < (wh + p.wh) / 2 + 2) { collide = true; break; }
+        }
+        if (!collide) { placed.push({ text: word.text, cx, cy, ww, wh, fontSize, fontWeight, fill, vertical }); break; }
+      }
+    }
+  });
+  return placed;
+}
+
+const BLUE_SHADES = [
+  "fill-blue-800 dark:fill-blue-200",
+  "fill-blue-700 dark:fill-blue-300",
+  "fill-blue-600 dark:fill-blue-400",
+  "fill-blue-500 dark:fill-blue-400",
+  "fill-blue-500 dark:fill-blue-500",
+  "fill-blue-400 dark:fill-blue-500",
+  "fill-blue-400 dark:fill-blue-600",
+];
+const RED_SHADES = [
+  "fill-rose-800 dark:fill-rose-200",
+  "fill-rose-700 dark:fill-rose-300",
+  "fill-rose-600 dark:fill-rose-400",
+  "fill-rose-500 dark:fill-rose-400",
+  "fill-rose-500 dark:fill-rose-500",
+  "fill-rose-400 dark:fill-rose-500",
+  "fill-rose-400 dark:fill-rose-600",
+];
+
+function WordCloudSVG({ words, colors }: { words: Kw[]; colors: string[] }) {
+  const W = 520, H = 270;
+  const placed = useMemo(() => placeWords(words, W, H, colors), [words, colors]);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block", overflow: "visible" }}>
+      {placed.map((w, i) => (
+        <text
+          key={i}
+          x={w.cx}
+          y={w.cy}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={w.fontSize}
+          fontWeight={w.fontWeight}
+          className={w.fill}
+          transform={w.vertical ? `rotate(90,${w.cx},${w.cy})` : undefined}
+          style={{ cursor: "default", userSelect: "none", fontFamily: "'Quicksand',sans-serif", transition: "opacity .15s" }}
+          onMouseEnter={e => ((e.target as SVGTextElement).style.opacity = "0.65")}
+          onMouseLeave={e => ((e.target as SVGTextElement).style.opacity = "1")}
+        >
+          {w.text}
+        </text>
+      ))}
+    </svg>
+  );
+}
+// ───────────────────────────────────────────────────────────────────────────
 
 function AnalyzeContent() {
   const [status, setStatus] = useState<Status>('PROCESSING');
@@ -133,18 +236,26 @@ function AnalyzeContent() {
 
       const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/history/${targetId}/export`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
-        responseType: 'blob'
+        responseType: 'text'
       });
 
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `Report_${targetId}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.parentNode?.removeChild(link);
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.open();
+        printWindow.document.write(res.data);
+        printWindow.document.close();
+
+        // Đợi các tài nguyên (ảnh, font) tải xong rồi tự động in
+        printWindow.onload = () => {
+          setTimeout(() => {
+            printWindow.print();
+          }, 500);
+        };
+      } else {
+        alert('Vui lòng cho phép mở popup để có thể in báo cáo!');
+      }
     } catch (error) {
-      alert('Lỗi xuất file PDF! Hãy đảm bảo Backend đã cài đặt Puppeteer.');
+      alert('Lỗi xuất báo cáo PDF!');
       console.error(error);
     } finally {
       setIsExporting(false);
@@ -439,35 +550,36 @@ function AnalyzeContent() {
 
                 {/* UC4.3 Word Cloud / Keywords */}
                 {metadata.keywords && (
-                  <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-8">
-                    <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
-                      <MessageSquare className="w-6 h-6 text-blue-500 dark:text-blue-400" /> Từ Khóa Nổi Bật
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-6 border border-slate-100 dark:border-slate-700/50">
-                        <h4 className="font-semibold text-2xl font-momo text-blue-800 dark:text-blue-400 mb-6 text-center">Tích cực</h4>
-                        <div className="flex flex-wrap justify-center items-center gap-x-4 gap-y-2 px-4 py-8 bg-white dark:bg-slate-900/50 rounded-xl shadow-inner min-h-[250px]">
-                          {metadata.keywords.positive?.map((kw: any, i: number) => {
-                            const fontSize = Math.max(14, Math.min(36, kw.value || 14));
-                            const opacity = Math.max(0.4, (kw.value || 50) / 60);
-                            const fontWeight = kw.value > 40 ? 900 : kw.value > 25 ? 700 : 500;
-                            return (
-                              <span key={i} className="text-blue-600 dark:text-blue-400 leading-none inline-block hover:scale-110 transition-transform cursor-default text-center" style={{ fontSize: `${fontSize}px`, opacity, fontWeight }}>{kw.text || kw}</span>
-                            );
-                          })}
+                  <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 pt-6 overflow-hidden">
+                    <div className="px-6 border-b border-slate-100 dark:border-slate-800 pb-4">
+                      <h3 className="text-xl font-bold flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
+                        <MessageSquare className="w-5 h-5 text-blue-500" /> Từ Khóa Nổi Bật
+                      </h3>
+                    </div>
+                    <div className="flex flex-col md:flex-row overflow-hidden border border-slate-100 dark:border-slate-800 shadow-sm">
+                      {/* Left: Tích cực */}
+                      <div className="flex-1 bg-gradient-to-br from-slate-50 to-blue-50/80 dark:from-slate-800/50 dark:to-blue-900/20">
+                        <div className="flex justify-center items-center pt-6 pb-2">
+                          <div className="inline-flex items-center gap-2 px-6 py-2.5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-md border border-blue-200 dark:border-blue-500/30 shadow-[0_4px_12px_rgba(59,130,246,0.15)] rounded-full hover:scale-105 transition-transform cursor-default">
+                            <Smile className="w-5 h-5 text-blue-500" />
+                            <span className="font-bold text-blue-700 dark:text-blue-400 text-lg font-quicksand tracking-wide">Tích cực</span>
+                          </div>
+                        </div>
+                        <div className="px-2 pb-3">
+                          <WordCloudSVG words={metadata.keywords.positive} colors={BLUE_SHADES} />
                         </div>
                       </div>
-                      <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-6 border border-slate-100 dark:border-slate-700/50">
-                        <h4 className="font-semibold text-2xl font-momo text-rose-800 dark:text-rose-400 mb-6 text-center">Tiêu cực</h4>
-                        <div className="flex flex-wrap justify-center items-center gap-x-4 gap-y-2 px-4 py-8 bg-white dark:bg-slate-900/50 rounded-xl shadow-inner min-h-[250px]">
-                          {metadata.keywords.negative?.map((kw: any, i: number) => {
-                            const fontSize = Math.max(14, Math.min(36, kw.value || 14));
-                            const opacity = Math.max(0.4, (kw.value || 50) / 60);
-                            const fontWeight = kw.value > 40 ? 900 : kw.value > 25 ? 700 : 500;
-                            return (
-                              <span key={i} className="text-rose-600 dark:text-rose-400 leading-none inline-block hover:scale-110 transition-transform cursor-default text-center" style={{ fontSize: `${fontSize}px`, opacity, fontWeight }}>{kw.text || kw}</span>
-                            );
-                          })}
+
+                      {/* Right: Tiêu cực */}
+                      <div className="flex-1 bg-gradient-to-br from-slate-50 to-rose-50/80 dark:from-slate-800/50 dark:to-rose-900/20 border-t md:border-t-0 md:border-l border-white dark:border-slate-800">
+                        <div className="flex justify-center items-center pt-6 pb-2">
+                          <div className="inline-flex items-center gap-2 px-6 py-2.5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-md border border-rose-200 dark:border-rose-500/30 shadow-[0_4px_12px_rgba(244,63,94,0.15)] rounded-full hover:scale-105 transition-transform cursor-default">
+                            <Frown className="w-5 h-5 text-rose-500" />
+                            <span className="font-bold text-rose-700 dark:text-rose-400 text-lg font-quicksand tracking-wide">Tiêu cực</span>
+                          </div>
+                        </div>
+                        <div className="px-2 pb-3">
+                          <WordCloudSVG words={metadata.keywords.negative} colors={RED_SHADES} />
                         </div>
                       </div>
                     </div>
@@ -553,12 +665,12 @@ function AnalyzeContent() {
                                     ) : <span className="text-slate-400 italic text-xs">Không có</span>}
                                   </td>
                                   <td className="px-4 py-4">
-                                    <span className={`px-2 py-1 rounded text-xs font-semibold ${r.sentiment === 'positive' ? 'text-emerald-700 dark:text-emerald-400' : r.sentiment === 'negative' ? 'text-rose-700 dark:text-rose-400' : 'text-purple-700 dark:text-purple-400'}`}>
+                                    <span className={`px-2 py-1 rounded font-semibold ${r.sentiment === 'positive' ? 'text-emerald-700 dark:text-emerald-400' : r.sentiment === 'negative' ? 'text-rose-700 dark:text-rose-400' : 'text-purple-700 dark:text-purple-400'}`}>
                                       {r.sentiment === 'positive' ? 'Tích cực' : r.sentiment === 'negative' ? 'Tiêu cực' : 'Trung lập'}
                                     </span>
                                   </td>
                                   <td className="px-4 py-4">
-                                    <span className={`px-2 py-1 rounded text-xs font-semibold ${r.label === 'intact' ? 'text-emerald-700 dark:text-emerald-400' : r.label === 'damaged' ? 'text-rose-700 dark:text-rose-400' : r.label === 'wrong_item' ? 'text-amber-700 dark:text-amber-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                                    <span className={`px-2 py-1 rounded font-semibold ${r.label === 'intact' ? 'text-emerald-700 dark:text-emerald-400' : r.label === 'damaged' ? 'text-rose-700 dark:text-rose-400' : r.label === 'wrong_item' ? 'text-amber-700 dark:text-amber-400' : 'text-slate-700 dark:text-slate-300'}`}>
                                       {r.label === 'intact' ? 'Nguyên vẹn' : r.label === 'damaged' ? 'Móp méo' : r.label === 'wrong_item' ? 'Sai hàng' : 'Không liên quan'}
                                     </span>
                                   </td>
