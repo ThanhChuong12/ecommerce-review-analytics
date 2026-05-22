@@ -303,19 +303,7 @@ export const exportPDF = async (req, res) => {
             </body>
             </html>
         `;
-
-        const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-        const page = await browser.newPage();
-        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '30px', bottom: '30px', left: '30px', right: '30px' } });
-        await browser.close();
-
-        res.set({
-            'Content-Type': 'application/pdf',
-            'Content-Disposition': `attachment; filename="Report_${productId}.pdf"`,
-            'Content-Length': pdfBuffer.length
-        });
-        res.end(pdfBuffer);
+        res.status(200).send(htmlContent);
     } catch (error) {
         console.error("PDF Export Error:", error);
         return res.status(500).json({ error: 'Lỗi xuất file PDF' });
