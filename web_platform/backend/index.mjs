@@ -31,12 +31,11 @@ const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
     try {
-        // alter: true tự động map code model sinh ra bảng Postgres, đỡ phải viết file Migration
         await sequelize.sync({ alter: true });
         console.log('Đã đồng bộ Database (Postgres) thành công.');
 
         server.listen(PORT, () => {
-            console.log(`🔥 Node.js Server đang chạy trên port ${PORT}`);
+            console.log(`Node.js Server đang chạy trên port ${PORT}`);
         });
     } catch (error) {
         console.error('Lỗi khi khởi động server:', error);
