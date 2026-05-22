@@ -14,7 +14,8 @@ const Report = sequelize.define('Report', {
         references: { model: Product, key: 'id' }
     },
     summary_text: { type: DataTypes.TEXT },
-    risk_level: { type: DataTypes.STRING }
+    risk_level: { type: DataTypes.STRING },
+    metadata: { type: DataTypes.JSON }
 }, { tableName: 'reports', timestamps: true });
 
 export default Report;

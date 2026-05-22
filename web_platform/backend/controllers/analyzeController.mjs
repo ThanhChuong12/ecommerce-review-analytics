@@ -6,7 +6,6 @@ export const analyzeUrl = async (req, res) => {
         const { url, userId } = req.body;
         if (!url) return res.status(400).json({ error: 'Thiếu URL sản phẩm' });
 
-        // Nếu có userId truyền lên, hệ thống sẽ lưu vào kèm theo Product
         const product = await Product.create({
             url,
             status: 'PENDING',

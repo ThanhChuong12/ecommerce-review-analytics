@@ -3,17 +3,16 @@ import { getIo } from '../socket.mjs';
 
 export const finishedWebhook = async (req, res) => {
     try {
-        const { productId, productData, reviews, summary } = req.body;
-        console.log(`[Webhook] Nhận data hoàn tất từ Python cho Product ID: ${productId}`);
+        const { productId, productData, reviews, summary, metadata } = req.body;
 
-        // 1. Update Product info
+        // Update Product info
         await Product.update({
             name: productData.name,
             thumbnail: productData.thumbnail,
             status: 'COMPLETED'
         }, { where: { id: productId } });
 
-        // 2. BulkCreate 2000 reviews vào DB trong 1 nốt nhạc
+        // BulkCreate review vào DB
         if (reviews && reviews.length > 0) {
             const reviewRecords = reviews.map(r => ({
                 product_id: productId,
@@ -26,17 +25,18 @@ export const finishedWebhook = async (req, res) => {
             await Review.bulkCreate(reviewRecords);
         }
 
-        // 3. Lưu Report đánh giá rủi ro
+        // Lưu Report đánh giá rủi ro
         await Report.create({
             product_id: productId,
             summary_text: summary,
-            risk_level: 'Tính toán bên python' // Hoặc có thể thêm từ payload
+            risk_level: 'Tính toán bên python', // Hoặc có thể thêm từ payload
+            metadata: metadata || {}
         });
 
-        // 4. Báo Frontend render UI
+        // Báo Frontend render UI
         const io = getIo();
         io.to(`room-${productId}`).emit('finished', {
-            productId, productData, summary, reviews
+            productId, productData, summary, reviews, metadata
         });
 
         return res.status(200).json({ success: true, message: 'Node.js đã lưu DB xong.' });

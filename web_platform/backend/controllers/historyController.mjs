@@ -2,7 +2,6 @@ import { Product, Review, Report } from '../models/index.mjs';
 
 export const getHistoryList = async (req, res) => {
     try {
-        // Lấy ID chuẩn xác từ JWT Token (Hacker không thể làm giả được)
         const userId = req.user.id;
 
         const products = await Product.findAll({
@@ -22,7 +21,6 @@ export const getHistoryDetail = async (req, res) => {
         const userId = req.user.id;
 
         const product = await Product.findOne({
-            // Check chéo bảo mật: Sản phẩm này phải khớp ID với chủ nhân của Token mới cho xem
             where: { id: productId, userId: userId },
             include: [
                 { model: Review, as: 'reviews' },
@@ -42,7 +40,6 @@ export const deleteHistory = async (req, res) => {
         const { productId } = req.params;
         const userId = req.user.id;
 
-        // Chỉ cho phép xóa nếu sản phẩm đó thuộc về Token đang giữ
         const deletedCount = await Product.destroy({
             where: { id: productId, userId: userId }
         });
@@ -52,5 +49,275 @@ export const deleteHistory = async (req, res) => {
         return res.status(200).json({ success: true, message: 'Đã xoá lịch sử' });
     } catch (error) {
         return res.status(500).json({ error: 'Lỗi server' });
+    }
+};
+
+import puppeteer from 'puppeteer';
+
+export const exportPDF = async (req, res) => {
+    try {
+        const { productId } = req.params;
+        const userId = req.user.id;
+
+        const product = await Product.findOne({
+            where: { id: productId, userId: userId },
+            include: [
+                { model: Review, as: 'reviews' },
+                { model: Report, as: 'report' }
+            ]
+        });
+
+        if (!product) return res.status(404).json({ error: 'Không tìm thấy' });
+
+        const metadata = product.report?.metadata || {};
+        const reviews = product.reviews || [];
+        
+        let s = { positive: 0, neutral: 0, negative: 0 };
+        let l = { intact: 0, damaged: 0, wrong_item: 0, irrelevant: 0 };
+        let imagesHtml = '';
+        let reviewsHtml = '';
+        
+        reviews.forEach((r, idx) => {
+            if (s[r.sentiment] !== undefined) s[r.sentiment]++;
+            if (l[r.label] !== undefined) l[r.label]++;
+            
+            if (idx < 20) {
+                const sentClass = r.sentiment === 'positive' ? 'badge-pos' : r.sentiment === 'negative' ? 'badge-neg' : 'badge-neu';
+                const sentText = r.sentiment === 'positive' ? 'Tích cực' : r.sentiment === 'negative' ? 'Tiêu cực' : 'Trung lập';
+                const lblText = r.label === 'intact' ? 'Nguyên vẹn' : r.label === 'damaged' ? 'Hỏng/Móp' : r.label === 'wrong_item' ? 'Sai hàng' : 'Không l.quan';
+                
+                reviewsHtml += `
+                    <tr>
+                        <td><div style="color:#f59e0b;font-size:11px;">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>${r.review_text}</td>
+                        <td><span class="badge ${sentClass}">${sentText}</span></td>
+                        <td><span class="badge" style="background:#e2e8f0;color:#334">${lblText}</span></td>
+                    </tr>
+                `;
+            }
+            
+            if (r.image_path) {
+                const lblText = r.label === 'intact' ? 'Nguyên vẹn' : r.label === 'damaged' ? 'Hỏng/Móp' : r.label === 'wrong_item' ? 'Sai hàng' : 'Không l.quan';
+                const lblColor = r.label === 'intact' ? '#10b981' : r.label === 'damaged' ? '#ef4444' : r.label === 'wrong_item' ? '#f59e0b' : '#64748b';
+                imagesHtml += `
+                    <div class="image-card">
+                        <img src="${r.image_path}" alt="Review image">
+                        <div class="lbl" style="background: ${lblColor}">${lblText}</div>
+                    </div>
+                `;
+            }
+        });
+
+        const totalReviews = reviews.length || 1;
+        const totalImages = reviews.filter(r => r.image_path).length || 1;
+
+        const aspectsHtml = Object.entries(metadata.aspects || {}).map(([key, val]) => `
+            <div class="stat-row">
+                <div style="flex:1;">${key}</div>
+                <div style="width: 150px;">
+                    <div class="progress-bar"><div class="progress-fill" style="width: ${(val/5)*100}%; background: #d946ef;"></div></div>
+                </div>
+                <div style="width: 40px; text-align:right; font-weight:bold;">${val}/5</div>
+            </div>
+        `).join('');
+
+        const keywordsHtmlPos = (metadata.keywords?.positive || []).map(k => `<span class="kw pos">${k.text || k}</span>`).join('');
+        const keywordsHtmlNeg = (metadata.keywords?.negative || []).map(k => `<span class="kw neg">${k.text || k}</span>`).join('');
+
+        const altProductsHtml = (metadata.alternativeProducts || []).map(alt => `
+            <div class="box alt-product">
+                <img src="${alt.thumbnail}" alt="product">
+                <h4 style="font-size:12px; margin:10px 0 5px; height: 36px; overflow:hidden;">${alt.name}</h4>
+                <div style="color:#10b981; font-size:11px; margin-top:5px; font-weight:bold;">Trust Score: ${alt.trustScore}</div>
+            </div>
+        `).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html lang="vi">
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; line-height: 1.5; padding: 20px 40px; background: #fff; font-size: 14px; }
+                    .header { text-align: center; border-bottom: 3px solid #3b82f6; padding-bottom: 15px; margin-bottom: 25px; }
+                    .title { font-size: 28px; color: #1e40af; margin: 0; font-weight: 800; }
+                    .subtitle { color: #64748b; font-size: 13px; margin-top: 5px; }
+                    .section { margin-bottom: 25px; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; page-break-inside: avoid; }
+                    .section h2 { color: #0f172a; margin-top: 0; font-size: 18px; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 15px; }
+                    .flex { display: flex; gap: 15px; flex-wrap: wrap; }
+                    .box { flex: 1; min-width: 150px; background: white; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; text-align: center; }
+                    .box h3 { margin: 0 0 5px 0; color: #64748b; font-size: 12px; text-transform: uppercase; }
+                    .box .value { font-size: 26px; font-weight: bold; }
+                    .danger-box { background: #fff1f2; border: 1px solid #fecdd3; padding: 15px; border-radius: 12px; margin-bottom: 25px; }
+                    .danger-box h2 { color: #be123c; margin-top: 0; font-size: 18px; border-bottom: 1px solid #fda4af; padding-bottom: 8px; }
+                    
+                    .progress-bar { background: #e2e8f0; border-radius: 6px; overflow: hidden; height: 12px; margin-top: 4px; }
+                    .progress-fill { height: 100%; border-radius: 6px; }
+                    .stat-row { display: flex; justify-content: space-between; margin-bottom: 10px; align-items: center; }
+                    
+                    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+                    th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; vertical-align: top; }
+                    th { background: #e2e8f0; color: #334155; }
+                    
+                    .badge { padding: 3px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; display: inline-block; white-space: nowrap; }
+                    .badge-pos { background: #d1fae5; color: #065f46; }
+                    .badge-neg { background: #ffe4e6; color: #9f1239; }
+                    .badge-neu { background: #f3e8ff; color: #5b21b6; }
+                    
+                    .keywords { display: flex; gap: 6px; flex-wrap: wrap; }
+                    .kw { background: #fff; border: 1px solid #cbd5e1; padding: 3px 8px; border-radius: 15px; font-size: 12px; }
+                    .kw.pos { border-color: #10b981; color: #10b981; }
+                    .kw.neg { border-color: #ef4444; color: #ef4444; }
+
+                    .image-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+                    .image-card { border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; position: relative; }
+                    .image-card img { width: 100%; height: 90px; object-fit: cover; display: block; }
+                    .image-card .lbl { color: white; text-align: center; font-size: 10px; padding: 3px; font-weight: bold; }
+                    .alt-product { padding: 10px; }
+                    .alt-product img { width: 100%; height: 80px; object-fit: cover; border-radius: 4px; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h1 class="title">Báo Cáo Phân Tích Chuyên Sâu</h1>
+                    <div class="subtitle">Sản phẩm: <strong>${product.name}</strong><br>Trích xuất lúc: ${new Date().toLocaleString('vi-VN')}</div>
+                </div>
+                
+                <div class="flex" style="margin-bottom: 25px;">
+                    <div class="box">
+                        <h3>Tổng Đánh Giá</h3>
+                        <div class="value" style="color: #10b981;">${reviews.length}</div>
+                    </div>
+                    <div class="box">
+                        <h3>Trust Score</h3>
+                        <div class="value" style="color: #3b82f6;">${metadata.trustScore || 0}/100</div>
+                    </div>
+                    <div class="box">
+                        <h3>Tỷ lệ Spam</h3>
+                        <div class="value" style="color: #ef4444;">${metadata.spamPercentage || 0}%</div>
+                    </div>
+                </div>
+
+                ${metadata.smartAdvice ? `
+                <div class="danger-box">
+                    <h2>⚠️ Cảnh Báo & Gợi Ý</h2>
+                    <p style="color: #9f1239; font-size: 15px; margin: 0; font-weight: 500;">${metadata.smartAdvice}</p>
+                </div>
+                ` : ''}
+
+                <div class="section">
+                    <h2>1. Tổng Quan Cảm Xúc (AI Summary)</h2>
+                    <p style="font-size: 15px; font-style: italic; color: #334155; border-left: 4px solid #8b5cf6; padding-left: 15px; margin: 0;">"${product.report?.summary_text || 'Không có dữ liệu'}"</p>
+                </div>
+
+                <div class="flex" style="margin-bottom: 25px;">
+                    <div class="section" style="flex: 1; margin-bottom: 0;">
+                        <h2>2. Phân Bố Cảm Xúc & Nhãn Ảnh</h2>
+                        <div class="stat-row">
+                            <div style="width: 80px;">Tích cực</div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(s.positive/totalReviews)*100}%; background: #10b981;"></div></div></div>
+                            <div style="width: 30px; text-align:right;">${s.positive}</div>
+                        </div>
+                        <div class="stat-row">
+                            <div style="width: 80px;">Trung lập</div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(s.neutral/totalReviews)*100}%; background: #8b5cf6;"></div></div></div>
+                            <div style="width: 30px; text-align:right;">${s.neutral}</div>
+                        </div>
+                        <div class="stat-row">
+                            <div style="width: 80px;">Tiêu cực</div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(s.negative/totalReviews)*100}%; background: #ef4444;"></div></div></div>
+                            <div style="width: 30px; text-align:right;">${s.negative}</div>
+                        </div>
+                        <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 15px 0;">
+                        <div class="stat-row">
+                            <div style="width: 80px;">Nguyên vẹn</div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.intact/totalImages)*100}%; background: #10b981;"></div></div></div>
+                            <div style="width: 30px; text-align:right;">${l.intact}</div>
+                        </div>
+                        <div class="stat-row">
+                            <div style="width: 80px;">Hỏng/Móp</div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.damaged/totalImages)*100}%; background: #ef4444;"></div></div></div>
+                            <div style="width: 30px; text-align:right;">${l.damaged}</div>
+                        </div>
+                        <div class="stat-row">
+                            <div style="width: 80px;">Sai hàng</div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.wrong_item/totalImages)*100}%; background: #f59e0b;"></div></div></div>
+                            <div style="width: 30px; text-align:right;">${l.wrong_item}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="section" style="flex: 1; margin-bottom: 0;">
+                        <h2>3. Phân Tích Khía Cạnh (ABSA)</h2>
+                        ${aspectsHtml || '<p style="color:#64748b; font-style:italic;">Không có dữ liệu khía cạnh</p>'}
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>4. Từ Khóa Nổi Bật</h2>
+                    <div style="margin-bottom: 10px;">
+                        <strong>Điểm mạnh:</strong> 
+                        <div class="keywords" style="margin-top: 5px;">${keywordsHtmlPos || '<span style="color:#94a3b8">Không có</span>'}</div>
+                    </div>
+                    <div>
+                        <strong>Điểm yếu:</strong> 
+                        <div class="keywords" style="margin-top: 5px;">${keywordsHtmlNeg || '<span style="color:#94a3b8">Không có</span>'}</div>
+                    </div>
+                </div>
+
+                ${imagesHtml ? `
+                <div class="section">
+                    <h2>5. Hình Ảnh Đính Kèm</h2>
+                    <div class="image-grid">
+                        ${imagesHtml}
+                    </div>
+                </div>
+                ` : ''}
+
+                <div class="section">
+                    <h2>6. Chi Tiết Đánh Giá (Tối đa 20 review đầu)</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Nội dung</th>
+                                <th style="width:80px;">Cảm xúc</th>
+                                <th style="width:80px;">Nhãn ảnh</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${reviewsHtml || '<tr><td colspan="3" style="text-align:center;">Không có dữ liệu</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+
+                ${altProductsHtml ? `
+                <div class="section">
+                    <h2>7. Sản Phẩm Thay Thế Tương Tự</h2>
+                    <div class="flex">
+                        ${altProductsHtml}
+                    </div>
+                </div>
+                ` : ''}
+
+                <div style="text-align: center; margin-top: 30px; color: #94a3b8; font-size: 12px; border-top: 1px solid #e2e8f0; padding-top: 15px;">
+                    Báo cáo được tạo tự động bởi Hệ thống Phân tích Đa phương thức AI &copy; ${new Date().getFullYear()}
+                </div>
+            </body>
+            </html>
+        `;
+
+        const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+        const page = await browser.newPage();
+        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '30px', bottom: '30px', left: '30px', right: '30px' } });
+        await browser.close();
+
+        res.set({
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename="Report_${productId}.pdf"`,
+            'Content-Length': pdfBuffer.length
+        });
+        res.end(pdfBuffer);
+    } catch (error) {
+        console.error("PDF Export Error:", error);
+        return res.status(500).json({ error: 'Lỗi xuất file PDF' });
     }
 };

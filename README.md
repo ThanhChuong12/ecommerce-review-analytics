@@ -249,16 +249,48 @@ Hệ thống nhận **URL sản phẩm** từ Tiki, Lazada, Shopee → scrape re
 - Redis (hoặc dùng Upstash)
 - PostgreSQL (hoặc dùng Supabase)
 
-### 1. Cài đặt Python dependencies
+### 1. Chạy project bằng Docker Compose (Khuyên dùng)
+
+Bạn có thể dễ dàng khởi động toàn bộ hệ thống (Frontend, Backend, AI Engine) chỉ với một lệnh Docker:
 
 ```bash
+docker-compose up --build
+```
+Hệ thống sẽ chạy ở các cổng:
+- **Frontend**: http://localhost:3000
+- **Backend Node.js**: http://localhost:5000
+- **AI Engine**: http://localhost:8000
+
+---
+
+### Chạy thủ công (Manual)
+
+#### 1. Cài đặt Python dependencies (Chế độ Mock Data)
+
+Để chạy thử giao diện web nhanh chóng mà không cần tải các model AI nặng (PyTorch, Transformers, v.v.), bạn chỉ cần cài các gói cơ bản sau:
+
+```bash
+cd ai_engine
+pip install fastapi uvicorn requests pydantic
+```
+**Ghi chú**: Khi nào cần chạy AI Models thật, hãy dùng lệnh:
+
+```bash
+cd ai_engine
 pip install -r requirements.txt
 ```
 
-### 2. Cài đặt Node.js dependencies
+#### 2. Cài đặt Node.js/React.js dependencies
 
+**Cho Backend:**
 ```bash
 cd web_platform/backend
+npm install
+```
+
+**Cho Frontend:**
+```bash
+cd web_platform/frontend
 npm install
 ```
 
@@ -327,21 +359,6 @@ def detect_defect_resnet(image_path: str) -> dict:
 Hiện tại `final_spam` (được sinh bởi model) đang được dùng làm ground-truth để evaluate chính model đó. Cần:
 1. Thu thập **ground-truth label thủ công** cho ít nhất 300-500 review.
 2. Dùng tập này để đánh giá precision/recall thực sự của SpamHybridModel.
-
-#### [Backend] Thêm timeout và retry cho BullMQ Worker
-
-```javascript
-// worker.mjs — thêm timeout
-await axios.post(`${PYTHON_API_URL}/process-job`, data, {
-    timeout: 300_000 // 5 phút
-});
-
-// BullMQ config
-const worker = new Worker('AnalysisQueue', handler, {
-    connection: redisConnection,
-    settings: { maxStalledCount: 1 }
-});
-```
 
 ---
 
