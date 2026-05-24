@@ -33,10 +33,7 @@ import pandas as pd
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
-# ── Force UTF-8 stdout ──────────────────────────────────────────────────────
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-
+# Removed global stdout/stderr reconfiguration to prevent import issues
 # ── Add project root to sys.path ────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -311,6 +308,10 @@ def print_spam_report(
 # ════════════════════════════════════════════════════════════════════════════
 
 def main() -> None:
+    # ── Force UTF-8 stdout/stderr ──────────────────────────────────────────
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(
         description="Train spam/seeding detection model (Rule-based + Isolation Forest)"
     )
