@@ -51,6 +51,7 @@ async def scrape(
     max_reviews: int  = 3000,
     llm_provider: str = "auto",
     headless: bool    = False,
+    filter_mode: str  = "max",
 ) -> int:
     """Route URL đến đúng scraper. Trả về số review đã lưu."""
 
@@ -66,10 +67,17 @@ async def scrape(
         scraper = LazadaScraper(headless=headless)
         return await scraper.run(url, output_path, fmt, max_reviews)
 
-    # ── Lớp 2b: Shopee — Playwright interception ─────────────────────────
+    # ── Lớp 2b: Shopee — httpx parallel + multi-type (v5) ───────────────
     if "shopee.vn" in url:
-        from scraper.direct.shopee import ShopeeScraper
-        scraper = ShopeeScraper(headless=headless)
+        from scraper.direct.shopee_fast import ShopeeParallelScraper
+        scraper = ShopeeParallelScraper(
+            concurrency  = 30,
+            api_limit    = 59,
+            headless     = headless,
+            humanize     = True,
+            human_preset = "careful",
+            filter_mode  = filter_mode,
+        )
         return await scraper.run(url, output_path, fmt, max_reviews)
 
     # ── Lớp 2c: Site lạ — Generic Playwright (tự detect API) ────────────
@@ -91,7 +99,14 @@ async def scrape(
         print("  [Dispatcher] Chuyển sang LLM agent...")
 
     # ── Lớp 3: LLM browser agent — fallback cuối cùng ───────────────────
-    from scraper.agent import scrape_reviews
+    try:
+        from scraper.agent import scrape_reviews
+    except ModuleNotFoundError as e:
+        print(f"\n  [Dispatcher] LLM Agent unavailable: {e}")
+        print("  Site nay khong co review API duoc nhan dien.")
+        print("  Can: pip install browser-use  hoac  viet scraper rieng cho site nay.")
+        return 0
+
     return await scrape_reviews(
         url=url,
         output_path=output_path,

@@ -16,6 +16,11 @@ Hỗ trợ: tiki.vn | thegioididong.com | lazada.vn
 #  ĐẶT DANH SÁCH URL CẦN CÀO VÀO ĐÂY
 # ============================================================
 URLS_TO_CRAWL: list[str] = [
+    # --- SHOPEE ---
+    #"https://shopee.vn/Senbenbao-Tai-Nghe-Bluetooth-5.3-Kh%C3%B4ng-D%C3%A2y-TWS-Pro4-K%C3%A8m-H%E1%BB%99p-S%E1%BA%A1c-%C4%90i%E1%BB%87n-Tho%E1%BA%A1i-i.888370483.25273889730",
+    #"https://shopee.vn/Loa-bluetooth-K12-Kh%C3%B4ng-D%C3%A2y-mini-K%C3%A8m-2-Micro-Thi%E1%BA%BFt-K%E1%BA%BF-Nh%E1%BB%8F-G%E1%BB%8Dn-Ti%E1%BB%87n-D%E1%BB%A5ng-OLIVO-i.664574434.28512742766",
+    #"https://shopee.vn/Tai-Nghe-Bluetooth-5.3-Baseus-WM01-TWS-Ch%E1%BB%91ng-%E1%BB%92n-i.131195741.6938221363",
+    #"https://shopee.vn/Tai-Nghe-A.K.G-C%C3%B3-D%C3%A2y-Jack-Type-C-3.5mm-H%E1%BB%97-Tr%E1%BB%A3-Android-PC-Laptop-%E2%80%93-M%C3%A0u-%C4%90en-i.533371118.25720935353",
     # --- TIKI ---
     #"https://tiki.vn/dien-thoai-samsung-galaxy-a36-5g-8gb-256gb-p277596856.html",
     #"https://tiki.vn/dien-thoai-xiaomi-redmi-15-8gb-128gb-hang-chinh-hang-p278796276.html",
@@ -29,38 +34,29 @@ URLS_TO_CRAWL: list[str] = [
     # --- TGDD ---
     #"https://www.thegioididong.com/dtdd/samsung-galaxy-a06-5g-6gb-128gb",
     #"https://www.thegioididong.com/dtdd/iphone-16-pro",
-    # "https://www.thegioididong.com/dtdd/iphone-15-pro-max-1tb",
     #"https://www.thegioididong.com/dtdd/iphone-15-pro-max-1tb",
     #"https://www.thegioididong.com/sac-dtdd/pin-sac-du-phong-10000mah-type-c-15w-ava-ds608a?utm_flashsale=1",
 
     # --- LAZADA ---
-    # "https://www.lazada.vn/products/pdp-i150498381-s158167954.html",
-    #"https://www.lazada.vn/products/pdp-i246452966-s316699339.html",
-    #"https://www.lazada.vn/products/pdp-i150498381-s158167954.html",
-    #"https://www.lazada.vn/products/pdp-i2756708-s3347924.html",
-    #"https://www.lazada.vn/products/trung-nguyen-legend-ca-phe-rang-xay-sang-tao-1-bich-340gr-i353468040-s578424935.html",
-    #"https://www.lazada.vn/products/pdp-i249064037-s327413856.html",
-    #"https://www.lazada.vn/products/pdp-i1538401873-s6471204336.html",
-    # "https://www.lazada.vn/products/pdp-i2763102767-s13733926756.html",
-    # "https://www.lazada.vn/products/pdp-i1597967647-s6853265058.html",
-    #"https://www.lazada.vn/products/pdp-i1465875113-s6080623320.html",
-    
-    # "https://www.lazada.vn/products/pdp-i1465875113-s6080623320.html",
-    # "https://www.lazada.vn/products/pdp-i2195318921-s10444957817.html",
-    # "https://www.lazada.vn/products/pdp-i386626369-s6969098092.html",
-    # "https://www.lazada.vn/products/pdp-i2403373830-s11789805280.html",
-    # "https://www.lazada.vn/products/pdp-i1201294236-s4480446952.html",
-    # "https://www.lazada.vn/products/pdp-i1441626229-s13748512620.html",
-    # "https://www.lazada.vn/products/pdp-i2322467271-s14759203112.html",
+    "https://www.lazada.vn/products/pdp-i150498381-s158167954.html",
+    "https://www.lazada.vn/products/pdp-i246452966-s316699339.html",
+    "https://www.lazada.vn/products/pdp-i2756708-s3347924.html",
+    "https://www.lazada.vn/products/trung-nguyen-legend-ca-phe-rang-xay-sang-tao-1-bich-340gr-i353468040-s578424935.html",
+    "https://www.lazada.vn/products/pdp-i249064037-s327413856.html",
+    "https://www.lazada.vn/products/pdp-i1538401873-s6471204336.html",
+    "https://www.lazada.vn/products/pdp-i2763102767-s13733926756.html",
+    "https://www.lazada.vn/products/pdp-i1597967647-s6853265058.html",
+    "https://www.lazada.vn/products/pdp-i1465875113-s6080623320.html",
 
 ]
 
 # ============================================================
 #  CẤU HÌNH
 # ============================================================
-MAX_REVIEWS: int     = 5_000   # Số review tối đa mỗi URL
+MAX_REVIEWS: int     = 0   # 0 = fetch all reviews per URL
 OUTPUT_DIR: str      = "data"   # Thư mục lưu CSV (tương đối với file này)
 LAZADA_HEADLESS: bool = False    # False = hiện browser để giải captcha tay nếu cần
+SHOPEE_FILTER: str   = "max"     # all | comment | media | max (để lấy nhiều nhất)
 # ============================================================
 
 import asyncio
@@ -99,6 +95,8 @@ def _site_label(url: str) -> str:
         return "tgdd"
     if "lazada.vn" in url:
         return "lazada"
+    if "shopee.vn" in url:
+        return "shopee"
     return "unknown"
 
 
@@ -218,8 +216,9 @@ async def _crawl_one(
         output_path=str(output_path),
         fmt="csv",
         max_reviews=MAX_REVIEWS,
-        llm_provider="auto",    # chỉ dùng Approach 1 — không cần LLM
+        llm_provider="auto",
         headless=LAZADA_HEADLESS,
+        filter_mode=SHOPEE_FILTER,
     )
     return total_saved
 
@@ -244,7 +243,7 @@ async def main() -> None:
             count = await _crawl_one(url, out_file, idx, len(URLS_TO_CRAWL))
             results.append({"url": url, "file": out_file.name, "count": count, "status": "OK"})
             csv_files.append(out_file)
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, asyncio.CancelledError):
             print("\n[!] Dừng theo yêu cầu người dùng.")
             results.append({"url": url, "file": out_file.name, "count": 0, "status": "STOPPED"})
             break

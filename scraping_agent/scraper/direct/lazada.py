@@ -1,20 +1,20 @@
 """
-LazadaScraper — Network Interception bằng Playwright, chỉ dùng phân trang.
+LazadaScraper â€” Network Interception báº±ng Playwright, chá»‰ dÃ¹ng phÃ¢n trang.
 
-Cơ chế:
-  1. Đăng ký listener page.on("response") để bắt MỌI review API response
-  2. Navigate + scroll → trang 1 tự động bị intercept
-  3. Click nút "Tiếp theo ›" lặp lại cho đến khi hết trang hoặc đủ max_reviews
+CÆ¡ cháº¿:
+  1. ÄÄƒng kÃ½ listener page.on("response") Ä‘á»ƒ báº¯t Má»ŒI review API response
+  2. Navigate + scroll â†’ trang 1 tá»± Ä‘á»™ng bá»‹ intercept
+  3. Click nÃºt "Tiáº¿p theo â€º" láº·p láº¡i cho Ä‘áº¿n khi háº¿t trang hoáº·c Ä‘á»§ max_reviews
 
-Tại sao không replay POST thủ công:
-  - Lazada API yêu cầu dynamic security tokens (_m_h5_tk, sign, t)
-    được tạo bởi browser JS — không thể tự sinh được từ ngoài.
-  - Để browser tự click → browser tự tạo token → ta chỉ intercept response.
+Táº¡i sao khÃ´ng replay POST thá»§ cÃ´ng:
+  - Lazada API yÃªu cáº§u dynamic security tokens (_m_h5_tk, sign, t)
+    Ä‘Æ°á»£c táº¡o bá»Ÿi browser JS â€” khÃ´ng thá»ƒ tá»± sinh Ä‘Æ°á»£c tá»« ngoÃ i.
+  - Äá»ƒ browser tá»± click â†’ browser tá»± táº¡o token â†’ ta chá»‰ intercept response.
 
 URL pattern:
   https://www.lazada.vn/products/{slug}-i{itemId}-s{skuId}.html
 
-API endpoint được intercept:
+API endpoint Ä‘Æ°á»£c intercept:
   POST https://acs-m.lazada.vn/h5/mtop.lazada.review.item.getpcreviewlist/1.0/
 """
 
@@ -35,16 +35,16 @@ from scraper.models import Review
 log = logging.getLogger("LazadaScraper")
 
 SESSION_DIR = Path("output") / "agent_sessions"
-PAGE_SIZE = 10  # fallback; actual size detected từ response đầu tiên
+PAGE_SIZE = 10  # fallback; actual size detected tá»« response Ä‘áº§u tiÃªn
 
-# Thời gian chờ (giây) mỗi chunk khi polling captcha
-CAPTCHA_POLL_CHUNK = 15.0
-# Thời gian tối đa chờ tự động trước khi hỏi người dùng
-CAPTCHA_AUTO_WAIT = 90.0
+# Thá»i gian chá» (giÃ¢y) má»—i chunk khi polling captcha
+CAPTCHA_POLL_CHUNK = 10.0
+# Thá»i gian tá»‘i Ä‘a chá» tá»± Ä‘á»™ng trÆ°á»›c khi há»i ngÆ°á»i dÃ¹ng
+CAPTCHA_AUTO_WAIT = 30.0
 
 _REVIEW_PATH = "mtop.lazada.review.item.getpcreviewlist"
 
-# Selectors cho nút "Trang tiếp" — Lazada dùng iweb-pagination-* (không phải ant-)
+# Selectors cho nÃºt "Trang tiáº¿p" â€” Lazada dÃ¹ng iweb-pagination-* (khÃ´ng pháº£i ant-)
 _NEXT_PAGE_SELECTORS = [
     "li.iweb-pagination-next:not(.iweb-pagination-disabled) button",
     "li.iweb-pagination-next:not(.iweb-pagination-disabled)",
@@ -52,7 +52,7 @@ _NEXT_PAGE_SELECTORS = [
     "button.iweb-pagination-item-link[aria-label*='next' i]:not([disabled])",
 ]
 
-# Selectors để cuộn đến khu vực review / pagination
+# Selectors Ä‘á»ƒ cuá»™n Ä‘áº¿n khu vá»±c review / pagination
 _REVIEW_SECTION_SELECTORS = [
     ".mod-reviews-pagination",
     ".iweb-pagination",
@@ -71,7 +71,7 @@ _REVIEW_SECTION_SELECTORS = [
 
 def _parse_ids(url: str) -> tuple[str, str]:
     """
-    Trả về (item_id, sku_id) từ Lazada product URL.
+    Tráº£ vá» (item_id, sku_id) tá»« Lazada product URL.
     Pattern: /products/{slug}-i{itemId}-s{skuId}.html
     """
     path = urlparse(url).path
@@ -81,7 +81,7 @@ def _parse_ids(url: str) -> tuple[str, str]:
     m = re.search(r"[/-]i(\d+)", path)
     if m:
         return m.group(1), ""
-    raise ValueError(f"Không tìm thấy itemId trong URL: {url}")
+    raise ValueError(f"KhÃ´ng tÃ¬m tháº¥y itemId trong URL: {url}")
 
 
 def _normalize_image_url(url: str) -> str:
@@ -95,7 +95,7 @@ def _parse_date(ts) -> str:
         if isinstance(ts, str) and len(ts) >= 10 and ts[0].isdigit():
             return ts[:10]
         if isinstance(ts, str) and any(
-            kw in ts for kw in ("tuần", "ngày", "tháng", "giờ", "phút")
+            kw in ts for kw in ("tuáº§n", "ngÃ y", "thÃ¡ng", "giá»", "phÃºt")
         ):
             return ts
         if str(ts).lstrip("-").isdigit():
@@ -110,7 +110,7 @@ def _parse_date(ts) -> str:
 
 
 def _extract_reviews_from_payload(data: dict) -> tuple[list[dict], int]:
-    """Trích (items, total) từ JSON payload của Lazada review API."""
+    """TrÃ­ch (items, total) tá»« JSON payload cá»§a Lazada review API."""
     data2 = data.get("data") or {}
     module = data2.get("module") or {}
     items: list[dict] = module.get("reviews") or module.get("items") or []
@@ -125,7 +125,7 @@ def _extract_reviews_from_payload(data: dict) -> tuple[list[dict], int]:
 
 
 def _normalize_review(raw: dict, product_url: str, product_name: str) -> Review | None:
-    """Chuẩn hóa review từ raw dict → Review model."""
+    """Chuáº©n hÃ³a review tá»« raw dict â†’ Review model."""
     try:
         images: list[str] = []
         for media in raw.get("mediaList") or raw.get("images") or []:
@@ -156,7 +156,7 @@ def _normalize_review(raw: dict, product_url: str, product_name: str) -> Review 
         if not text:
             text = raw.get("reviewContent") or raw.get("content") or ""
 
-        # Thay \n, \r bằng space để tránh tạo extra rows trong CSV
+        # Thay \n, \r báº±ng space Ä‘á»ƒ trÃ¡nh táº¡o extra rows trong CSV
         clean_text = " ".join(str(text).split())
 
         return Review(
@@ -180,8 +180,8 @@ def _normalize_review(raw: dict, product_url: str, product_name: str) -> Review 
 
 class LazadaScraper:
     """
-    Lazada scraper dùng Playwright network interception + phân trang UI.
-    Interface: async run(url, output_path, fmt, max_reviews) → int.
+    Lazada scraper dÃ¹ng Playwright network interception + phÃ¢n trang UI.
+    Interface: async run(url, output_path, fmt, max_reviews) â†’ int.
     """
 
     SITE_NAME = "Lazada"
@@ -189,8 +189,8 @@ class LazadaScraper:
     def __init__(
         self,
         headless: bool = False,
-        max_pages: int = 100,
-        delay: float = 1.5,
+        max_pages: int = 200,
+        delay: float = 0.3,
     ):
         self.headless = headless
         self.max_pages = max_pages
@@ -198,6 +198,7 @@ class LazadaScraper:
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
         self._state_file = SESSION_DIR / "state_lazada.vn.json"
         self._seen: set[str] = set()
+        self._t0: float = 0  # start time for speed calc
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -210,9 +211,10 @@ class LazadaScraper:
         fmt: str = "csv",
         max_reviews: int = 3000,
     ) -> int:
-        """Scrape Lazada reviews và ghi ra file. Trả về số review đã lưu."""
-        print(f"  [{self.SITE_NAME}] Playwright pagination scraper")
-        print(f"  headless={self.headless} | max_reviews={max_reviews:,}")
+        """Scrape Lazada reviews vÃ  ghi ra file. Tráº£ vá» sá»‘ review Ä‘Ã£ lÆ°u."""
+        import time
+        print(f"  [{self.SITE_NAME}] CloakBrowser pagination scraper (optimized)")
+        print(f"  headless={self.headless} | max_reviews={max_reviews:,} | delay={self.delay}s")
 
         try:
             item_id, sku_id = _parse_ids(url)
@@ -224,7 +226,7 @@ class LazadaScraper:
         exporter = ReviewExporter(output_path, fmt)
         raw_reviews, product_name = await self._scrape_async(url, max_reviews)
 
-        # Normalize + export (không cần dedup lại vì đã xử lý ở tầng raw)
+        # Normalize + export (khÃ´ng cáº§n dedup láº¡i vÃ¬ Ä‘Ã£ xá»­ lÃ½ á»Ÿ táº§ng raw)
         batch: list[Review] = []
         for raw in raw_reviews:
             review = _normalize_review(raw, url, product_name)
@@ -232,28 +234,47 @@ class LazadaScraper:
                 batch.append(review)
 
         total_saved = exporter.save_batch(batch) if batch else 0
-        print(f"  [{self.SITE_NAME}] Tổng cộng đã lưu: {total_saved:,} reviews")
+        print(f"  [{self.SITE_NAME}] Tá»•ng cá»™ng Ä‘Ã£ lÆ°u: {total_saved:,} reviews")
         return total_saved
 
     # ------------------------------------------------------------------
-    # Core Playwright scraping
+    # Core scraping (CloakBrowser + retry)
     # ------------------------------------------------------------------
 
-    async def _scrape_async(self, product_url: str, max_reviews: int) -> list[dict]:
-        """
-        Mở browser, intercept review API responses trong khi click phân trang.
-        Trả về list raw review dicts (chưa normalize) và tên sản phẩm.
-        """
-        from playwright.async_api import async_playwright
+    async def _scrape_async(
+        self, product_url: str, max_reviews: int
+    ) -> tuple[list[dict], str]:
+        """Retry up to 3 times with exponential backoff."""
+        for attempt in range(3):
+            try:
+                result = await self._scrape_attempt(product_url, max_reviews)
+                if result[0]:
+                    return result
+                if attempt < 2:
+                    wait = 2 ** attempt
+                    log.warning("[Lazada] Attempt %d empty, retry in %ds", attempt + 1, wait)
+                    await asyncio.sleep(wait)
+            except Exception as exc:
+                if attempt == 2:
+                    log.error("[Lazada] All 3 attempts failed: %s", exc)
+                    return [], ""
+                wait = 2 ** attempt
+                log.warning("[Lazada] Attempt %d error: %s - retry in %ds", attempt + 1, exc, wait)
+                await asyncio.sleep(wait)
+        return [], ""
+
+    async def _scrape_attempt(
+        self, product_url: str, max_reviews: int
+    ) -> tuple[list[dict], str]:
+        """Single scrape attempt using CloakBrowser (or Playwright fallback)."""
+        from scraper.stealth_browser import launch_stealth_context
 
         all_raw: list[dict] = []
         total_on_server = 0
-        actual_page_size = PAGE_SIZE  # cập nhật từ response thực
+        actual_page_size = PAGE_SIZE
         page_num = 1
-        _seen_raw: set[str] = set()  # dedup ngay tại tầng raw
-        product_name: str = ''  # sẽ điền sau khi trang load
-
-        # asyncio.Event báo hiệu khi có response mới về
+        _seen_raw: set[str] = set()
+        product_name: str = ""
         got_response = asyncio.Event()
 
         async def _on_response(response) -> None:
@@ -266,7 +287,6 @@ class LazadaScraper:
                 items, total = _extract_reviews_from_payload(data)
                 new_items = []
                 for item in items:
-                    # Ưu tiên dùng reviewId (stable unique) làm dedup key
                     review_id = (
                         str(item.get("reviewId") or "")
                         or str(item.get("id") or "")
@@ -275,7 +295,6 @@ class LazadaScraper:
                     if review_id:
                         raw_key = f"id:{review_id}"
                     else:
-                        # Fallback: hash nội dung (kém unique hơn)
                         content_list = item.get("reviewContentList") or []
                         raw_text = (
                             content_list[0].get("content", "") if content_list
@@ -292,18 +311,15 @@ class LazadaScraper:
                         raw_key = hashlib.md5(
                             f"{str(raw_text)}|{ts}|{rating}|{reviewer}".encode()
                         ).hexdigest()
-
                     if raw_key not in _seen_raw:
                         _seen_raw.add(raw_key)
                         new_items.append(item)
-
                 if new_items:
-                    # Detect page size thực từ lần đầu nhận data
                     if actual_page_size == PAGE_SIZE:
                         actual_page_size = len(new_items)
                     all_raw.extend(new_items)
                     log.info(
-                        "[Lazada] +%d reviews (bỏ %d trùng, tổng: %d)",
+                        "[Lazada] +%d reviews (dedup %d, total: %d)",
                         len(new_items), len(items) - len(new_items), len(all_raw)
                     )
                 if total > total_on_server:
@@ -312,180 +328,195 @@ class LazadaScraper:
             except Exception as exc:
                 log.debug("[Lazada] Response parse error: %s", exc)
 
-
         try:
-            async with async_playwright() as pw:
-                browser = await pw.chromium.launch(
-                    headless=self.headless,
-                    args=[
-                        "--disable-blink-features=AutomationControlled",
-                        "--no-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--start-maximized",
-                    ],
-                )
+            import time
+            self._t0 = time.time()
+            context = await launch_stealth_context(
+                storage_state=str(self._state_file) if self._state_file.exists() else None,
+                headless=self.headless,
+                humanize=False,
+            )
+            page = await context.new_page()
+            page.on("response", _on_response)
 
-                ctx_kwargs: dict = {
-                    "user_agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/124.0.0.0 Safari/537.36"
-                    ),
-                    "locale": "vi-VN",
-                    "timezone_id": "Asia/Ho_Chi_Minh",
-                    "viewport": {"width": 1440, "height": 900},
-                    "extra_http_headers": {
-                        "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8",
-                    },
-                }
+            got_response.clear()
+            await page.goto(product_url, wait_until="domcontentloaded", timeout=35_000)
 
-                if self._state_file.exists():
-                    ctx_kwargs["storage_state"] = str(self._state_file)
-                    log.info("[Lazada] Reusing session")
+            # â”€â”€ Check for verification/captcha page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Lazada may redirect to a verification page before showing product
+            page_url = page.url.lower()
+            page_title = ""
+            try:
+                page_title = (await page.title()).lower()
+            except Exception:
+                pass
 
-                context = await browser.new_context(**ctx_kwargs)
-                await context.add_init_script(
-                    "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
-                )
-                page = await context.new_page()
-                page.on("response", _on_response)
+            is_verify_page = any(kw in page_url for kw in ["verify", "captcha", "security", "login"])
+            is_verify_page = is_verify_page or any(kw in page_title for kw in ["verify", "xÃ¡c minh", "security"])
 
-                # ── Bước 1: Mở trang sản phẩm và chờ review API ─────────────────
+            if is_verify_page and not self.headless:
+                bar = "â”€" * 60
+                print(f"\n  {bar}")
+                print(f"  [Lazada] ðŸ”’ TRÃŒNH DUYá»†T YÃŠU Cáº¦U XÃC THá»°C")
+                print(f"  {bar}")
+                print(f"  Lazada yÃªu cáº§u xÃ¡c minh báº¡n lÃ  ngÆ°á»i tháº­t.")
+                print(f"  ðŸ‘‰ HÃ£y hoÃ n táº¥t xÃ¡c thá»±c trong cá»­a sá»• browser.")
+                print(f"  Sau khi xong, trang sáº£n pháº©m sáº½ tá»± load láº¡i.")
+                print(f"  {bar}")
+
+                # Wait up to 120s for navigation away from verify page
+                for _ in range(24):  # 24 * 5s = 120s
+                    await page.wait_for_timeout(5000)
+                    cur_url = page.url.lower()
+                    if not any(kw in cur_url for kw in ["verify", "captcha", "security", "login"]):
+                        print("  [Lazada] âœ… XÃ¡c thá»±c thÃ nh cÃ´ng! Tiáº¿p tá»¥c...")
+                        await page.wait_for_timeout(2000)
+                        break
+                else:
+                    print("  [Lazada] âš ï¸ Háº¿t thá»i gian chá» xÃ¡c thá»±c (120s).")
+                    # Ask user
+                    loop = asyncio.get_event_loop()
+                    try:
+                        user_input = await loop.run_in_executor(
+                            None, lambda: input("  ÄÃ£ xÃ¡c thá»±c xong? [Enter=tiáº¿p tá»¥c / n=bá» qua]: ").strip().lower()
+                        )
+                    except (EOFError, KeyboardInterrupt):
+                        user_input = "n"
+                    if user_input == "n":
+                        await context.close()
+                        return [], ""
+
+            await page.evaluate("window.scrollBy(0, document.body.scrollHeight * 0.5)")
+            await page.wait_for_timeout(2000)
+
+            try:
+                h1_el = page.locator('h1').first
+                if await h1_el.count() > 0:
+                    product_name = (await h1_el.inner_text()).strip()
+                if not product_name:
+                    title = await page.title()
+                    product_name = title.split('|')[0].strip()
+            except Exception:
+                pass
+
+            print(
+                "  [Lazada] Waiting for review API...\n"
+                "  -> If captcha appears, solve it manually in the browser."
+            )
+
+            def _has_real_data() -> bool:
+                return len(all_raw) > 0 or total_on_server > 0
+
+            page1_ok = False
+
+            try:
+                await asyncio.wait_for(_await_event(got_response), timeout=30.0)
+                page1_ok = _has_real_data()
+            except asyncio.TimeoutError:
+                pass
+
+            if not page1_ok:
+                print("  [Lazada] Deep scroll to trigger review API...")
                 got_response.clear()
-                await page.goto(product_url, wait_until="domcontentloaded", timeout=35_000)
-                await page.evaluate("window.scrollBy(0, document.body.scrollHeight * 0.5)")
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 await page.wait_for_timeout(2000)
-
-                # Lấy tên sản phẩm từ <h1> hoặc title trang
                 try:
-                    h1_el = page.locator('h1').first
-                    if await h1_el.count() > 0:
-                        product_name = (await h1_el.inner_text()).strip()
-                    if not product_name:
-                        title = await page.title()
-                        # Title Lazada thường: "Tên sản phẩm | Lazada.vn"
-                        product_name = title.split('|')[0].strip()
-                except Exception:
-                    pass
-
-                print(
-                    "  [Lazada] Đang chờ review API...\n"
-                    "  ↳ Nếu thấy captcha/xác thực bot, hãy giải thủ công trong browser."
-                )
-
-                def _has_real_data() -> bool:
-                    """Lazada trả response với 0 items khi bị block → kiểm tra dữ liệu thực."""
-                    return len(all_raw) > 0 or total_on_server > 0
-
-                page1_ok = False
-
-                # ── Attempt 1: scroll 50%, chờ 30s ─────────────────────────
-                try:
-                    await asyncio.wait_for(_await_event(got_response), timeout=30.0)
+                    await asyncio.wait_for(_await_event(got_response), timeout=15.0)
                     page1_ok = _has_real_data()
                 except asyncio.TimeoutError:
                     pass
 
-                # ── Fallback 1: scroll sâu hơn (100%), chờ 15s ─────────────
-                if not page1_ok:
-                    print("  [Lazada] Thử scroll sâu hơn để trigger review API...")
-                    got_response.clear()
-                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    await page.wait_for_timeout(2000)
+            if not page1_ok:
+                print("  [Lazada] Trying to click review tab...")
+                for sel in ["[data-spm='tab_ratings']", "[class*='pdp-tabs'] a"]:
                     try:
-                        await asyncio.wait_for(_await_event(got_response), timeout=15.0)
-                        page1_ok = _has_real_data()
-                    except asyncio.TimeoutError:
-                        pass
+                        el = page.locator(sel).first
+                        if await el.count() > 0:
+                            got_response.clear()
+                            await el.click(timeout=3000)
+                            await page.wait_for_timeout(1500)
+                            try:
+                                await asyncio.wait_for(_await_event(got_response), timeout=10.0)
+                                if _has_real_data():
+                                    page1_ok = True
+                                    break
+                            except asyncio.TimeoutError:
+                                pass
+                    except Exception:
+                        continue
 
-                # ── Fallback 2: click tab "Đánh giá" ───────────────────────
-                if not page1_ok:
-                    print("  [Lazada] Thử click tab 'Đánh giá'...")
-                    tab_selectors = [
-                        "a:has-text('Đánh giá')",
-                        "a:has-text('đánh giá')",
-                        "[data-spm='tab_ratings']",
-                        "li:has-text('Đánh giá')",
-                        "button:has-text('Ratings')",
-                        "[class*='pdp-tabs'] a",
-                    ]
-                    for sel in tab_selectors:
-                        try:
-                            el = page.locator(sel).first
-                            if await el.count() > 0:
-                                got_response.clear()
-                                await el.click(timeout=3000)
-                                await page.wait_for_timeout(1500)
-                                try:
-                                    await asyncio.wait_for(_await_event(got_response), timeout=10.0)
-                                    if _has_real_data():
-                                        page1_ok = True
-                                        break
-                                except asyncio.TimeoutError:
-                                    pass
-                        except Exception:
-                            continue
-
-                # ── Fallback 3: dừng & hỏi người dùng cho đến khi giải xong ──
-                if not page1_ok:
-                    page1_ok = await _captcha_pause_and_resume(
-                        got_response=got_response,
-                        check_fn=_has_real_data,
-                        context="trang đầu tiên",
-                    )
-                    if not page1_ok:
-                        print(
-                            "  [Lazada] ❌ Người dùng bỏ qua xác thực ban đầu.\n"
-                            "  Thử xóa file session: output/agent_sessions/state_lazada.vn.json"
-                        )
-
-                pg1_count = len(all_raw)
-                print(
-                    f"  [OK] Trang 1: +{pg1_count} reviews"
-                    f" | Tổng trên server: {total_on_server:,}"
+            if not page1_ok:
+                page1_ok = await _captcha_pause_and_resume(
+                    got_response=got_response,
+                    check_fn=_has_real_data,
+                    context="page 1",
                 )
 
-                if not page1_ok:
-                    await browser.close()
-                    return all_raw, product_name
+            print(
+                f"  [OK] Page 1: +{len(all_raw)} reviews"
+                f" | Server total: {total_on_server:,}"
+            )
 
-                # Lưu session
-                try:
-                    await context.storage_state(path=str(self._state_file))
-                except Exception:
-                    pass
+            if not page1_ok:
+                await context.close()
+                return all_raw, product_name
 
-                # ── Bước 2: Cuộn đến pagination, click Next lặp lại ────────
-                await self._scroll_to_review_section(page)
+            try:
+                await context.storage_state(path=str(self._state_file))
+            except Exception:
+                pass
 
-                while len(all_raw) < max_reviews and page_num <= self.max_pages:
-                    # Dừng sớm nếu đã đủ trang (dùng actual_page_size, không phải PAGE_SIZE)
-                    if total_on_server > 0:
-                        total_pages = (total_on_server + actual_page_size - 1) // actual_page_size
-                        if page_num >= total_pages:
-                            print(
-                                f"  [Lazada] Đã duyệt hết {total_pages} trang "
-                                f"({total_on_server} reviews)."
-                            )
-                            break
+            await self._scroll_to_review_section(page)
 
-                    clicked = await self._click_next_page(page, got_response)
-                    if not clicked:
-                        print("  [Lazada] Không còn nút 'Tiếp theo' — dừng.")
+            target = max_reviews if max_reviews > 0 else total_on_server
+            stale_pages = 0  # pages with 0 new reviews
+            MAX_STALE_PAGES = 5  # stop after N consecutive stale pages
+
+            while (max_reviews == 0 or len(all_raw) < max_reviews) and page_num <= self.max_pages:
+                if total_on_server > 0:
+                    total_pages = (total_on_server + actual_page_size - 1) // actual_page_size
+                    if page_num >= total_pages:
+                        print(f"  [Lazada] Reached last page {total_pages}.")
                         break
 
-                    page_num += 1
-                    print(
-                        f"  [OK] Trang {page_num}: tổng tạm {len(all_raw):,}"
-                        f"/{total_on_server:,} reviews"
-                    )
-                    await page.wait_for_timeout(int(self.delay * 1000))
+                prev_count = len(all_raw)
+                clicked = await self._click_next_page(page, got_response)
+                if not clicked:
+                    print("  [Lazada] No more Next button.")
+                    break
 
-                await browser.close()
+                page_num += 1
+                new_this_page = len(all_raw) - prev_count
+
+                # Early stop: if N consecutive pages return 0 new reviews, stop
+                if new_this_page == 0:
+                    stale_pages += 1
+                    if stale_pages >= MAX_STALE_PAGES:
+                        print(f"  [Lazada] {MAX_STALE_PAGES} pages with 0 new reviews â€” stopping.")
+                        print(f"  [Lazada] Lazada caps reviews at ~{len(all_raw)} for this session.")
+                        break
+                else:
+                    stale_pages = 0
+
+                elapsed = time.time() - self._t0 if self._t0 else 0
+                speed = len(all_raw) / elapsed if elapsed > 0 else 0
+                remaining = max(0, target - len(all_raw))
+                eta = remaining / speed if speed > 0 else 0
+                eta_str = f"{eta/60:.1f}m" if eta > 60 else f"{eta:.0f}s"
+                pct = len(all_raw) / target * 100 if target > 0 else 0
+                # Only print every 5 pages to reduce noise (or always for pages with data)
+                if new_this_page > 0 or page_num % 5 == 0:
+                    print(
+                        f"  [OK] Page {page_num}: {len(all_raw):,}/{target:,} ({pct:.1f}%)"
+                        f" | {speed:.1f} rev/s | ETA {eta_str}"
+                    )
+                await page.wait_for_timeout(int(self.delay * 1000))
+
+            await context.close()
 
         except Exception as exc:
-            log.error("[Lazada] Lỗi: %s", exc, exc_info=True)
-            print(f"  [Lazada] ❌ {exc}")
+            log.error("[Lazada] Error: %s", exc, exc_info=True)
+            print(f"  [Lazada] Error: {exc}")
 
         return all_raw, product_name
 
@@ -494,48 +525,48 @@ class LazadaScraper:
     # ------------------------------------------------------------------
 
     async def _scroll_to_review_section(self, page) -> None:
-        """Cuộn đến khu vực đánh giá để pagination hiện ra."""
+        """Cuá»™n Ä‘áº¿n khu vá»±c Ä‘Ã¡nh giÃ¡ Ä‘á»ƒ pagination hiá»‡n ra."""
         for sel in _REVIEW_SECTION_SELECTORS:
             try:
                 el = page.locator(sel).first
                 if await el.count() > 0:
                     await el.scroll_into_view_if_needed(timeout=3000)
-                    await page.wait_for_timeout(600)
+                    await page.wait_for_timeout(300)
                     return
             except Exception:
                 continue
-        # Fallback: scroll đến cuối trang
+        # Fallback: scroll Ä‘áº¿n cuá»‘i trang
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await page.wait_for_timeout(600)
+        await page.wait_for_timeout(300)
 
     async def _click_next_page(self, page, got_response: asyncio.Event) -> bool:
         """
-        Click nút 'Trang tiếp theo' bằng JavaScript (primary) để tránh
-        vấn đề scroll/viewport khi pagination đổi dạng (ví dụ: < 1 … 5 6 7 … 8 >).
-        Playwright CSS click làm fallback.
-        Nếu không nhận được response sau 10s (có thể do captcha giữa chừng),
-        sẽ chờ tối đa CAPTCHA_WAIT_TIMEOUT giây để user giải thủ công.
-        Trả về True nếu click thành công VÀ nhận được review response mới.
+        Click nÃºt 'Trang tiáº¿p theo' báº±ng JavaScript (primary) Ä‘á»ƒ trÃ¡nh
+        váº¥n Ä‘á» scroll/viewport khi pagination Ä‘á»•i dáº¡ng (vÃ­ dá»¥: < 1 â€¦ 5 6 7 â€¦ 8 >).
+        Playwright CSS click lÃ m fallback.
+        Náº¿u khÃ´ng nháº­n Ä‘Æ°á»£c response sau 10s (cÃ³ thá»ƒ do captcha giá»¯a chá»«ng),
+        sáº½ chá» tá»‘i Ä‘a CAPTCHA_WAIT_TIMEOUT giÃ¢y Ä‘á»ƒ user giáº£i thá»§ cÃ´ng.
+        Tráº£ vá» True náº¿u click thÃ nh cÃ´ng VÃ€ nháº­n Ä‘Æ°á»£c review response má»›i.
         """
         clicked = await self._do_click_next(page, got_response)
         if not clicked:
             return False
 
-        # Nhận được response bình thường → tiếp tục
+        # Nháº­n Ä‘Æ°á»£c response bÃ¬nh thÆ°á»ng â†’ tiáº¿p tá»¥c
         got = await self._wait_for_response_or_captcha(page, got_response)
         return got
 
     async def _do_click_next(self, page, got_response: asyncio.Event) -> bool:
         """
-        Thực hiện click nút Next (JS primary → Playwright fallback).
-        Trả về True nếu tìm thấy và click được nút, bất kể có response hay không.
+        Thá»±c hiá»‡n click nÃºt Next (JS primary â†’ Playwright fallback).
+        Tráº£ vá» True náº¿u tÃ¬m tháº¥y vÃ  click Ä‘Æ°á»£c nÃºt, báº¥t ká»ƒ cÃ³ response hay khÃ´ng.
         """
-        # ── Primary: JavaScript click (bypass scroll & viewport) ──────────
+        # â”€â”€ Primary: JavaScript click (bypass scroll & viewport) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         try:
             got_response.clear()
             was_clicked: bool = await page.evaluate("""
                 () => {
-                    // Lazada dùng iweb-pagination-* (không phải ant-pagination-*)
+                    // Lazada dÃ¹ng iweb-pagination-* (khÃ´ng pháº£i ant-pagination-*)
                     const candidates = [
                         'li.iweb-pagination-next:not(.iweb-pagination-disabled) button',
                         'li.iweb-pagination-next:not(.iweb-pagination-disabled)',
@@ -558,7 +589,7 @@ class LazadaScraper:
         except Exception as exc:
             log.debug("[Lazada] JS click failed: %s", exc)
 
-        # ── Fallback: Playwright locator click ────────────────────────────
+        # â”€â”€ Fallback: Playwright locator click â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         await self._scroll_to_review_section(page)
         for sel in _NEXT_PAGE_SELECTORS:
             try:
@@ -581,24 +612,24 @@ class LazadaScraper:
         self, page, got_response: asyncio.Event
     ) -> bool:
         """
-        Chờ review API response sau khi click Next.
-        - Nếu nhận được trong 10s → trả về True ngay.
-        - Nếu không → dừng & hỏi người dùng tương tác để tiếp tục,
-          không giới hạn số lần giải captcha.
+        Chá» review API response sau khi click Next.
+        - Náº¿u nháº­n Ä‘Æ°á»£c trong 10s â†’ tráº£ vá» True ngay.
+        - Náº¿u khÃ´ng â†’ dá»«ng & há»i ngÆ°á»i dÃ¹ng tÆ°Æ¡ng tÃ¡c Ä‘á»ƒ tiáº¿p tá»¥c,
+          khÃ´ng giá»›i háº¡n sá»‘ láº§n giáº£i captcha.
         """
-        # ── Bình thường: chờ 10s ──────────────────────────────────────────
+        # â”€â”€ BÃ¬nh thÆ°á»ng: chá» 10s â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         try:
-            await asyncio.wait_for(_await_event(got_response), timeout=10.0)
+            await asyncio.wait_for(_await_event(got_response), timeout=5.0)
             return True
         except asyncio.TimeoutError:
             pass
 
-        # ── Hết 10s mà không có response → nghi captcha ──────────────────
-        # Nếu _await_event không timeout = response đã về → check_fn luôn True
+        # â”€â”€ Háº¿t 10s mÃ  khÃ´ng cÃ³ response â†’ nghi captcha â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # Náº¿u _await_event khÃ´ng timeout = response Ä‘Ã£ vá» â†’ check_fn luÃ´n True
         return await _captcha_pause_and_resume(
             got_response=got_response,
             check_fn=lambda: True,
-            context="phân trang",
+            context="phÃ¢n trang",
         )
 
 
@@ -608,7 +639,7 @@ class LazadaScraper:
 
 
 async def _await_event(event: asyncio.Event) -> None:
-    """Chờ asyncio.Event được set (polling nhẹ 50ms)."""
+    """Chá» asyncio.Event Ä‘Æ°á»£c set (polling nháº¹ 50ms)."""
     while not event.is_set():
         await asyncio.sleep(0.05)
     event.clear()
@@ -617,20 +648,20 @@ async def _await_event(event: asyncio.Event) -> None:
 async def _captcha_pause_and_resume(
     got_response: asyncio.Event,
     check_fn,
-    context: str = "phân trang",
+    context: str = "phÃ¢n trang",
 ) -> bool:
     """
-    Cơ chế pause & resume khi gặp captcha / bot-check:
+    CÆ¡ cháº¿ pause & resume khi gáº·p captcha / bot-check:
 
-    1. Chờ tự động CAPTCHA_AUTO_WAIT giây (polling CAPTCHA_POLL_CHUNK một lần)
-       → nếu response đến tự nhiên thì tiếp tục luôn.
-    2. Nếu vẫn không có → IN THÔNG BÁO RÕ RÀNG và hỏi người dùng:
-       - Nhấn Enter  → tiếp tục chờ thêm (có thể nhiều lần)
-       - Nhập 'n'    → bỏ qua, dừng scraping
-    Trả về True nếu cuối cùng nhận được dữ liệu, False nếu người dùng từ chối.
+    1. Chá» tá»± Ä‘á»™ng CAPTCHA_AUTO_WAIT giÃ¢y (polling CAPTCHA_POLL_CHUNK má»™t láº§n)
+       â†’ náº¿u response Ä‘áº¿n tá»± nhiÃªn thÃ¬ tiáº¿p tá»¥c luÃ´n.
+    2. Náº¿u váº«n khÃ´ng cÃ³ â†’ IN THÃ”NG BÃO RÃ• RÃ€NG vÃ  há»i ngÆ°á»i dÃ¹ng:
+       - Nháº¥n Enter  â†’ tiáº¿p tá»¥c chá» thÃªm (cÃ³ thá»ƒ nhiá»u láº§n)
+       - Nháº­p 'n'    â†’ bá» qua, dá»«ng scraping
+    Tráº£ vá» True náº¿u cuá»‘i cÃ¹ng nháº­n Ä‘Æ°á»£c dá»¯ liá»‡u, False náº¿u ngÆ°á»i dÃ¹ng tá»« chá»‘i.
     """
-    bar = "─" * 60
-    # Chờ tự động trước khi hỏi
+    bar = "â”€" * 60
+    # Chá» tá»± Ä‘á»™ng trÆ°á»›c khi há»i
     deadline = CAPTCHA_AUTO_WAIT
     while deadline > 0:
         got_response.clear()
@@ -638,43 +669,43 @@ async def _captcha_pause_and_resume(
         try:
             await asyncio.wait_for(_await_event(got_response), timeout=chunk)
             if check_fn():
-                print("  [Lazada] ✅ Tự động nhận được response — tiếp tục.")
+                print("  [Lazada] âœ… Tá»± Ä‘á»™ng nháº­n Ä‘Æ°á»£c response â€” tiáº¿p tá»¥c.")
                 return True
         except asyncio.TimeoutError:
             pass
         deadline -= chunk
         if deadline > 0:
-            print(f"  [Lazada] ⏳ Đang chờ tự động... còn {int(deadline)}s")
+            print(f"  [Lazada] â³ Äang chá» tá»± Ä‘á»™ng... cÃ²n {int(deadline)}s")
 
-    # --- Hết chờ tự động: yêu cầu người dùng xác nhận ---
+    # --- Háº¿t chá» tá»± Ä‘á»™ng: yÃªu cáº§u ngÆ°á»i dÃ¹ng xÃ¡c nháº­n ---
     while True:
         print(f"\n  {bar}")
-        print(f"  [Lazada] 🔒 BỊ CHẶN BOT ({context})")
+        print(f"  [Lazada] ðŸ”’ Bá»Š CHáº¶N BOT ({context})")
         print(f"  {bar}")
-        print("  Lazada đã kích hoạt captcha / xác thực bot.")
-        print("  👉 Hãy giải captcha trong cửa sổ browser đang mở.")
-        print("  Sau khi giải xong và thấy trang load lại bình thường:")
-        print("    ▸ Nhấn ENTER để tiếp tục thu thập dữ liệu")
-        print("    ▸ Nhập 'n' rồi Enter để dừng và lưu dữ liệu hiện có")
+        print("  Lazada Ä‘Ã£ kÃ­ch hoáº¡t captcha / xÃ¡c thá»±c bot.")
+        print("  ðŸ‘‰ HÃ£y giáº£i captcha trong cá»­a sá»• browser Ä‘ang má»Ÿ.")
+        print("  Sau khi giáº£i xong vÃ  tháº¥y trang load láº¡i bÃ¬nh thÆ°á»ng:")
+        print("    â–¸ Nháº¥n ENTER Ä‘á»ƒ tiáº¿p tá»¥c thu tháº­p dá»¯ liá»‡u")
+        print("    â–¸ Nháº­p 'n' rá»“i Enter Ä‘á»ƒ dá»«ng vÃ  lÆ°u dá»¯ liá»‡u hiá»‡n cÃ³")
         print(f"  {bar}")
 
-        # Đọc input trong thread riêng để không block event loop
+        # Äá»c input trong thread riÃªng Ä‘á»ƒ khÃ´ng block event loop
         loop = asyncio.get_event_loop()
         try:
             user_input = await loop.run_in_executor(
                 None,
-                lambda: input("  Bạn chọn [Enter/n]: ").strip().lower()
+                lambda: input("  Báº¡n chá»n [Enter/n]: ").strip().lower()
             )
         except (EOFError, KeyboardInterrupt):
-            print("\n  [Lazada] Dừng theo yêu cầu.")
+            print("\n  [Lazada] Dá»«ng theo yÃªu cáº§u.")
             return False
 
         if user_input == "n":
-            print("  [Lazada] 🛑 Người dùng chọn dừng — lưu dữ liệu đã có.")
+            print("  [Lazada] ðŸ›‘ NgÆ°á»i dÃ¹ng chá»n dá»«ng â€” lÆ°u dá»¯ liá»‡u Ä‘Ã£ cÃ³.")
             return False
 
-        # Người dùng nhấn Enter → chờ thêm CAPTCHA_AUTO_WAIT giây
-        print(f"  [Lazada] ⏳ Đang chờ response sau khi giải captcha ({int(CAPTCHA_AUTO_WAIT)}s)...")
+        # NgÆ°á»i dÃ¹ng nháº¥n Enter â†’ chá» thÃªm CAPTCHA_AUTO_WAIT giÃ¢y
+        print(f"  [Lazada] â³ Äang chá» response sau khi giáº£i captcha ({int(CAPTCHA_AUTO_WAIT)}s)...")
         deadline2 = CAPTCHA_AUTO_WAIT
         while deadline2 > 0:
             got_response.clear()
@@ -682,13 +713,13 @@ async def _captcha_pause_and_resume(
             try:
                 await asyncio.wait_for(_await_event(got_response), timeout=chunk)
                 if check_fn():
-                    print("  [Lazada] ✅ Nhận được response sau khi giải captcha — tiếp tục!")
+                    print("  [Lazada] âœ… Nháº­n Ä‘Æ°á»£c response sau khi giáº£i captcha â€” tiáº¿p tá»¥c!")
                     return True
             except asyncio.TimeoutError:
                 pass
             deadline2 -= chunk
             if deadline2 > 0:
-                print(f"  [Lazada] ⏳ Vẫn chờ... còn {int(deadline2)}s")
+                print(f"  [Lazada] â³ Váº«n chá»... cÃ²n {int(deadline2)}s")
 
-        # Vẫn không nhận được → hỏi lại
-        print("  [Lazada] ⚠️  Vẫn chưa nhận được dữ liệu sau khi giải. Thử lại?")
+        # Váº«n khÃ´ng nháº­n Ä‘Æ°á»£c â†’ há»i láº¡i
+        print("  [Lazada] âš ï¸  Váº«n chÆ°a nháº­n Ä‘Æ°á»£c dá»¯ liá»‡u sau khi giáº£i. Thá»­ láº¡i?")

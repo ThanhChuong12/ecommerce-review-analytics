@@ -167,7 +167,7 @@ def _parse_one_block(block: str, product_url: str, product_name: str = '') -> Re
 class TGDDScraper(BaseScraper):
 	SITE_NAME = 'TGDD'
 	PAGE_SIZE = 10
-	DELAY_SEC = 0.6
+	DELAY_SEC = 0.3
 
 	def __init__(self) -> None:
 		super().__init__()

@@ -91,6 +91,13 @@ Supported LLM providers (set the matching key in .env):
 		action='store_true',
 		help='Run browser without a visible window (not recommended for Shopee)',
 	)
+	parser.add_argument(
+		'--filter',
+		choices=['all', 'comment', 'media', 'max'],
+		default='max',
+		metavar='MODE',
+		help='Shopee filter mode: all | comment | media | max (default: max — combines all filters for max coverage)',
+	)
 
 	return parser.parse_args()
 
@@ -120,6 +127,7 @@ async def run(args: argparse.Namespace) -> int:
 		max_reviews=args.max_reviews,
 		llm_provider=args.llm,
 		headless=args.headless,
+		filter_mode=args.filter,
 	)
 
 
