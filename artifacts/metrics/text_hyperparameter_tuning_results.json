@@ -1,0 +1,134 @@
+{
+  "results": [
+    {
+      "model_name": "LogisticRegression",
+      "best_params": {
+        "clf__C": 1.0,
+        "clf__penalty": "l2",
+        "clf__solver": "lbfgs",
+        "tfidf__max_features": 10000,
+        "tfidf__ngram_range": [
+          1,
+          2
+        ]
+      },
+      "cv_best_f1": 0.5047743755211088,
+      "test_macro_f1": 0.5861676195204574,
+      "test_weighted_f1": 0.9360943652578448,
+      "elapsed_seconds": 4.663505700067617,
+      "save_path": "D:\\ecommerce-review-analytics\\artifacts\\models\\tuned\\tuned_logisticregression.pkl"
+    },
+    {
+      "model_name": "LinearSVC_Calibrated",
+      "best_params": {
+        "clf__estimator__C": 1.0,
+        "clf__estimator__max_iter": 2000,
+        "tfidf__max_features": 10000,
+        "tfidf__ngram_range": [
+          1,
+          2
+        ]
+      },
+      "cv_best_f1": 0.5159515727956506,
+      "test_macro_f1": 0.5706226350189199,
+      "test_weighted_f1": 0.9594007131938648,
+      "elapsed_seconds": 3.5883938999613747,
+      "save_path": "D:\\ecommerce-review-analytics\\artifacts\\models\\tuned\\tuned_linearsvc_calibrated.pkl"
+    },
+    {
+      "model_name": "RandomForest",
+      "best_params": {
+        "clf__max_depth": 20,
+        "clf__min_samples_leaf": 1,
+        "clf__n_estimators": 100,
+        "tfidf__max_features": 10000,
+        "tfidf__ngram_range": [
+          1,
+          2
+        ]
+      },
+      "cv_best_f1": 0.48134267373866607,
+      "test_macro_f1": 0.5320091324200913,
+      "test_weighted_f1": 0.9479527095625561,
+      "elapsed_seconds": 4.257569199893624,
+      "save_path": "D:\\ecommerce-review-analytics\\artifacts\\models\\tuned\\tuned_randomforest.pkl"
+    },
+    {
+      "model_name": "LogisticRegression_SMOTE",
+      "best_params": {
+        "clf__C": 1.0,
+        "clf__penalty": "l2",
+        "clf__solver": "lbfgs",
+        "smote__k_neighbors": 3,
+        "tfidf__max_features": 10000,
+        "tfidf__ngram_range": [
+          1,
+          2
+        ]
+      },
+      "cv_best_f1": 0.5354570110389509,
+      "test_macro_f1": 0.5915685499472677,
+      "test_weighted_f1": 0.9494008715504137,
+      "elapsed_seconds": 1.4876828999258578,
+      "save_path": "D:\\ecommerce-review-analytics\\artifacts\\models\\tuned\\tuned_logisticregression_smote.pkl"
+    },
+    {
+      "model_name": "LinearSVC_Calibrated_SMOTE",
+      "best_params": {
+        "clf__estimator__C": 0.5,
+        "clf__estimator__max_iter": 2000,
+        "smote__k_neighbors": 3,
+        "tfidf__max_features": 10000,
+        "tfidf__ngram_range": [
+          1,
+          2
+        ]
+      },
+      "cv_best_f1": 0.4534630968262525,
+      "test_macro_f1": 0.5395547232625885,
+      "test_weighted_f1": 0.9524084421862575,
+      "elapsed_seconds": 1.3873886000365019,
+      "save_path": "D:\\ecommerce-review-analytics\\artifacts\\models\\tuned\\tuned_linearsvc_calibrated_smote.pkl"
+    },
+    {
+      "model_name": "RandomForest_SMOTE",
+      "best_params": {
+        "clf__max_depth": 20,
+        "clf__min_samples_leaf": 1,
+        "clf__n_estimators": 100,
+        "smote__k_neighbors": 3,
+        "tfidf__max_features": 10000,
+        "tfidf__ngram_range": [
+          1,
+          2
+        ]
+      },
+      "cv_best_f1": 0.4754744150664599,
+      "test_macro_f1": 0.5133287620452481,
+      "test_weighted_f1": 0.9436720810305942,
+      "elapsed_seconds": 2.799739300040528,
+      "save_path": "D:\\ecommerce-review-analytics\\artifacts\\models\\tuned\\tuned_randomforest_smote.pkl"
+    },
+    {
+      "model_name": "TunedVotingEnsemble",
+      "best_params": {
+        "weights": [
+          0.5916,
+          0.5706,
+          0.532
+        ],
+        "max_features": 10000,
+        "ngram_range": [
+          1,
+          2
+        ]
+      },
+      "cv_best_f1": 0.5109170858577559,
+      "test_macro_f1": 0.5659505454222301,
+      "test_weighted_f1": 0.9559913520125084,
+      "elapsed_seconds": 0.41277789999730885,
+      "save_path": "D:\\ecommerce-review-analytics\\artifacts\\models\\tuned\\tuned_voting_ensemble.pkl"
+    }
+  ],
+  "best_model": "LogisticRegression_SMOTE"
+}
