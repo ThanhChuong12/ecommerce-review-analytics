@@ -27,12 +27,17 @@ From the project root directory::
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import sys
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
+
+# Force UTF-8 stdout/stderr to avoid cp1252 UnicodeEncodeError on Windows
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 import numpy as np
 import pandas as pd
@@ -186,7 +191,7 @@ def print_comparison_table(results: List[ExperimentResult]) -> None:
         )
     print(sep)
     best = max(results, key=lambda r: r.macro_f1)
-    print(f"\n  ★ Best macro-F1: {best.exp_id} — {best.name} ({best.macro_f1:.4f})")
+    print(f"\n  [BEST] Best macro-F1: {best.exp_id} - {best.name} ({best.macro_f1:.4f})")
     if best.final_weights:
         print(f"     Ensemble weights used [LR, SVM, RF]: {best.final_weights}")
     print("=" * 90 + "\n")
