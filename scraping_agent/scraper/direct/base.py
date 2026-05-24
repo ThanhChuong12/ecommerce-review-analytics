@@ -60,7 +60,7 @@ class BaseScraper(ABC):
 			if total_pages:
 				print(f'  Total pages: {total_pages}')
 
-			while total_saved < max_reviews:
+			while max_reviews == 0 or total_saved < max_reviews:
 				if total_pages and page > total_pages:
 					print('  All pages scraped.')
 					break

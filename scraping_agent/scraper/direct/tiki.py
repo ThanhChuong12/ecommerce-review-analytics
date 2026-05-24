@@ -32,7 +32,7 @@ _API_URL = 'https://tiki.vn/api/v2/reviews'
 class TikiScraper(BaseScraper):
 	SITE_NAME = 'Tiki'
 	PAGE_SIZE = 20
-	DELAY_SEC = 0.4
+	DELAY_SEC = 0.15
 
 	def __init__(self) -> None:
 		super().__init__()
