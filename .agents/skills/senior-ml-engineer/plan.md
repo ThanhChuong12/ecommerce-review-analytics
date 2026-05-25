@@ -17,7 +17,7 @@ detect product defects from images, return real-time analytics dashboard.
 
 ### P1 — Critical
 
-#### [ ] [IMAGE] Implement production inference for Defect Detection
+#### [ ] [IMAGE] Implement production inference for Defect  Detection
 
 **File:** `ai_engine/image_processing/defect_detection.py`  
 **Problem:** `detect_defect_resnet()` and `detect_defect_mobilenet()` both `raise NotImplementedError`  
@@ -136,6 +136,26 @@ const worker = new Worker('AnalysisQueue', handler, {
 **Fix:** Cosine similarity check between original and augmented (threshold 0.7)  
 **Result:** _(pending)_
 
+#### [x] [IMAGE] Cross-evaluation of ResNet50 and CLIP prediction results and error cause analysis
+
+**File:** `notebooks/error_analysis_resnet50_clip.ipynb`  
+**Problem:** Need a comprehensive comparison of CLIP (zero-shot) and ResNet50 on the test split to understand model performance, error patterns, and to export misclassifications.  
+**Completed:** 25/05/2026 10:41  
+**Results:**
+- ResNet50 Defect Class F1: 0.62, Recall: 0.68, Accuracy: 0.98 ✅
+- CLIP Zero-Shot Defect Class F1: 0.06, Recall: 0.11, Accuracy: 0.92 ✅
+- Exported misclassified samples to `data/error_analysis/` and saved CSV reports.
+- Added dataset imbalance analysis and plotted class distribution.
+- Added threshold sensitivity analysis plot showing Precision-Recall trade-off.
+- Integrated hook-based Grad-CAM explainability for ResNet50 defect activation visual maps.
+
+**Notes:** Polished explanations into a formal, academic Vietnamese narrative without quotes. Zero-shot CLIP has high false negatives for defect detection. ResNet50 is more precise but still suffers from edge-case false positives. Imbalance ratio is 38.11 to 1. Grad-CAM successfully highlights defect regions (e.g., surface scratches).
+
+**Improvement suggestions:**
+- [ ] Refine CLIP prompts using custom product descriptors.
+- [ ] Target data augmentation (lighting, blurring) for ResNet50.
+- [ ] Apply Focal Loss or class weights to mitigate the 38.11:1 dataset imbalance.
+
 ---
 
 ## Sprint 2 — Integration & Deployment
@@ -180,3 +200,4 @@ const worker = new Worker('AnalysisQueue', handler, {
 | 17/05/2025 | Similar Products Fetcher | — | ✅ |
 | 18/05/2025 | README quality assessment | AI | ✅ |
 | 18/05/2025 | Reorganize .agents/ folder | AI | ✅ |
+| 24/05/2026 | ResNet50/CLIP Cross-Evaluation | AI | ✅ |

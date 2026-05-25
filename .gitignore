@@ -80,6 +80,8 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
+.claude/
+
 
 # Bỏ qua toàn bộ nội dung trong thư mục models và plots
 artifacts/models/**/*
