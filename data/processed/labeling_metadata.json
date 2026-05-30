@@ -1,8 +1,0 @@
-{
-    "timestamp": "2026-04-30T10:42:13.085840",
-    "total_records": 4651,
-    "heuristic_labeled_records": 4473,
-    "llm_labeled_records": 178,
-    "llm_reliance_ratio": 0.0383,
-    "pipeline_stage": "01_Data_Preprocessing_and_Labeling"
-}
