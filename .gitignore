@@ -46,8 +46,6 @@ data.zip
 data/processed/training_images.zip
 ai_engine/models/*.pth
 # Chặn theo định dạng
-*.csv
-!data/processed/processed_labeled_reviews.csv
 *.mp4
 *.avi
 *.jpg
