@@ -251,7 +251,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data_path",
         type=str,
-        default="processed_labeled_reviews.csv",
+        default="data/processed/processed_labeled_all.csv",
         help="Path to the cleaned CSV dataset.",
     )
     parser.add_argument(

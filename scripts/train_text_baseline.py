@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-_DATA_PATH: str = os.path.join(_PROJECT_ROOT, "data", "processed", "processed_labeled_reviews.csv")
+_DATA_PATH: str = os.path.join(_PROJECT_ROOT, "data", "processed", "processed_labeled_all.csv")
 _ARTIFACTS_DIR: str = os.path.join(_PROJECT_ROOT, "artifacts", "models", "baselines")
 _TEXT_COL: str = "cleaned_text"
 _LABEL_COL: str = "sentiment_label"
