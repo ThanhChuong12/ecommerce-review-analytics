@@ -314,20 +314,22 @@ def main() -> None:
 
     # 1. Load data
     try:
-        X, y = load_data(_DATA_PATH)
+        # X, y = load_data(_DATA_PATH)
+        X_train, y_train = load_data("data/processed/processed_labeled_text_train.csv")
+        X_test, y_test = load_data("data/processed/processed_labeled_text_test.csv")
     except (FileNotFoundError, KeyError) as exc:
         logger.error("Data loading failed: %s", exc)
         sys.exit(1)
 
-    logger.info("Label distribution:\n%s", y.value_counts().to_string())
+    logger.info("Label distribution (Train):\n%s", y_train.value_counts().to_string())
 
-    # 2. Stratified 80/20 split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y,
-        test_size=_TEST_SIZE,
-        random_state=_RANDOM_STATE,
-        stratify=y,
-    )
+    # 2. Stratified split (Đã comment vì sử dụng dữ liệu cắt sẵn)
+    # X_train, X_test, y_train, y_test = train_test_split(
+    #     X, y,
+    #     test_size=_TEST_SIZE,
+    #     random_state=_RANDOM_STATE,
+    #     stratify=y,
+    # )
     logger.info(
         "Train/Test split: %d train samples | %d test samples",
         len(X_train),

@@ -701,20 +701,22 @@ def main() -> None:
                 "QUICK" if args.quick else "FULL", args.cv, args.n_jobs)
     logger.info("=" * 70)
 
-    # 1. Tải dữ liệu
+    # 1. Tải dữ liệu cắt sẵn
     try:
-        X, y = load_data(args.data_path)
+        # X, y = load_data(args.data_path)
+        X_train, y_train = load_data("data/processed/processed_labeled_text_train.csv")
+        X_test, y_test = load_data("data/processed/processed_labeled_text_test.csv")
     except (FileNotFoundError, KeyError) as exc:
         logger.error("Lỗi tải dữ liệu: %s", exc)
         sys.exit(1)
 
-    # 2. Stratified train/test split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y,
-        test_size=_TEST_SIZE,
-        random_state=_RANDOM_STATE,
-        stratify=y,
-    )
+    # 2. Stratified train/test split (Đã comment vì sử dụng dữ liệu cắt sẵn)
+    # X_train, X_test, y_train, y_test = train_test_split(
+    #     X, y,
+    #     test_size=_TEST_SIZE,
+    #     random_state=_RANDOM_STATE,
+    #     stratify=y,
+    # )
     logger.info("Train: %d mẫu | Test: %d mẫu", len(X_train), len(X_test))
 
     # 3. Lấy grids
