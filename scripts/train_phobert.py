@@ -161,65 +161,34 @@ def make_compute_metrics(id2label: Dict[int, str]):
 # Data loading
 # ---------------------------------------------------------------------------
 
-def load_and_split(
-    data_path: str,
+def load_datasets(
     text_column: str,
     label_column: str,
-    val_size: float,
-    seed: int,
 ) -> tuple:
-    """Load the CSV, drop bad rows, and return stratified train/val splits.
-
-    Args:
-        data_path: Path to the cleaned CSV file.
-        text_column: Column name containing review text.
-        label_column: Column name containing Vietnamese sentiment labels.
-        val_size: Fraction of data reserved for validation (0 < val_size < 1).
-        seed: Random seed for the stratified split.
-
-    Returns:
-        Tuple of ``(train_df, val_df)`` pandas DataFrames.
-
-    Raises:
-        FileNotFoundError: If the CSV does not exist.
-        ValueError: If required columns are missing.
+    """Load the pre-split CSVs, drop bad rows, and return train/val splits.
     """
-    path = Path(data_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Dataset not found: {path.resolve()}")
+    train_path = REPO_ROOT / "data" / "processed" / "processed_labeled_text_train.csv"
+    val_path = REPO_ROOT / "data" / "processed" / "processed_labeled_text_val.csv"
+    
+    if not train_path.exists() or not val_path.exists():
+        raise FileNotFoundError("Missing pre-split datasets in data/processed/")
 
-    logger.info("Loading dataset from %s …", path)
-    df = pd.read_csv(path)
-    logger.info("Raw shape: %s", df.shape)
+    logger.info("Loading pre-split datasets ...")
+    train_df = pd.read_csv(train_path)
+    val_df = pd.read_csv(val_path)
 
-    # Validate columns.
-    for col in (text_column, label_column):
-        if col not in df.columns:
-            raise ValueError(
-                f"Column '{col}' not found. Available: {df.columns.tolist()}"
-            )
-
-    # Drop rows with missing text or unknown labels.
     valid_labels = set(LABEL_MAP.keys())
-    df = df.dropna(subset=[text_column, label_column])
-    df = df[df[label_column].isin(valid_labels)].reset_index(drop=True)
-    logger.info("Usable rows after cleaning: %d", len(df))
+    
+    train_df = train_df.dropna(subset=[text_column, label_column])
+    train_df = train_df[train_df[label_column].isin(valid_labels)].reset_index(drop=True)
+    
+    val_df = val_df.dropna(subset=[text_column, label_column])
+    val_df = val_df[val_df[label_column].isin(valid_labels)].reset_index(drop=True)
 
-    # Log class distribution.
-    dist = df[label_column].value_counts()
-    logger.info("Label distribution:\n%s", dist.to_string())
-
-    # Stratified split to preserve class ratios in both sets.
-    train_df, val_df = train_test_split(
-        df,
-        test_size=val_size,
-        stratify=df[label_column],
-        random_state=seed,
-    )
-    logger.info(
-        "Split → train: %d rows, val: %d rows", len(train_df), len(val_df)
-    )
-    return train_df.reset_index(drop=True), val_df.reset_index(drop=True)
+    logger.info("Split → train: %d rows, val: %d rows", len(train_df), len(val_df))
+    
+    # Đoạn này không cần cắt train_test_split nữa vì đã có file cắt sẵn.
+    return train_df, val_df
 
 
 # ---------------------------------------------------------------------------
@@ -352,12 +321,9 @@ def main() -> None:
     logger.info("Model will be saved to: %s", output_dir.resolve())
 
     # ---- Data ---------------------------------------------------------------
-    train_df, val_df = load_and_split(
-        data_path=args.data_path,
+    train_df, val_df = load_datasets(
         text_column=args.text_column,
         label_column=args.label_column,
-        val_size=args.val_size,
-        seed=args.seed,
     )
 
     # Integer labels for the training set (needed for class-weight computation).
@@ -415,7 +381,7 @@ def main() -> None:
         weight_decay=args.weight_decay,
         warmup_ratio=0.1,             # ~10 % of steps for LR warm-up
         lr_scheduler_type="cosine",   # cosine decay after warm-up
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
         logging_strategy="steps",
         logging_steps=args.logging_steps,
