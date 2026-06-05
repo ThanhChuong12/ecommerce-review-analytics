@@ -56,6 +56,9 @@ from transformers import (
     TrainingArguments,
 )
 from transformers.trainer_utils import EvalPrediction
+import json
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # ---------------------------------------------------------------------------
 # Local imports – adjust path so the script works from the repo root
@@ -169,13 +172,15 @@ def load_datasets(
     """
     train_path = REPO_ROOT / "data" / "processed" / "processed_labeled_text_train.csv"
     val_path = REPO_ROOT / "data" / "processed" / "processed_labeled_text_val.csv"
+    test_path = REPO_ROOT / "data" / "processed" / "processed_labeled_text_test.csv"
     
-    if not train_path.exists() or not val_path.exists():
+    if not train_path.exists() or not val_path.exists() or not test_path.exists():
         raise FileNotFoundError("Missing pre-split datasets in data/processed/")
 
     logger.info("Loading pre-split datasets ...")
     train_df = pd.read_csv(train_path)
     val_df = pd.read_csv(val_path)
+    test_df = pd.read_csv(test_path)
 
     valid_labels = set(LABEL_MAP.keys())
     
@@ -185,10 +190,12 @@ def load_datasets(
     val_df = val_df.dropna(subset=[text_column, label_column])
     val_df = val_df[val_df[label_column].isin(valid_labels)].reset_index(drop=True)
 
-    logger.info("Split → train: %d rows, val: %d rows", len(train_df), len(val_df))
+    test_df = test_df.dropna(subset=[text_column, label_column])
+    test_df = test_df[test_df[label_column].isin(valid_labels)].reset_index(drop=True)
+
+    logger.info("Split → train: %d, val: %d, test: %d", len(train_df), len(val_df), len(test_df))
     
-    # Đoạn này không cần cắt train_test_split nữa vì đã có file cắt sẵn.
-    return train_df, val_df
+    return train_df, val_df, test_df
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +245,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="ai_engine/models/weights/phobert_best",
+        default="artifacts/model/tuned/phobert",
         help="Directory where the best model checkpoint is saved.",
     )
     parser.add_argument(
@@ -321,7 +328,7 @@ def main() -> None:
     logger.info("Model will be saved to: %s", output_dir.resolve())
 
     # ---- Data ---------------------------------------------------------------
-    train_df, val_df = load_datasets(
+    train_df, val_df, test_df = load_datasets(
         text_column=args.text_column,
         label_column=args.label_column,
     )
@@ -353,8 +360,16 @@ def main() -> None:
         max_length=args.max_length,
         pad_to_max_length=False,
     )
+    test_dataset = PhoBertReviewDataset.from_dataframe(
+        df=test_df,
+        text_column=args.text_column,
+        label_column=args.label_column,
+        tokenizer=tokenizer,
+        max_length=args.max_length,
+        pad_to_max_length=False,
+    )
     logger.info(
-        "Datasets ready – train: %d, val: %d", len(train_dataset), len(val_dataset)
+        "Datasets ready – train: %d, val: %d, test: %d", len(train_dataset), len(val_dataset), len(test_dataset)
     )
 
     # Dynamic-padding collator: pads each batch to its longest sequence.
@@ -372,14 +387,30 @@ def main() -> None:
     # ---- Training arguments -------------------------------------------------
     # Evaluation happens every epoch; ``load_best_model_at_end=True`` combined
     # with EarlyStoppingCallback ensures the best checkpoint is preserved.
+    # Load tuned parameters if available
+    tuned_params_file = REPO_ROOT / "artifacts" / "metrics" / "phobert_best_params.json"
+    lr = args.lr
+    weight_decay = args.weight_decay
+    warmup_ratio = 0.1
+    batch_size = args.batch_size
+    
+    if tuned_params_file.exists():
+        with open(tuned_params_file, "r") as f:
+            best_params = json.load(f)
+            lr = best_params.get("learning_rate", lr)
+            weight_decay = best_params.get("weight_decay", weight_decay)
+            warmup_ratio = best_params.get("warmup_ratio", warmup_ratio)
+            batch_size = best_params.get("per_device_train_batch_size", batch_size)
+            logger.info("Loaded tuned parameters: LR=%f, WD=%f, Warmup=%f, BatchSize=%d", lr, weight_decay, warmup_ratio, batch_size)
+
     training_args = TrainingArguments(
         output_dir=str(output_dir),
         num_train_epochs=args.epochs,
-        per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=args.batch_size,
-        learning_rate=args.lr,
-        weight_decay=args.weight_decay,
-        warmup_ratio=0.1,             # ~10 % of steps for LR warm-up
+        per_device_train_batch_size=batch_size,
+        per_device_eval_batch_size=batch_size,
+        learning_rate=lr,
+        weight_decay=weight_decay,
+        warmup_ratio=warmup_ratio,             # ~10 % of steps for LR warm-up
         lr_scheduler_type="cosine",   # cosine decay after warm-up
         eval_strategy="epoch",
         save_strategy="epoch",
@@ -425,23 +456,99 @@ def main() -> None:
     tokenizer.save_pretrained(str(output_dir))
 
     # Save training metrics alongside the model.
-    metrics_path = output_dir / "train_metrics.txt"
+    metrics_path = output_dir / "phobert_train_metrics.txt"
     with open(metrics_path, "w", encoding="utf-8") as f:
         for k, v in train_result.metrics.items():
             f.write(f"{k}: {v}\n")
     logger.info("Training metrics saved to %s", metrics_path)
 
-    # ---- Final evaluation ---------------------------------------------------
-    logger.info("Running final evaluation on validation set …")
-    eval_metrics = trainer.evaluate()
-    logger.info("Final eval metrics: %s", eval_metrics)
-
-    eval_path = output_dir / "eval_metrics.txt"
-    with open(eval_path, "w", encoding="utf-8") as f:
-        for k, v in eval_metrics.items():
+    metrics_txt_dir = REPO_ROOT / "artifacts" / "metrics"
+    metrics_txt_dir.mkdir(parents=True, exist_ok=True)
+    
+    # ---- Final evaluation on Validation Set ---------------------------------
+    logger.info("Đánh giá mô hình trên tập Val ...")
+    val_metrics = trainer.evaluate()
+    logger.info("Kết quả tập Val: %s", val_metrics)
+    
+    val_path = metrics_txt_dir / "phobert_val_metrics.txt"
+    with open(val_path, "w", encoding="utf-8") as f:
+        for k, v in val_metrics.items():
             f.write(f"{k}: {v}\n")
-    logger.info("Eval metrics saved to %s", eval_path)
-    logger.info("Done! Best model checkpoint: %s", output_dir.resolve())
+    logger.info("Đã lưu kết quả Val ra %s", val_path)
+
+    # ---- Final evaluation on Test Set ---------------------------------------
+    logger.info("Đánh giá mô hình trên tập Test ...")
+    test_result = trainer.predict(test_dataset)
+    test_metrics = test_result.metrics
+    logger.info("Kết quả tập Test: %s", test_metrics)
+
+    eval_path = metrics_txt_dir / "phobert_test_metrics.txt"
+    with open(eval_path, "w", encoding="utf-8") as f:
+        for k, v in test_metrics.items():
+            f.write(f"{k}: {v}\n")
+    logger.info("Đã lưu kết quả Test ra %s", eval_path)
+    
+    plot_out_dir = REPO_ROOT / "artifacts" / "plot"
+    plot_out_dir.mkdir(parents=True, exist_ok=True)
+    
+    # ---- Vẽ biểu đồ (Learning Curves & Confusion Matrix) --------------------
+    logger.info("Vẽ biểu đồ Learning Curves và Confusion Matrix...")
+    
+    # 1. Learning Curves
+    history = trainer.state.log_history
+    train_loss = [h["loss"] for h in history if "loss" in h and "epoch" in h]
+    val_loss = [h["eval_loss"] for h in history if "eval_loss" in h and "epoch" in h]
+    val_f1 = [h["eval_f1_macro"] for h in history if "eval_f1_macro" in h and "epoch" in h]
+    epochs_train = [h["epoch"] for h in history if "loss" in h]
+    epochs_val = [h["epoch"] for h in history if "eval_loss" in h]
+
+    # Plot Loss Curve
+    plt.figure(figsize=(8, 6))
+    if train_loss and epochs_train:
+        plt.plot(epochs_train, train_loss, label='Mất mát Huấn luyện', marker='o', color='#1f77b4')
+    if val_loss and epochs_val:
+        plt.plot(epochs_val, val_loss, label='Mất mát Kiểm định', marker='o', color='#ff7f0e')
+    plt.title('Biểu đồ hàm mất mát của mô hình PhoBERT', fontsize=15, pad=15)
+    plt.xlabel('Vòng lặp', fontsize=12)
+    plt.ylabel('Giá trị mất mát', fontsize=12)
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig(plot_out_dir / "phobert_loss_curve.png", dpi=300)
+    plt.close()
+    
+    # Plot F1-Score Curve
+    plt.figure(figsize=(8, 6))
+    if val_f1 and epochs_val:
+        plt.plot(epochs_val, val_f1, label='Điểm F1 kiểm định', marker='s', color='#2ca02c')
+    plt.title('Biểu đồ điểm F1 của mô hình PhoBERT', fontsize=15, pad=15)
+    plt.xlabel('Vòng lặp', fontsize=12)
+    plt.ylabel('Điểm F1', fontsize=12)
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig(plot_out_dir / "phobert_f1_curve.png", dpi=300)
+    plt.close()
+
+    # 2. Confusion Matrix
+    from sklearn.metrics import confusion_matrix
+    y_true = test_result.label_ids
+    y_pred = np.argmax(test_result.predictions, axis=1)
+    
+    cm = confusion_matrix(y_true, y_pred)
+    class_names = [ID_TO_LABEL[i] for i in range(NUM_LABELS)]
+    
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=class_names, yticklabels=class_names, annot_kws={"size": 12})
+    plt.title('Ma trận nhầm lẫn của mô hình PhoBERT trên tập kiểm tra', fontsize=15, pad=15)
+    plt.xlabel('Nhãn dự đoán', fontsize=12)
+    plt.ylabel('Nhãn thực tế', fontsize=12)
+    plt.tight_layout()
+    plt.savefig(plot_out_dir / "phobert_confusion_matrix.png", dpi=300)
+    plt.close()
+    
+    logger.info("Done! Đã lưu biểu đồ vào thư mục artifacts/plot/")
 
 
 if __name__ == "__main__":

@@ -172,10 +172,12 @@ class SpamHybridModel:
         self,
         contamination: float = 0.1,
         n_estimators: int = 200,
+        max_samples: float | str = "auto",
         random_state: int = 42,
     ) -> None:
         self.contamination = contamination
         self.n_estimators = n_estimators
+        self.max_samples = max_samples
         self.random_state = random_state
         self.scaler = StandardScaler()
         self.iforest: IsolationForest | None = None
@@ -201,6 +203,7 @@ class SpamHybridModel:
         self.iforest = IsolationForest(
             n_estimators=self.n_estimators,
             contamination=self.contamination,
+            max_samples=self.max_samples,
             random_state=self.random_state,
             n_jobs=-1,
         )
@@ -336,6 +339,10 @@ def main() -> None:
         help="Number of trees in Isolation Forest (default: 200)",
     )
     parser.add_argument(
+        "--max-samples", default="auto",
+        help="Number of samples to draw to train each base estimator (float or 'auto'). (default: auto)",
+    )
+    parser.add_argument(
         "--save-path", default="ai_engine/models/spam_iforest.pkl",
         help="Path to save the trained model (default: ai_engine/models/spam_iforest.pkl)",
     )
@@ -348,6 +355,14 @@ def main() -> None:
         help="Cosine similarity threshold for duplicate seeding detection (default: 0.85)",
     )
     args = parser.parse_args()
+
+    # Chuyển đổi max_samples thành số float nếu là chuỗi số
+    max_samples_val = args.max_samples
+    if max_samples_val != "auto":
+        try:
+            max_samples_val = float(max_samples_val)
+        except ValueError:
+            pass
 
     # ── Load data ──────────────────────────────────────────────────────────
     logger.info("Loading data from: %s", args.data_path)
@@ -378,6 +393,7 @@ def main() -> None:
     model = SpamHybridModel(
         contamination=args.contamination,
         n_estimators=args.n_estimators,
+        max_samples=max_samples_val,
     )
     model.fit(X)
 
