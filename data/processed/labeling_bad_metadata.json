@@ -1,0 +1,9 @@
+{
+    "timestamp": "2026-05-30T16:01:34.816606",
+    "source_file": "all_bad_reviews",
+    "total_records": 10313,
+    "heuristic_labeled_records": 9398,
+    "llm_labeled_records": 915,
+    "llm_reliance_ratio": 0.0887,
+    "pipeline_stage": "01_Data_Preprocessing_and_Labeling"
+}
