@@ -3,7 +3,7 @@ defect_detection.py
 -------------------
 Nhận diện hàng móp méo / lỗi bằng Transfer Learning:
   - ResNet50 (backbone mạnh hơn, chính xác hơn) — v2 với MLP head + FocalLoss
-  - MobileNet (nhẹ hơn, phù hợp inference nhanh)
+  - MobileNetV3-Large (nhẹ hơn, phù hợp inference nhanh, ~50ms/ảnh)
 
 Training pipeline v2:
   - Oversampling lớp defect (15x) để cân bằng dữ liệu 1:37 → 1:2.5
@@ -13,8 +13,11 @@ Training pipeline v2:
   - Early stopping theo Defect F1 (patience=5)
 
 Inference:
-  - detect_defect_resnet(): Inference với model đã train, hỗ trợ threshold tuning
+  - detect_defect_resnet(): ResNet50 — binary (defect/no-defect), threshold tuning
+  - detect_defect_mobilenet(): MobileNetV3 — 4 class (intact/damaged/wrong_item/irrelevant)
+  - detect_defect_mobilenet_batch(): MobileNetV3 batch inference
 """
+
 
 import logging
 import os
@@ -341,7 +344,9 @@ def detect_defect_resnet(
 
     # --- Tiền xử lý ảnh ---
     # Dùng normal_transform (chỉ resize + normalize, không augment)
+    # pyrefly: ignore [missing-import]
     import albumentations as A
+    # pyrefly: ignore [missing-import]
     from albumentations.pytorch import ToTensorV2
 
     preprocess = A.Compose([
@@ -378,40 +383,121 @@ def detect_defect_resnet(
     }
 
 
-def detect_defect_mobilenet(image_path: str) -> dict:
-    """Nhận diện hàng lỗi bằng MobileNet. Returns dict với label và confidence."""
-    raise NotImplementedError("TODO: Implement MobileNet inference here")
-
-
 # =============================================================================
-# DEMO ONLY — Xóa section này khi tích hợp vào production pipeline chính
-# Dùng bởi: demo_server.py
+# MobileNetV3 — Production Inference
 # =============================================================================
-_MOBILENET_WEIGHTS = os.getenv(
+
+_DEFAULT_MOBILENET_WEIGHTS = os.getenv(
     "MOBILENET_WEIGHTS_PATH",
     "ai_engine/models/weights/mobilenet_v3_defect.pt",
 )
 
-_mobilenet_model = None
+# Singleton cache — model chỉ load 1 lần duy nhất
+_mobilenet_model_cache = None
+_mobilenet_model_path_cache = None
 
 
-def _load_mobilenet_demo():
-    global _mobilenet_model
-    if _mobilenet_model is None:
-        from ai_engine.models.image_baseline import ImageBaselineModel
-        _mobilenet_model = ImageBaselineModel.load(_MOBILENET_WEIGHTS)
-        _logger.info("MobileNetV3 defect model loaded.")
-    return _mobilenet_model
+def _load_mobilenet_model(model_path: str = None):
+    """Load MobileNetV3 model với singleton cache.
 
+    Model chỉ load lại khi model_path thay đổi so với lần trước.
+    """
+    global _mobilenet_model_cache, _mobilenet_model_path_cache
 
-def detect_defect_mobilenet_demo(image_path: str) -> dict:
-    """[DEMO] Inference voi MobileNetV3 da train. Dung trong demo_server.py."""
-    if not os.path.exists(_MOBILENET_WEIGHTS):
-        raise RuntimeError(
-            f"Weights not found at '{_MOBILENET_WEIGHTS}'. "
-            "Run: python ai_engine/scripts/train_image_baseline.py"
+    if model_path is None:
+        model_path = _DEFAULT_MOBILENET_WEIGHTS
+
+    # Trả về cache nếu đã load cùng path
+    if _mobilenet_model_cache is not None and _mobilenet_model_path_cache == model_path:
+        return _mobilenet_model_cache
+
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(
+            f"Model checkpoint không tìm thấy tại '{model_path}'. "
+            "Chạy: python scripts/train_image_baseline.py --backbone mobilenet_v3"
         )
-    return _load_mobilenet_demo().predict(image_path)
-# =============================================================================
-# END DEMO
-# =============================================================================
+
+    from ai_engine.models.image_baseline import ImageBaselineModel
+
+    model = ImageBaselineModel.load(model_path)
+    _logger.info(
+        "Loaded MobileNetV3 defect model from '%s' (classes=%s)",
+        model_path, model.class_names,
+    )
+
+    # Cache lại
+    _mobilenet_model_cache = model
+    _mobilenet_model_path_cache = model_path
+
+    return model
+
+
+def detect_defect_mobilenet(
+    image_path: str,
+    model_path: str = None,
+) -> dict:
+    """Nhận diện tình trạng sản phẩm bằng MobileNetV3.
+
+    Sử dụng Transfer Learning (MobileNetV3-Large pretrained ImageNet)
+    đã fine-tune trên tập ảnh review sản phẩm TMĐT.
+
+    Args:
+        image_path (str): Đường dẫn tới ảnh cần phân loại.
+        model_path (str): Đường dẫn tới file weights (.pt).
+                          Mặc định: ai_engine/models/weights/mobilenet_v3_defect.pt.
+
+    Returns:
+        dict: {
+            "label": "intact" | "damaged" | "wrong_item" | "irrelevant",
+            "confidence": float (0.0 – 1.0),
+            "probabilities": {"intact": float, "damaged": float, ...},
+            "inference_ms": float,
+            "model_path": str,
+        }
+
+    Raises:
+        FileNotFoundError: Nếu model_path hoặc image_path không tồn tại.
+        ValueError: Nếu ảnh không thể đọc được.
+    """
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Ảnh không tồn tại: '{image_path}'")
+
+    model = _load_mobilenet_model(model_path=model_path)
+    result = model.predict(image_path)
+
+    # Thêm model_path vào output để traceability
+    result["model_path"] = model_path or _DEFAULT_MOBILENET_WEIGHTS
+    return result
+
+
+def detect_defect_mobilenet_batch(
+    image_paths: list,
+    model_path: str = None,
+    batch_size: int = 32,
+) -> list:
+    """Nhận diện tình trạng sản phẩm cho nhiều ảnh (batch inference).
+
+    Hiệu quả hơn gọi detect_defect_mobilenet() từng ảnh vì
+    gom nhiều ảnh vào 1 forward pass trên GPU/CPU.
+
+    Args:
+        image_paths (list[str]): Danh sách đường dẫn ảnh.
+        model_path (str): Đường dẫn tới file weights (.pt).
+        batch_size (int): Số ảnh xử lý mỗi lần forward pass.
+
+    Returns:
+        list[dict]: Danh sách kết quả, cùng thứ tự với image_paths.
+    """
+    model = _load_mobilenet_model(model_path=model_path)
+    results = model.predict_batch(image_paths, batch_size=batch_size)
+
+    # Thêm model_path vào mỗi result
+    used_path = model_path or _DEFAULT_MOBILENET_WEIGHTS
+    for r in results:
+        r["model_path"] = used_path
+    return results
+
+
+# Alias cho demo_server.py (backward compatible)
+detect_defect_mobilenet_demo = detect_defect_mobilenet
+

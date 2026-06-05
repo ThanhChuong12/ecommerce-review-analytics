@@ -9,7 +9,7 @@ from ai_engine.llm_integration.llm_client import LLMFallbackClient
 
 class TestLLMFallbackClientParsing(unittest.TestCase):
     def setUp(self) -> None:
-        self.client = LLMFallbackClient(provider="unknown")
+        self.client = LLMFallbackClient(provider="unknown") 
 
     def test_parse_valid_json(self) -> None:
         raw = '{"sentiment": "tích cực"}'
