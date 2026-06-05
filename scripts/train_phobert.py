@@ -449,7 +449,7 @@ def main() -> None:
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=collator,
         compute_metrics=make_compute_metrics(ID_TO_LABEL),
         callbacks=[
