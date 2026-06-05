@@ -131,14 +131,14 @@ def main():
         output_dir=str(output_dir),
         num_train_epochs=args.epochs,
         eval_strategy="epoch",
-        save_strategy="epoch",
+        save_strategy="no",          # Không lưu checkpoint khi tune → tránh đầy đĩa
         logging_strategy="epoch",
-        load_best_model_at_end=True,
+        load_best_model_at_end=False,  # Phải False khi save_strategy="no"
         metric_for_best_model="eval_f1_macro",
         greater_is_better=True,
         fp16=torch.cuda.is_available(),
         report_to="none",
-        disable_tqdm=True,
+        disable_tqdm=False,
     )
 
     # gamma sẽ được Optuna ghi đè trực tiếp lên trainer.gamma trong mỗi trial (xem optuna_hp_space)
