@@ -514,9 +514,9 @@ def main() -> None:
     # Plot Loss Curve
     plt.figure(figsize=(8, 6))
     if train_loss and epochs_train:
-        plt.plot(epochs_train, train_loss, label='Mất mát Huấn luyện', marker='o', color='#1f77b4')
+        plt.plot(epochs_train, train_loss, label='Mất mát huấn luyện', marker='o', color='#1f77b4')
     if val_loss and epochs_val:
-        plt.plot(epochs_val, val_loss, label='Mất mát Kiểm định', marker='o', color='#ff7f0e')
+        plt.plot(epochs_val, val_loss, label='Mất mát kiểm định', marker='o', color='#ff7f0e')
     plt.title('Biểu đồ hàm mất mát của mô hình PhoBERT', fontsize=15, pad=15)
     plt.xlabel('Vòng lặp', fontsize=12)
     plt.ylabel('Giá trị mất mát', fontsize=12)
@@ -545,11 +545,20 @@ def main() -> None:
     y_pred = np.argmax(test_result.predictions, axis=1)
 
     cm = confusion_matrix(y_true, y_pred)
-    class_names = [ID_TO_LABEL[i] for i in range(NUM_LABELS)]
+
+    # Thứ tự hiển thị: cột (trái→phải) = tích cực, trung lập, tiêu cực
+    #             hàng (dưới→trên) = tích cực, trung lập, tiêu cực
+    #             → từ trên xuống: tiêu cực, trung lập, tích cực
+    col_order = [LABEL_MAP['tích cực'], LABEL_MAP['trung lập'], LABEL_MAP['tiêu cực']]
+    row_order = [LABEL_MAP['tiêu cực'], LABEL_MAP['trung lập'], LABEL_MAP['tích cực']]
+
+    cm_reordered = cm[np.ix_(row_order, col_order)]
+    x_labels = [ID_TO_LABEL[i] for i in col_order]   # tích cực | trung lập | tiêu cực
+    y_labels = [ID_TO_LABEL[i] for i in row_order]   # tiêu cực | trung lập | tích cực (trên→dưới)
 
     plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=class_names, yticklabels=class_names, annot_kws={"size": 12})
+    sns.heatmap(cm_reordered, annot=True, fmt='d', cmap='Blues',
+                xticklabels=x_labels, yticklabels=y_labels, annot_kws={"size": 12})
     plt.title('Ma trận nhầm lẫn của mô hình PhoBERT trên tập kiểm tra', fontsize=15, pad=15)
     plt.xlabel('Nhãn dự đoán', fontsize=12)
     plt.ylabel('Nhãn thực tế', fontsize=12)
