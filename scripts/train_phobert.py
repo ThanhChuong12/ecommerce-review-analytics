@@ -431,7 +431,7 @@ def main() -> None:
         logging_strategy="steps",
         logging_steps=args.logging_steps,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_f1_macro",
+        metric_for_best_model="eval_val_f1_macro",
         greater_is_better=True,
         fp16=torch.cuda.is_available(),
         seed=args.seed,
@@ -448,7 +448,7 @@ def main() -> None:
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        eval_dataset=val_dataset,
+        eval_dataset={"val": val_dataset, "train": train_dataset},  # evaluate cả 2 mỗi epoch
         processing_class=tokenizer,
         data_collator=collator,
         compute_metrics=make_compute_metrics(ID_TO_LABEL),
@@ -505,11 +505,12 @@ def main() -> None:
     logger.info("Vẽ biểu đồ Learning Curves và Confusion Matrix...")
 
     history = trainer.state.log_history
-    train_loss = [h["loss"] for h in history if "loss" in h and "epoch" in h]
-    val_loss = [h["eval_loss"] for h in history if "eval_loss" in h and "epoch" in h]
-    val_f1 = [h["eval_f1_macro"] for h in history if "eval_f1_macro" in h and "epoch" in h]
-    epochs_train = [h["epoch"] for h in history if "loss" in h]
-    epochs_val = [h["epoch"] for h in history if "eval_loss" in h]
+    train_loss   = [h["loss"]              for h in history if "loss"              in h and "epoch" in h]
+    val_loss     = [h["eval_val_loss"]     for h in history if "eval_val_loss"     in h]
+    val_f1       = [h["eval_val_f1_macro"] for h in history if "eval_val_f1_macro" in h]
+    train_f1     = [h["eval_train_f1_macro"] for h in history if "eval_train_f1_macro" in h]
+    epochs_train = [h["epoch"]             for h in history if "loss"              in h]
+    epochs_val   = [h["epoch"]             for h in history if "eval_val_loss"     in h]
 
     # Plot Loss Curve
     plt.figure(figsize=(8, 6))
@@ -526,10 +527,12 @@ def main() -> None:
     plt.savefig(plot_out_dir / "phobert_loss_curve.png", dpi=300)
     plt.close()
 
-    # Plot F1-Score Curve
+    # Plot F1-Score Curve (cả train và val)
     plt.figure(figsize=(8, 6))
+    if train_f1 and epochs_val:
+        plt.plot(epochs_val, train_f1, label='Điểm F1 huấn luyện', marker='o', color='#1f77b4')
     if val_f1 and epochs_val:
-        plt.plot(epochs_val, val_f1, label='Điểm F1 kiểm định', marker='s', color='#2ca02c')
+        plt.plot(epochs_val, val_f1,   label='Điểm F1 kiểm định',   marker='s', color='#ff7f0e')
     plt.title('Biểu đồ điểm F1 của mô hình PhoBERT', fontsize=15, pad=15)
     plt.xlabel('Vòng lặp', fontsize=12)
     plt.ylabel('Điểm F1', fontsize=12)
