@@ -472,10 +472,9 @@ def main() -> None:
     tokenizer.save_pretrained(str(output_dir))
 
     # ---- Save training metrics ----------------------------------------------
-    train_path = metrics_txt_dir / "phobert_train_metrics.txt"
+    train_path = metrics_txt_dir / "phobert_train_metrics.json"
     with open(train_path, "w", encoding="utf-8") as f:
-        for k, v in train_result.metrics.items():
-            f.write(f"{k}: {v}\n")
+        json.dump(train_result.metrics, f, indent=2, ensure_ascii=False)
     logger.info("Training metrics saved to %s", train_path)
 
     # ---- Final evaluation on Validation Set ---------------------------------
@@ -483,10 +482,9 @@ def main() -> None:
     val_metrics = trainer.evaluate()
     logger.info("Kết quả tập Val: %s", val_metrics)
 
-    val_path = metrics_txt_dir / "phobert_val_metrics.txt"
+    val_path = metrics_txt_dir / "phobert_val_metrics.json"
     with open(val_path, "w", encoding="utf-8") as f:
-        for k, v in val_metrics.items():
-            f.write(f"{k}: {v}\n")
+        json.dump(val_metrics, f, indent=2, ensure_ascii=False)
     logger.info("Đã lưu kết quả Val ra %s", val_path)
 
     # ---- Final evaluation on Test Set ---------------------------------------
@@ -495,14 +493,13 @@ def main() -> None:
     test_metrics = test_result.metrics
     logger.info("Kết quả tập Test: %s", test_metrics)
 
-    eval_path = metrics_txt_dir / "phobert_test_metrics.txt"
+    eval_path = metrics_txt_dir / "phobert_test_metrics.json"
     with open(eval_path, "w", encoding="utf-8") as f:
-        for k, v in test_metrics.items():
-            f.write(f"{k}: {v}\n")
+        json.dump(test_metrics, f, indent=2, ensure_ascii=False)
     logger.info("Đã lưu kết quả Test ra %s", eval_path)
 
     # ---- Vẽ biểu đồ (Learning Curves & Confusion Matrix) -------------------
-    plot_out_dir = REPO_ROOT / "artifacts" / "plot"
+    plot_out_dir = REPO_ROOT / "artifacts" / "plots"
     plot_out_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Vẽ biểu đồ Learning Curves và Confusion Matrix...")
 
