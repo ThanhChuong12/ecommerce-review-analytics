@@ -77,9 +77,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-_DATA_PATH = str(ROOT / "data" / "processed" / "reviews_flagged.csv")
-_ARTIFACTS_DIR = str(ROOT / "artifacts" / "models" / "tuned")
-_METRICS_DIR = str(ROOT / "artifacts" / "metrics")
+_DATA_PATH = str(ROOT / "data" / "processed" / "spam_labeled_text.csv")
+_ARTIFACTS_DIR = str(ROOT / "artifacts" / "spam")
+_METRICS_DIR = str(ROOT / "artifacts" / "spam")
 _RANDOM_STATE = 42
 
 
@@ -200,9 +200,10 @@ def load_spam_data(data_path: str) -> pd.DataFrame:
     logger.info("Sau khi loại bỏ empty text: %d rows (bỏ %d)", len(df), before - len(df))
 
     # Giới hạn mẫu để tuning nhanh (lấy tối đa 5000 rows để tránh OOM)
-    if len(df) > 5_000:
-        logger.info("Giới hạn %d → 5000 rows để tuning nhanh hơn.", len(df))
-        df = df.sample(n=5_000, random_state=_RANDOM_STATE).reset_index(drop=True)
+    # (Đã comment lại theo yêu cầu chạy FULL toàn bộ dữ liệu của user)
+    # if len(df) > 5_000:
+    #     logger.info("Giới hạn %d → 5000 rows để tuning nhanh hơn.", len(df))
+    #     df = df.sample(n=5_000, random_state=_RANDOM_STATE).reset_index(drop=True)
 
     return df
 
