@@ -40,6 +40,7 @@ import numpy as np
 import pandas as pd
 import torch
 from sklearn.metrics import (
+    accuracy_score,
     classification_report,
     f1_score,
     precision_score,
@@ -152,6 +153,7 @@ def make_compute_metrics(id2label: Dict[int, str]):
         )
 
         metrics = {
+            "accuracy": accuracy_score(labels, preds),
             "f1_macro": f1_score(labels, preds, average="macro", zero_division=0),
             "precision_macro": precision_score(
                 labels, preds, average="macro", zero_division=0
