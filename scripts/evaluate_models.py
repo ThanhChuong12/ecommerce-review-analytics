@@ -165,11 +165,20 @@ def compute_roc_auc(
     unique_labels = class_labels or sorted(list(np.unique(y_true)))
     n_classes = len(unique_labels)
 
+    # FIX: Scikit-learn's LabelBinarizer sorts string classes alphabetically by default.
+    # Alphabetical sorting maps "defect" to 0 and "no-defect" to 1, while y_proba columns
+    # are ordered ["no-defect", "defect"] (indices 0 and 1). This mismatch inverted the
+    # binary ROC-AUC calculation (e.g. producing 1 - AUC = 0.0012).
+    # We resolve this by converting labels to integer indices according to unique_labels order.
+    label_to_idx = {label: i for i, label in enumerate(unique_labels)}
+    y_true_int = np.array([label_to_idx[y] for y in y_true])
+
     lb = LabelBinarizer()
-    y_bin = lb.fit_transform(y_true)
+    lb.fit(range(n_classes))
+    y_bin = lb.transform(y_true_int)
 
     # Với bài toán nhị phân, LabelBinarizer cho ra (n_samples, 1)
-    # nhưng roc_auc_score cần (n_samples, 2) hoặc xác suất của lớp dương
+    # đại diện cho lớp 1 (tức unique_labels[1])
     if n_classes == 2:
         # y_proba có thể là (n_samples, 2) hoặc (n_samples, 1)
         if y_proba.ndim == 2 and y_proba.shape[1] == 2:
@@ -464,11 +473,10 @@ def evaluate_image_model(
             all_labels.extend(labels.numpy().tolist())
             all_proba.append(proba)
 
-    y_true = np.array(all_labels)
-    y_pred = np.array(all_preds)
-    y_proba = np.vstack(all_proba)
-
     class_labels = ["no-defect", "defect"]   # index 0 and 1 per dataset mapping
+    y_true = np.array([class_labels[y] for y in all_labels])
+    y_pred = np.array([class_labels[y] for y in all_preds])
+    y_proba = np.vstack(all_proba)
 
     return print_full_report(
         model_name="ResNet50 (Defect Detection)",

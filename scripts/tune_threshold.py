@@ -191,8 +191,8 @@ def main():
     parser.add_argument("--model-path", type=str,
                         default="ai_engine/models/resnet50_defect.pth",
                         help="Path to trained model checkpoint (.pth)")
-    parser.add_argument("--data-dir", type=str, default="data/processed",
-                        help="Path to data directory")
+    parser.add_argument("--data-dir", type=str, default="data/image_dataset",
+                        help="Path to data directory (default: data/image_dataset)")
     parser.add_argument("--val-split", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--batch-size", type=int, default=32)
