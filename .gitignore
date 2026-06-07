@@ -38,14 +38,16 @@ scraping_agent/data/*
 !scraping_agent/output/.gitkeep
 
 # Thư mục xử lý Media & Ảnh
-image_labeling/data/
-image_labeling/frames/
-image_labeling/raw_media/
+image_labeling/new_data/
+image_labeling/data/frames/
+image_labeling/data/raw_media/
+image_labeling/data/labeled/
 image_labeling.zip
 data.zip
 data/processed/training_images.zip
 ai_engine/models/*.pth
 # Chặn theo định dạng
+
 *.mp4
 *.avi
 *.jpg
@@ -88,3 +90,6 @@ artifacts/plots/**/*
 # NHƯNG giữ lại file .gitkeep để duy trì cấu trúc thư mục trên GitHub
 !artifacts/models/**/.gitkeep
 !artifacts/plots/**/.gitkeep
+
+# Chặn file zip đóng gói Kaggle
+resnet50_kaggle_train.zip

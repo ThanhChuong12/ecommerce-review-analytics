@@ -44,16 +44,13 @@ _logger = logging.getLogger(__name__)
 # Đường dẫn mặc định tới model checkpoint (v2)
 _DEFAULT_RESNET_WEIGHTS = os.getenv(
     "RESNET_WEIGHTS_PATH",
-    "ai_engine/models/resnet50_defect.pth",
+    "ai_engine/models/resnet50_defect_gpu_best.pth",
 )
 
 # Threshold mac dinh de can bang Recall vs Precision.
 # Tuning result (tune_threshold.py, val set):
-#   threshold=0.45 -> F1=0.619, Recall=0.684, Precision=0.565, FP=10
-#   threshold=0.50 -> F1=0.615, Recall=0.632, Precision=0.600, FP=8   (original)
-#   threshold=0.20 -> F1=0.431, Recall=0.737, Precision=0.304, FP=32  (high recall)
-# Default 0.45 = best F1 while keeping recall >= 0.68.
-_DEFAULT_THRESHOLD = float(os.getenv("DEFECT_THRESHOLD", "0.45"))
+#   threshold=0.525 -> F1=0.8042, Recall=0.8042, Precision=0.8042
+_DEFAULT_THRESHOLD = float(os.getenv("DEFECT_THRESHOLD", "0.525"))
 
 # Cache model để tránh load lại mỗi lần inference
 _resnet_model_cache = None
@@ -69,14 +66,15 @@ class ProductDefectDataset(Dataset):
     def __init__(self, data_dir: str, is_train: bool = True, oversample_defect: int = 1):
         """
         Args:
-            data_dir (str): Đường dẫn đến thư mục chứa 2 thư mục con 'defect' và 'no-defect'.
+            data_dir (str): Đường dẫn đến các thư mục chứa dữ liệu, phân tách bằng dấu chấm phẩy (;).
+                            Ví dụ: 'image_labeling/data/labeled;image_labeling/new_data/labeled'
             is_train (bool): Nếu True, áp dụng augmentation cho lớp defect.
                              Nếu False (Validation/Test), chỉ áp dụng resize và normalize.
             oversample_defect (int): Số lần lặp lại mỗi ảnh defect trong dataset.
                                      Ví dụ: oversample_defect=10 sẽ biến 81 ảnh thành 810 ảnh.
                                      Chỉ áp dụng khi is_train=True. Mặc định = 1 (không oversample).
         """
-        self.data_dir = Path(data_dir)
+        self.data_dir = data_dir
         self.is_train = is_train
 
         self.image_paths = []
@@ -86,19 +84,26 @@ class ProductDefectDataset(Dataset):
         self.defect_transform = get_defect_transforms()
         self.normal_transform = get_normal_transforms()
 
-        # Mapping labels: no-defect = 0, defect = 1
-        class_mapping = {"no-defect": 0, "defect": 1}
+        # Mapping labels: no-defect/intact = 0, defect/damaged = 1
+        class_mapping = {
+            "no-defect": 0, "defect": 1,
+            "intact": 0, "damaged": 1
+        }
+
+        # Hỗ trợ truyền nhiều đường dẫn phân tách bằng dấu chấm phẩy
+        data_dirs = [Path(d.strip()) for d in data_dir.split(";") if d.strip()]
 
         for class_name, label in class_mapping.items():
-            class_dir = self.data_dir / class_name
-            if class_dir.exists():
-                for ext in ["*.jpg", "*.jpeg", "*.png"]:
-                    for img_path in class_dir.glob(ext):
-                        # Oversample: Lặp lại ảnh defect nhiều lần (mỗi lần augment sẽ cho ảnh khác nhau)
-                        repeat = oversample_defect if (is_train and label == 1) else 1
-                        for _ in range(repeat):
-                            self.image_paths.append(img_path)
-                            self.labels.append(label)
+            for d_dir in data_dirs:
+                class_dir = d_dir / class_name
+                if class_dir.exists():
+                    for ext in ["*.jpg", "*.jpeg", "*.png"]:
+                        for img_path in class_dir.glob(ext):
+                            # Oversample: Lặp lại ảnh defect nhiều lần (mỗi lần augment sẽ cho ảnh khác nhau)
+                            repeat = oversample_defect if (is_train and label == 1) else 1
+                            for _ in range(repeat):
+                                self.image_paths.append(img_path)
+                                self.labels.append(label)
 
     def __len__(self):
         return len(self.image_paths)
@@ -202,9 +207,9 @@ def get_dataloaders(data_dir: str, batch_size: int = 32, val_split: float = 0.2,
 
 
 def get_resnet50_model(num_classes: int = 2, freeze_backbone: bool = False,
-                       dropout_rate: float = 0.5) -> nn.Module:
+                       dropout_rate: float = 0.5, pretrained: bool = True) -> nn.Module:
     """
-    Tao mo hinh ResNet50 pretrained tren ImageNet va doi layer cuoi cho binary classification.
+    Tao mo hinh ResNet50 va doi layer cuoi cho binary classification.
 
     Args:
         num_classes (int): So luong class dau ra.
@@ -212,8 +217,10 @@ def get_resnet50_model(num_classes: int = 2, freeze_backbone: bool = False,
                                 Giup chong overfitting khi du lieu it (vi du: 81 anh defect).
         dropout_rate (float): Dropout rate trong classification head (default 0.5).
                               Dung de chong overfitting khi chi train head.
+        pretrained (bool): Neu True, tai trong so ImageNet. Neu False, khoi tao voi trong so ngau nhien.
     """
-    model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+    weights = models.ResNet50_Weights.IMAGENET1K_V1 if pretrained else None
+    model = models.resnet50(weights=weights)
 
     if freeze_backbone:
         # Buoc 1: Dong bang TOAN BO backbone
@@ -269,7 +276,8 @@ def _load_resnet_model(model_path: str = None, device: torch.device = None) -> n
         )
 
     # Khởi tạo kiến trúc (phải khớp với lúc train: freeze=True, dropout=0.5, num_classes=2)
-    model = get_resnet50_model(num_classes=2, freeze_backbone=True, dropout_rate=0.5)
+    # Đặt pretrained=False để tránh tải lại trọng số ImageNet từ internet
+    model = get_resnet50_model(num_classes=2, freeze_backbone=True, dropout_rate=0.5, pretrained=False)
 
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint["model_state_dict"])

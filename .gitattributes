@@ -1,2 +1,3 @@
 # Ignore Jupyter Notebook files for language detection
 *.ipynb linguist-detectable=false
+*.pth filter=lfs diff=lfs merge=lfs -text
