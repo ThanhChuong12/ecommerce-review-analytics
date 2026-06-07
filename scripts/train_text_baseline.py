@@ -1,28 +1,7 @@
-"""Training & Benchmarking Script — Text Ensemble Baseline.
+"""Script for training and benchmarking Text Baseline Ensemble models.
 
-Runs four benchmark experiments to evaluate the impact of:
-  - SMOTE over-sampling  vs.  cost-sensitive class weights only
-  - Automatic F1-weighted voting  vs.  equal (uniform) weights
-
-Experiments
------------
-+--------+----------+--------------+
-| Exp ID | SMOTE    | Weights      |
-+========+==========+==============+
-| EXP-1  | No       | Auto (F1-CV) |
-| EXP-2  | Yes      | Auto (F1-CV) |
-| EXP-3  | No       | Equal [1,1,1]|
-| EXP-4  | Yes      | Equal [1,1,1]|
-+--------+----------+--------------+
-
-Artifacts are saved to ``<project_root>/artifacts/models/baselines/``.
-
-Usage
------
-From the project root directory::
-
-    python ai_engine/scripts/train_text_baseline.py
-
+Evaluates combinations of SMOTE and automated weight calculation strategies
+on text classification tasks.
 """
 
 from __future__ import annotations
@@ -32,64 +11,42 @@ import logging
 import os
 import sys
 import time
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
-# Force UTF-8 stdout/stderr to avoid cp1252 UnicodeEncodeError on Windows
+# Set UTF-8 encoding for standard streams
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 import numpy as np
 import pandas as pd
 from sklearn.metrics import classification_report, f1_score, accuracy_score
-from sklearn.model_selection import train_test_split
 
-# ---------------------------------------------------------------------------
-# Ensure the project root is importable regardless of how the script is invoked
-# ---------------------------------------------------------------------------
+# Add project root to path
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from ai_engine.models.text_baseline import TextEnsembleModel  # noqa: E402
+from ai_engine.models.text_baseline import TextEnsembleModel
 
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s — %(levelname)s — %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Constants
-# ---------------------------------------------------------------------------
-_DATA_PATH: str = os.path.join(_PROJECT_ROOT, "data", "processed", "processed_labeled_all.csv")
-_ARTIFACTS_DIR: str = os.path.join(_PROJECT_ROOT, "artifacts", "models", "baselines")
-_TEXT_COL: str = "cleaned_text"
-_LABEL_COL: str = "sentiment_label"
-_TEST_SIZE: float = 0.20
-_RANDOM_STATE: int = 42
+_DATA_TRAIN = "data/processed/processed_labeled_text_train.csv"
+_DATA_TEST = "data/processed/processed_labeled_text_test.csv"
+_ARTIFACTS_DIR = os.path.join(_PROJECT_ROOT, "artifacts", "models", "baselines")
+_TEXT_COL = "cleaned_text"
+_LABEL_COL = "sentiment_label"
+_RANDOM_STATE = 42
 
-
-# ---------------------------------------------------------------------------
-# Data structures
-# ---------------------------------------------------------------------------
 
 @dataclass
 class ExperimentConfig:
-    """Configuration for a single training experiment.
-
-    Attributes:
-        exp_id (str): Short identifier, e.g. ``"EXP-1"``.
-        name (str): Human-readable experiment description.
-        use_smote (bool): Whether to enable SMOTE over-sampling.
-        weights (Optional[List[float]]): Explicit ensemble weights, or
-            ``None`` to trigger automatic weight computation.
-        save_name (str): Filename for the serialised model artifact.
-    """
-
+    """Configuration options for a single experiment run."""
     exp_id: str
     name: str
     use_smote: bool
@@ -99,20 +56,7 @@ class ExperimentConfig:
 
 @dataclass
 class ExperimentResult:
-    """Stores evaluation metrics for a completed experiment.
-
-    Attributes:
-        exp_id (str): Experiment identifier.
-        name (str): Experiment name.
-        macro_f1 (float): Macro-averaged F1 score.
-        weighted_f1 (float): Weighted-averaged F1 score.
-        accuracy (float): Classification accuracy.
-        final_weights (Optional[List[float]]): Weights actually used in the
-            trained ensemble (relevant when ``weights=None`` → auto-computed).
-        elapsed_seconds (float): Wall-clock training duration in seconds.
-        save_path (str): Path where the model artifact was saved.
-    """
-
+    """Evaluation metrics and results of a completed experiment."""
     exp_id: str
     name: str
     macro_f1: float
@@ -123,90 +67,135 @@ class ExperimentResult:
     save_path: str
 
 
-# ---------------------------------------------------------------------------
-# Helper functions
-# ---------------------------------------------------------------------------
+class DatasetLoader:
+    """Handles loading and basic validation of the dataset."""
 
-def load_data(data_path: str) -> Tuple[pd.Series, pd.Series]:
-    """Loads the processed CSV and returns feature and label series.
+    def __init__(self, text_col: str = _TEXT_COL, label_col: str = _LABEL_COL) -> None:
+        self.text_col = text_col
+        self.label_col = label_col
 
-    Args:
-        data_path (str): Absolute path to the processed CSV file.
+    def load(self, data_path: str) -> Tuple[pd.Series, pd.Series]:
+        """Loads features and labels from the CSV file, removing empty rows."""
+        if not os.path.exists(data_path):
+            raise FileNotFoundError(f"Data file not found: {data_path}")
 
-    Returns:
-        Tuple[pd.Series, pd.Series]: ``(X, y)`` where *X* is the text column
-        and *y* is the sentiment label column.
+        logger.info("Loading dataset from: %s", data_path)
+        df = pd.read_csv(data_path)
 
-    Raises:
-        FileNotFoundError: If ``data_path`` does not exist.
-        KeyError: If expected columns are missing in the CSV.
-    """
-    if not os.path.exists(data_path):
-        raise FileNotFoundError(f"Data file not found: {data_path}")
+        required_cols = {self.text_col, self.label_col}
+        missing = required_cols - set(df.columns)
+        if missing:
+            raise KeyError(f"Missing required columns in dataset: {missing}")
 
-    logger.info("Loading data from: %s", data_path)
-    df = pd.read_csv(data_path)
+        initial_len = len(df)
+        df = df.dropna(subset=[self.text_col, self.label_col])
+        dropped = initial_len - len(df)
+        if dropped:
+            logger.warning("Dropped %d null rows in text or label columns.", dropped)
 
-    missing_cols = {_TEXT_COL, _LABEL_COL} - set(df.columns)
-    if missing_cols:
-        raise KeyError(f"Missing columns in dataset: {missing_cols}")
-
-    before = len(df)
-    df = df.dropna(subset=[_TEXT_COL, _LABEL_COL])
-    dropped = before - len(df)
-    if dropped:
-        logger.warning("Dropped %d rows with NaN in '%s' or '%s'.", dropped, _TEXT_COL, _LABEL_COL)
-
-    logger.info("Loaded %d samples.", len(df))
-    return df[_TEXT_COL], df[_LABEL_COL]
+        logger.info("Loaded %d clean samples.", len(df))
+        return df[self.text_col], df[self.label_col]
 
 
-def print_comparison_table(results: List[ExperimentResult]) -> None:
-    """Renders a formatted comparison table to stdout.
+class ExperimentRunner:
+    """Executes experiments and calculates evaluation metrics."""
 
-    Args:
-        results (List[ExperimentResult]): List of completed experiment results.
-    """
-    col_widths = [8, 40, 10, 12, 10, 12]
-    header = ["Exp ID", "Name", "Macro-F1", "Weighted-F1", "Accuracy", "Time (s)"]
-    sep = "+" + "+".join("-" * (w + 2) for w in col_widths) + "+"
-    row_fmt = "|" + "|".join(f" {{:<{w}}} " for w in col_widths) + "|"
+    def __init__(self, artifacts_dir: str, random_state: int = _RANDOM_STATE) -> None:
+        self.artifacts_dir = artifacts_dir
+        self.random_state = random_state
 
-    print("\n" + "=" * 90)
-    print("  BENCHMARK COMPARISON — Weighted Soft-Voting Ensemble".center(90))
-    print("=" * 90)
-    print(sep)
-    print(row_fmt.format(*header))
-    print(sep)
-    for r in results:
-        print(
-            row_fmt.format(
-                r.exp_id,
-                r.name[:40],
-                f"{r.macro_f1:.4f}",
-                f"{r.weighted_f1:.4f}",
-                f"{r.accuracy:.4f}",
-                f"{r.elapsed_seconds:.1f}s",
-            )
+    def run(
+        self,
+        config: ExperimentConfig,
+        X_train: pd.Series,
+        y_train: pd.Series,
+        X_test: pd.Series,
+        y_test: pd.Series,
+    ) -> ExperimentResult:
+        """Trains the ensemble model, evaluates performance, and saves artifacts."""
+        separator = "=" * 70
+        logger.info("\n%s\n  %s — %s\n%s", separator, config.exp_id, config.name, separator)
+
+        model = TextEnsembleModel(
+            use_smote=config.use_smote,
+            weights=config.weights,
+            random_state=self.random_state,
         )
-    print(sep)
-    best = max(results, key=lambda r: r.macro_f1)
-    print(f"\n  [BEST] Best macro-F1: {best.exp_id} - {best.name} ({best.macro_f1:.4f})")
-    if best.final_weights:
-        print(f"     Ensemble weights used [LR, SVM, RF]: {best.final_weights}")
-    print("=" * 90 + "\n")
+
+        t_start = time.perf_counter()
+        model.fit(X_train, y_train)
+        elapsed = time.perf_counter() - t_start
+
+        y_pred = model.predict(X_test)
+
+        macro_f1 = f1_score(y_test, y_pred, average="macro")
+        weighted_f1 = f1_score(y_test, y_pred, average="weighted")
+        accuracy = accuracy_score(y_test, y_pred)
+
+        logger.info(
+            "\nClassification Report — %s:\n%s",
+            config.name,
+            classification_report(y_test, y_pred),
+        )
+
+        save_path = os.path.join(self.artifacts_dir, config.save_name)
+        model.save(save_path)
+
+        return ExperimentResult(
+            exp_id=config.exp_id,
+            name=config.name,
+            macro_f1=macro_f1,
+            weighted_f1=weighted_f1,
+            accuracy=accuracy,
+            final_weights=model.weights,
+            elapsed_seconds=elapsed,
+            save_path=save_path,
+        )
 
 
-# ---------------------------------------------------------------------------
-# Experiments configuration
-# ---------------------------------------------------------------------------
+class BenchmarkReporter:
+    """Generates comparison reports and tables for benchmark results."""
 
+    @staticmethod
+    def print_table(results: List[ExperimentResult]) -> None:
+        """Prints a structured comparison table of all results to stdout."""
+        col_widths = [8, 40, 10, 12, 10, 12]
+        header = ["Exp ID", "Name", "Macro-F1", "Weighted-F1", "Accuracy", "Time (s)"]
+        sep = "+" + "+".join("-" * (w + 2) for w in col_widths) + "+"
+        row_fmt = "|" + "|".join(f" {{:<{w}}} " for w in col_widths) + "|"
+
+        print("\n" + "=" * 90)
+        print("  BENCHMARK COMPARISON — Weighted Soft-Voting Ensemble".center(90))
+        print("=" * 90)
+        print(sep)
+        print(row_fmt.format(*header))
+        print(sep)
+        for r in results:
+            print(
+                row_fmt.format(
+                    r.exp_id,
+                    r.name[:40],
+                    f"{r.macro_f1:.4f}",
+                    f"{r.weighted_f1:.4f}",
+                    f"{r.accuracy:.4f}",
+                    f"{r.elapsed_seconds:.1f}s",
+                )
+            )
+        print(sep)
+        best = max(results, key=lambda r: r.macro_f1)
+        print(f"\n  [BEST] Best macro-F1: {best.exp_id} - {best.name} ({best.macro_f1:.4f})")
+        if best.final_weights:
+            print(f"     Ensemble weights used [LR, SVM, RF]: {best.final_weights}")
+        print("=" * 90 + "\n")
+
+
+# Benchmark experiments configuration list
 EXPERIMENTS: List[ExperimentConfig] = [
     ExperimentConfig(
         exp_id="EXP-1",
         name="No SMOTE + Auto-Weights (F1-CV)",
         use_smote=False,
-        weights=None,           # triggers compute_auto_weights()
+        weights=None,
         save_name="ensemble_no_smote_auto_weights.pkl",
     ),
     ExperimentConfig(
@@ -233,134 +222,42 @@ EXPERIMENTS: List[ExperimentConfig] = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-def run_experiment(
-    config: ExperimentConfig,
-    X_train: pd.Series,
-    y_train: pd.Series,
-    X_test: pd.Series,
-    y_test: pd.Series,
-    artifacts_dir: str,
-) -> ExperimentResult:
-    """Trains, evaluates, and saves a single experiment.
-
-    Args:
-        config (ExperimentConfig): Experiment hyper-parameters.
-        X_train (pd.Series): Training text features.
-        y_train (pd.Series): Training labels.
-        X_test (pd.Series): Test text features.
-        y_test (pd.Series): Test labels.
-        artifacts_dir (str): Directory where the model artifact is saved.
-
-    Returns:
-        ExperimentResult: Evaluation metrics and metadata for the run.
-    """
-    separator = "=" * 70
-    logger.info("\n%s\n  %s — %s\n%s", separator, config.exp_id, config.name, separator)
-
-    model = TextEnsembleModel(
-        use_smote=config.use_smote,
-        weights=config.weights,
-        random_state=_RANDOM_STATE,
-    )
-
-    t_start = time.perf_counter()
-    model.fit(X_train, y_train)
-    elapsed = time.perf_counter() - t_start
-
-    y_pred = model.predict(X_test)
-
-    macro_f1 = f1_score(y_test, y_pred, average="macro")
-    weighted_f1 = f1_score(y_test, y_pred, average="weighted")
-    accuracy = accuracy_score(y_test, y_pred)
-
-    logger.info(
-        "\nClassification Report — %s:\n%s",
-        config.name,
-        classification_report(y_test, y_pred),
-    )
-
-    save_path = os.path.join(artifacts_dir, config.save_name)
-    model.save(save_path)
-
-    return ExperimentResult(
-        exp_id=config.exp_id,
-        name=config.name,
-        macro_f1=macro_f1,
-        weighted_f1=weighted_f1,
-        accuracy=accuracy,
-        final_weights=model.weights,
-        elapsed_seconds=elapsed,
-        save_path=save_path,
-    )
-
-
 def main() -> None:
-    """Entry point for the ensemble benchmark training pipeline.
-
-    Steps:
-        1. Load and validate the processed dataset.
-        2. Perform a stratified 80/20 train/test split.
-        3. Run all configured experiments sequentially.
-        4. Print a formatted comparison table.
-        5. Report the best-performing configuration.
-    """
+    """Benchmark suite entry point."""
     logger.info("=" * 70)
     logger.info("  STARTING — Weighted Soft-Voting Ensemble Benchmark")
     logger.info("=" * 70)
 
-    # 1. Load data
+    loader = DatasetLoader()
     try:
-        # X, y = load_data(_DATA_PATH)
-        X_train, y_train = load_data("data/processed/processed_labeled_text_train.csv")
-        X_test, y_test = load_data("data/processed/processed_labeled_text_test.csv")
+        X_train, y_train = loader.load(_DATA_TRAIN)
+        X_test, y_test = loader.load(_DATA_TEST)
     except (FileNotFoundError, KeyError) as exc:
-        logger.error("Data loading failed: %s", exc)
+        logger.error("Failed to load benchmark datasets: %s", exc)
         sys.exit(1)
 
     logger.info("Label distribution (Train):\n%s", y_train.value_counts().to_string())
+    logger.info("Train/Test split: %d train samples | %d test samples", len(X_train), len(X_test))
 
-    # 2. Stratified split (Đã comment vì sử dụng dữ liệu cắt sẵn)
-    # X_train, X_test, y_train, y_test = train_test_split(
-    #     X, y,
-    #     test_size=_TEST_SIZE,
-    #     random_state=_RANDOM_STATE,
-    #     stratify=y,
-    # )
-    logger.info(
-        "Train/Test split: %d train samples | %d test samples",
-        len(X_train),
-        len(X_test),
-    )
-
-    # 3. Ensure artifacts directory exists
     os.makedirs(_ARTIFACTS_DIR, exist_ok=True)
 
-    # 4. Run experiments
+    runner = ExperimentRunner(artifacts_dir=_ARTIFACTS_DIR)
     results: List[ExperimentResult] = []
+
     for config in EXPERIMENTS:
-        result = run_experiment(
+        result = runner.run(
             config=config,
             X_train=X_train,
             y_train=y_train,
             X_test=X_test,
             y_test=y_test,
-            artifacts_dir=_ARTIFACTS_DIR,
         )
         results.append(result)
 
-    # 5. Summary
-    print_comparison_table(results)
+    BenchmarkReporter.print_table(results)
 
     best = max(results, key=lambda r: r.macro_f1)
-    logger.info(
-        "Best model: %s → saved to %s",
-        best.exp_id,
-        best.save_path,
-    )
+    logger.info("Best model configuration: %s → saved to %s", best.exp_id, best.save_path)
 
 
 if __name__ == "__main__":
