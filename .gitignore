@@ -45,7 +45,7 @@ image_labeling/data/labeled/
 image_labeling.zip
 data.zip
 data/processed/training_images.zip
-ai_engine/models/*.pth
+# ai_engine/models/*.pth  ← tắt để push kết quả train
 # Chặn theo định dạng
 
 *.mp4
@@ -55,11 +55,11 @@ ai_engine/models/*.pth
 *.png
 
 
-# --- Model weights (dung Git LFS neu can) ---
-ai_engine/models/weights/*.pt
-ai_engine/models/weights/*.pth
-ai_engine/models/weights/*.bin
-ai_engine/models/weights/*.onnx
+# --- Model weights (tắt để push kết quả train) ---
+# ai_engine/models/weights/*.pt
+# ai_engine/models/weights/*.pth
+# ai_engine/models/weights/*.bin
+# ai_engine/models/weights/*.onnx
 
 # --- Labeled dataset (anh lon, khong commit) ---
 labeled/

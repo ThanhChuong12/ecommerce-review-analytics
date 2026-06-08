@@ -1,89 +1,151 @@
 # ============================================================
-# COLAB TRAINING SCRIPT - Defect Detection with ResNet50
+# COLAB TRAINING — MobileNetV3 Defect Detection (4-class)
+# Ecommerce Review Analytics
 # ============================================================
-# Huong dan su dung:
-#   1. Upload file nay len Google Colab (hoac copy paste tung cell)
-#   2. Bat GPU: Runtime -> Change runtime type -> GPU (T4)
-#   3. Upload file training_images.zip len Google Drive
-#   4. Chay tung cell tu tren xuong
+# TRƯỚC KHI CHẠY:
+#   1. Runtime → Change runtime type → T4 GPU
+#   2. Upload lên Google Drive (thư mục gốc My Drive):
+#        - labeled_data.zip       (ảnh đã gán nhãn)
+#        - image_baseline.py      (bản đã fix bugs — lấy từ ai_engine/models/)
 # ============================================================
+
 
 # %% [markdown]
-# # Defect Detection - ResNet50 Training on Colab
-# **Du an**: Multimodal Review Analytics  
-# **Muc tieu**: Phan loai anh san pham loi (defect) vs binh thuong (no-defect)
+# # MobileNetV3 Defect Detection — Colab Training
+# **Classes:** intact | damaged | wrong_item | irrelevant
+# **Dataset:** ~27,743 ảnh (ImageFolder format)
+# **Estimated time:** ~20-40 phút (T4 GPU)
 
-# %% --- CELL 1: Kiem tra GPU ---
+
+# %% --- CELL 1: Kiểm tra GPU ---
 import torch
-print(f"PyTorch version: {torch.__version__}")
-print(f"CUDA available: {torch.cuda.is_available()}")
+
+print(f"PyTorch: {torch.__version__}")
+print(f"CUDA:    {torch.cuda.is_available()}")
 if torch.cuda.is_available():
-    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    print(f"GPU:     {torch.cuda.get_device_name(0)}")
+    print(f"VRAM:    {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 else:
-    print("[WARNING] No GPU detected! Go to Runtime -> Change runtime type -> GPU")
+    raise RuntimeError("Chưa bật GPU! Vào Runtime → Change runtime type → T4 GPU")
 
-# %% --- CELL 2: Clone repo tu GitHub ---
-!git clone -b feature/Image_Augmentation https://github.com/ThanhChuong12/ecommerce-review-analytics.git
-%cd ecommerce-review-analytics
 
-# %% --- CELL 3: Cai dat thu vien ---
-!pip install -q albumentations opencv-python-headless scikit-learn
-
-# %% --- CELL 4: Mount Google Drive va copy du lieu ---
-from google.colab import drive
-drive.mount('/content/drive')
-
-# === QUAN TRONG ===
-# Truoc khi chay cell nay, ban can:
-# 1. Upload file training_images.zip len Google Drive (thu muc goc "My Drive")
-# 2. Neu ban de o thu muc khac, sua duong dan ben duoi cho dung
-
-import zipfile
+# %% --- CELL 2: Clone repo ---
 import os
 
-# Duong dan toi file zip tren Google Drive
-# Sua lai cho dung neu ban de o thu muc khac
-DRIVE_ZIP_PATH = "/content/drive/MyDrive/training_images.zip"
+REPO_URL    = "https://github.com/ThanhChuong12/ecommerce-review-analytics.git"
+REPO_BRANCH = "main"
+REPO_DIR    = "/content/ecommerce-review-analytics"
 
-if os.path.exists(DRIVE_ZIP_PATH):
-    print(f"Found zip file: {DRIVE_ZIP_PATH}")
-    print("Extracting...")
-    with zipfile.ZipFile(DRIVE_ZIP_PATH, 'r') as zip_ref:
-        zip_ref.extractall("data/processed/")
+if not os.path.exists(REPO_DIR):
+    os.system(f"git clone -b {REPO_BRANCH} {REPO_URL} {REPO_DIR}")
+else:
+    os.system(f"git -C {REPO_DIR} pull")
+
+os.chdir(REPO_DIR)
+print("Working dir:", os.getcwd())
+
+
+# %% --- CELL 3: Cài dependencies ---
+os.system("pip install -q albumentations opencv-python-headless scikit-learn Pillow")
+print("Dependencies installed.")
+
+
+# %% --- CELL 4: Apply bug fixes cho image_baseline.py ---
+# FIX: Code trên main chưa có 4 bug fixes của MobileNetV3.
+# Cần upload file image_baseline.py (đã fix) lên Google Drive trước.
+#
+# Cách lấy file đã fix trên máy local:
+#   ai_engine\models\image_baseline.py  →  upload lên Google Drive
+# -------------------------------------------------------
+import shutil
+from google.colab import drive
+
+drive.mount("/content/drive")
+
+FIXED_BASELINE = "/content/drive/MyDrive/image_baseline.py"
+TARGET         = "ai_engine/models/image_baseline.py"
+
+if os.path.exists(FIXED_BASELINE):
+    shutil.copy(FIXED_BASELINE, TARGET)
+    print("✅ Đã apply image_baseline.py đã fix bugs")
+else:
+    print("⚠️  CẢNH BÁO: Không tìm thấy image_baseline.py trên Drive!")
+    print("   Upload file ai_engine/models/image_baseline.py từ máy local lên Drive trước.")
+    print("   Tiếp tục với code gốc (có thể có bugs).")
+
+
+# %% --- CELL 5: Giải nén data ---
+# Upload labeled_data.zip lên Google Drive trước (thư mục gốc My Drive)
+# Cách tạo zip đúng cấu trúc (chạy trên máy local):
+#   Compress-Archive -Path "labeled\labeled" -DestinationPath "labeled_data.zip"
+# -------------------------------------------------------
+import zipfile
+
+DRIVE_ZIP   = "/content/drive/MyDrive/labeled.zip"
+EXTRACT_DIR = "/content/ecommerce-review-analytics/labeled/labeled"
+
+if not os.path.exists(EXTRACT_DIR):
+    if not os.path.exists(DRIVE_ZIP):
+        raise FileNotFoundError(f"Không tìm thấy {DRIVE_ZIP}. Upload labeled_data.zip lên Google Drive trước.")
+    print(f"Extracting {DRIVE_ZIP} ...")
+    with zipfile.ZipFile(DRIVE_ZIP, "r") as z:
+        z.extractall("/content/ecommerce-review-analytics/labeled/")
     print("Done!")
 else:
-    print(f"[ERROR] File not found: {DRIVE_ZIP_PATH}")
-    print("Please upload training_images.zip to your Google Drive root folder.")
+    print("Data đã tồn tại, bỏ qua giải nén.")
 
-# Kiem tra so luong anh
-defect_count = len(os.listdir("data/processed/defect")) if os.path.exists("data/processed/defect") else 0
-no_defect_count = len(os.listdir("data/processed/no-defect")) if os.path.exists("data/processed/no-defect") else 0
-print(f"\nDataset loaded:")
-print(f"  defect:    {defect_count} images")
-print(f"  no-defect: {no_defect_count} images")
+# Kiểm tra số ảnh mỗi class
+print("\nDataset summary:")
+total = 0
+for cls in ["intact", "damaged", "wrong_item", "irrelevant"]:
+    folder = os.path.join(EXTRACT_DIR, cls)
+    count  = len(os.listdir(folder)) if os.path.exists(folder) else 0
+    total += count
+    status = "✅" if count > 0 else "❌"
+    print(f"  {status} {cls:15s}: {count:,} ảnh")
+print(f"  {'TOTAL':15s}: {total:,} ảnh")
 
-# %% --- CELL 5: Bat dau Training ---
-# Chay script training voi GPU
-# Tuy chinh tham so neu can: --epochs, --batch-size, --lr
-!python scripts/train_defect_model.py \
-    --epochs 20 \
-    --batch-size 32 \
-    --lr 0.0001
 
-# %% --- CELL 6: Download model da train ---
-# Sau khi train xong, download model ve may local
-from google.colab import files
-import shutil
+# %% --- CELL 6: Train ---
+# FIX: Dùng subprocess thay os.system() để hiển thị log real-time
+import subprocess, sys
 
-# Copy model sang Drive de luu tru lau dai
-MODEL_PATH = "ai_engine/models/resnet50_defect.pth"
-DRIVE_SAVE_PATH = "/content/drive/MyDrive/resnet50_defect.pth"
+cmd = [
+    "python", "scripts/train_image_baseline.py",
+    "--backbone",   "mobilenet_v3",
+    "--data-dir",   "labeled/labeled",
+    "--epochs",     "20",
+    "--lr",         "1e-3",
+    "--batch-size", "64",
+    "--val-split",  "0.2",
+    "--patience",   "5",
+]
 
-if os.path.exists(MODEL_PATH):
-    shutil.copy(MODEL_PATH, DRIVE_SAVE_PATH)
-    print(f"Model saved to Google Drive: {DRIVE_SAVE_PATH}")
-    
-    # Hoac download truc tiep ve may
-    # files.download(MODEL_PATH)
+print("Bắt đầu training...\n" + "=" * 60)
+result = subprocess.run(cmd, stdout=sys.stdout, stderr=sys.stdout, text=True)
+print("=" * 60)
+print("Training kết thúc với exit code:", result.returncode)
+
+
+# %% --- CELL 7: Lưu model về Google Drive ---
+MODEL_SRC   = "ai_engine/models/weights/mobilenet_v3_defect.pt"
+RESULTS_SRC = "ai_engine/models/results/image_baseline_results.json"
+
+DRIVE_SAVE_DIR = "/content/drive/MyDrive/ecommerce_models"
+os.makedirs(DRIVE_SAVE_DIR, exist_ok=True)
+
+if os.path.exists(MODEL_SRC):
+    shutil.copy(MODEL_SRC, f"{DRIVE_SAVE_DIR}/mobilenet_v3_defect.pt")
+    print(f"✅ Model saved → {DRIVE_SAVE_DIR}/mobilenet_v3_defect.pt")
 else:
-    print("[ERROR] Model file not found. Training may not have completed.")
+    print("❌ Model không tìm thấy — kiểm tra log ở CELL 6.")
+
+if os.path.exists(RESULTS_SRC):
+    shutil.copy(RESULTS_SRC, f"{DRIVE_SAVE_DIR}/image_baseline_results.json")
+    print(f"✅ Results saved → {DRIVE_SAVE_DIR}/image_baseline_results.json")
+
+
+# %% --- CELL 8 (optional): Download model trực tiếp về máy ---
+from google.colab import files
+if os.path.exists(MODEL_SRC):
+    files.download(MODEL_SRC)

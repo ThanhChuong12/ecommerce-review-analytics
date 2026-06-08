@@ -57,6 +57,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--patience", type=int, default=3, help="Early stopping patience (default: 3)")
     parser.add_argument("--weights-dir", default=DEFAULT_WEIGHTS_DIR, help="Thư mục lưu file .pt")
     parser.add_argument("--eval-only", action="store_true", help="Chỉ đánh giá model đã train, không train lại")
+    parser.add_argument(
+        "--subset-ratio", type=float, default=1.0,
+        help="Tỉ lệ data train dùng để train (0 < x <= 1.0). "
+             "Dùng 0.35 để giảm thời gian từ ~6h xuống ~2h trên CPU. (default: 1.0)",
+    )
     return parser.parse_args()
 
 
@@ -69,6 +74,7 @@ def train_single(
     lr: float,
     val_split: float,
     patience: int,
+    subset_ratio: float = 1.0,
 ) -> dict:
     """Train 1 backbone và lưu weights. Trả về metrics summary."""
     logger.info("--- Bắt đầu train: %s ---", backbone.upper())
@@ -83,15 +89,21 @@ def train_single(
         lr=lr,
         val_split=val_split,
         patience=patience,
+        subset_ratio=subset_ratio,
     )
 
     # Lưu weights
     weights_path = os.path.join(weights_dir, f"{backbone}_defect.pt")
     model.save(weights_path)
 
-    # Đánh giá trên toàn bộ val set (sử dụng lại data_dir vì ImageFolder)
-    logger.info("Đang evaluate model %s...", backbone)
-    eval_report = model.evaluate(data_dir=data_dir, batch_size=batch_size)
+    # Lấy kết quả evaluate trên val set (đã chạy cuối training, không bị data leakage)
+    logger.info("Đang lấy kết quả evaluate trên val set...")
+    if hasattr(model, '_val_report') and model._val_report:
+        eval_report = model._val_report
+        logger.info("Sử dụng kết quả val set từ training (không bị data leakage).")
+    else:
+        logger.info("Fallback: evaluate model %s trên toàn bộ dataset...", backbone)
+        eval_report = model.evaluate(data_dir=data_dir, batch_size=batch_size)
 
     elapsed = (time.time() - t_start) / 60
     summary = {
@@ -157,6 +169,7 @@ def main():
                 lr=args.lr,
                 val_split=args.val_split,
                 patience=args.patience,
+                subset_ratio=args.subset_ratio,
             )
         if result:
             all_results.append(result)
