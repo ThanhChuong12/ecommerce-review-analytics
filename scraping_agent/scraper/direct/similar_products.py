@@ -1,11 +1,12 @@
 """
-similar_products.py — Scraper lấy "Sản phẩm tương tự" từ Tiki / Lazada / Shopee.
+similar_products.py — Scraper lấy "Sản phẩm tương tự" từ Tiki / Lazada / Shopee / TGDD.
 
 Mỗi class trả về list[SimilarProduct] với limit tối đa người dùng chỉ định.
 
 Tiki:   Direct API (httpx) → nhanh, không cần browser
-Lazada: Playwright network interception → bắt recommendation API
+Lazada: stealth_browser (CloakBrowser→Playwright) + persistent session → tránh captcha
 Shopee: Playwright network interception → bắt recommendation API
+TGDD:   Direct API (httpx) → parse từ webapi.thegioididong.com
 """
 
 from __future__ import annotations
@@ -108,11 +109,16 @@ class TikiSimilar:
 
 
 # ---------------------------------------------------------------------------
-# Lazada — Playwright intercept
+# Lazada — stealth_browser intercept (CloakBrowser → Playwright fallback)
 # ---------------------------------------------------------------------------
 
 class LazadaSimilar:
-    """Lấy sản phẩm tương tự từ Lazada qua Playwright network interception."""
+    """Lấy sản phẩm tương tự từ Lazada qua stealth_browser network interception.
+
+    Dùng launch_stealth_context (cùng pattern với LazadaScraper) để:
+    - Tái sử dụng session state từ state_lazada.vn.json (tránh re-captcha)
+    - CloakBrowser → Playwright fallback tự động
+    """
 
     SITE = "lazada"
 
@@ -126,9 +132,11 @@ class LazadaSimilar:
 
     def __init__(self, headless: bool = True) -> None:
         self.headless = headless
+        SESSION_DIR.mkdir(parents=True, exist_ok=True)
+        self._state_file = SESSION_DIR / "state_lazada.vn.json"
 
     async def fetch(self, url: str, limit: int = 5) -> list[SimilarProduct]:
-        from playwright.async_api import async_playwright
+        from scraper.stealth_browser import launch_stealth_context
 
         results: list[SimilarProduct] = []
         found_event = asyncio.Event()
@@ -153,38 +161,32 @@ class LazadaSimilar:
                 pass
 
         try:
-            async with async_playwright() as pw:
-                browser = await pw.chromium.launch(
-                    headless=self.headless,
-                    args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
-                )
-                state_file = SESSION_DIR / "state_lazada.vn.json"
-                ctx_kw: dict = {
-                    "user_agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-                    ),
-                    "locale": "vi-VN",
-                }
-                if state_file.exists():
-                    ctx_kw["storage_state"] = str(state_file)
+            # Dùng stealth_browser — tương tự LazadaScraper._scrape_attempt()
+            # Chia sẻ session state với LazadaScraper → tránh re-trigger captcha
+            context = await launch_stealth_context(
+                storage_state=str(self._state_file) if self._state_file.exists() else None,
+                headless=self.headless,
+                humanize=False,
+            )
+            page = await context.new_page()
+            page.on("response", _on_response)
 
-                ctx  = await browser.new_context(**ctx_kw)
-                page = await ctx.new_page()
-                page.on("response", _on_response)
+            await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.6)")
+            await page.wait_for_timeout(3000)
 
-                await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.6)")
-                await page.wait_for_timeout(3000)
+            try:
+                await asyncio.wait_for(_await_event(found_event), timeout=15.0)
+            except asyncio.TimeoutError:
+                log.warning("[Lazada] Recommendation API không phản hồi")
 
-                try:
-                    await asyncio.wait_for(
-                        _await_event(found_event), timeout=15.0
-                    )
-                except asyncio.TimeoutError:
-                    log.warning("[Lazada] Recommendation API không phản hồi")
+            # Lưu session state sau mỗi lần chạy thành công
+            try:
+                await context.storage_state(path=str(self._state_file))
+            except Exception:
+                pass
 
-                await browser.close()
+            await context.close()
         except Exception as exc:
             log.error("[Lazada] Similar fetch error: %s", exc)
 
@@ -359,3 +361,131 @@ async def _await_event(event: asyncio.Event) -> None:
     while not event.is_set():
         await asyncio.sleep(0.05)
     event.clear()
+
+
+# ---------------------------------------------------------------------------
+# TGDD — Direct API (httpx, không cần browser)
+# ---------------------------------------------------------------------------
+
+_TGDD_BASE = "https://www.thegioididong.com"
+_TGDD_WEBAPI = "https://webapi.thegioididong.com"
+
+_TGDD_HEADERS_HTML = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "vi-VN,vi;q=0.9",
+    "Referer": _TGDD_BASE + "/",
+}
+
+
+class TGDDSimilar:
+    """Lấy sản phẩm tương tự từ TGDD qua Direct API (httpx, không cần browser).
+
+    Flow:
+      1. GET trang sản phẩm → parse data-objectid
+      2. GET /json/product/related?objectid={id} → list sản phẩm liên quan
+    """
+
+    SITE = "tgdd"
+
+    # Các endpoint thử theo thứ tự ưu tiên
+    _RELATED_ENDPOINTS = [
+        "{base}/json/product/related?objectid={id}&objecttype={type}&siteid={site}&pagesize={limit}",
+        "{base}/json/product/recommendproducts?objectid={id}&pagesize={limit}",
+    ]
+
+    def _parse_product_meta(self, html: str) -> tuple[str, str, str, str]:
+        """Trích (object_id, object_type, site_id, product_name) từ HTML trang sản phẩm."""
+        import re as _re
+        from html import unescape
+
+        oid   = _re.search(r'data-objectid="(\d+)"', html)
+        otype = _re.search(r'data-objecttype="(\d+)"', html)
+        sid   = _re.search(r'data-siteid="(\d+)"', html)
+        h1    = _re.search(r'<h1[^>]*>\s*(.*?)\s*</h1>', html, _re.IGNORECASE | _re.DOTALL)
+
+        object_id   = oid.group(1)   if oid   else ""
+        object_type = otype.group(1) if otype else "2"
+        site_id     = sid.group(1)   if sid   else "1"
+        name = unescape(_re.sub(r'<[^>]+>', '', h1.group(1)).strip()) if h1 else ""
+        return object_id, object_type, site_id, name
+
+    def _normalize_tgdd_product(self, item: dict) -> SimilarProduct | None:
+        """Chuẩn hóa 1 item từ TGDD related API → SimilarProduct."""
+        try:
+            name     = str(item.get("Name") or item.get("ProductName") or "")
+            price    = int(item.get("Price") or item.get("FinalPrice") or 0)
+            rating   = float(item.get("RatingStar") or item.get("Star") or 0)
+            sold     = int(item.get("SoldQuantity") or item.get("TotalSold") or 0)
+            img      = str(item.get("Image") or item.get("Thumbnail") or "")
+            if img and not img.startswith("http"):
+                img = "https://" + img.lstrip("/")
+            slug     = str(item.get("Url") or item.get("ProductUrl") or "")
+            purl     = f"{_TGDD_BASE}{slug}" if slug.startswith("/") else slug
+            if not name:
+                return None
+            return SimilarProduct(
+                name=name, url=purl, price=price,
+                rating=rating, sold=sold, image_url=img, source=self.SITE,
+            )
+        except Exception:
+            return None
+
+    async def fetch(self, url: str, limit: int = 5) -> list[SimilarProduct]:
+        import re as _re
+
+        results: list[SimilarProduct] = []
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            # Bước 1: Lấy metadata từ trang sản phẩm
+            try:
+                resp = await client.get(url, headers=_TGDD_HEADERS_HTML)
+                resp.raise_for_status()
+                html = resp.text
+            except Exception as exc:
+                log.warning("[TGDD] Cannot fetch product page: %s", exc)
+                return []
+
+            object_id, object_type, site_id, _ = self._parse_product_meta(html)
+            if not object_id:
+                log.warning("[TGDD] Cannot parse data-objectid from: %s", url)
+                return []
+
+            log.info("[TGDD] objectId=%s | type=%s | site=%s", object_id, object_type, site_id)
+
+            # Bước 2: Gọi related products API
+            for endpoint_tpl in self._RELATED_ENDPOINTS:
+                endpoint = endpoint_tpl.format(
+                    base=_TGDD_WEBAPI,
+                    id=object_id,
+                    type=object_type,
+                    site=site_id,
+                    limit=limit,
+                )
+                try:
+                    resp = await client.get(endpoint, headers=_TGDD_HEADERS_HTML)
+                    if resp.status_code != 200:
+                        continue
+                    data = resp.json()
+                    # TGDD thường trả về list trực tiếp hoặc trong key "Data"/"Products"
+                    items = (
+                        data if isinstance(data, list)
+                        else data.get("Data") or data.get("Products") or []
+                    )
+                    if not items:
+                        continue
+                    for item in items[:limit]:
+                        p = self._normalize_tgdd_product(item)
+                        if p:
+                            results.append(p)
+                    if results:
+                        log.info("[TGDD] %d similar products found", len(results))
+                        return results
+                except Exception as exc:
+                    log.debug("[TGDD] Endpoint %s failed: %s", endpoint, exc)
+                    continue
+
+        log.warning("[TGDD] Không lấy được sản phẩm tương tự")
+        return []

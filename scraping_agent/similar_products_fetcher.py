@@ -11,7 +11,7 @@ CÁCH DÙNG:
     for p in products:
         print(p.name, p.price, p.url)
 
-Hỗ trợ: tiki.vn | lazada.vn | shopee.vn
+Hỗ trợ: tiki.vn | lazada.vn | shopee.vn | thegioididong.com
 Trả về: list[SimilarProduct]  (xem scraper/models.py)
 """
 
@@ -28,9 +28,10 @@ log = logging.getLogger(__name__)
 
 # Mapping domain → fetcher class path (lazy import)
 _SITE_MAP: dict[str, str] = {
-    "tiki.vn":    "scraper.direct.similar_products.TikiSimilar",
-    "lazada.vn":  "scraper.direct.similar_products.LazadaSimilar",
-    "shopee.vn":  "scraper.direct.similar_products.ShopeeSimilar",
+    "tiki.vn":              "scraper.direct.similar_products.TikiSimilar",
+    "lazada.vn":            "scraper.direct.similar_products.LazadaSimilar",
+    "shopee.vn":            "scraper.direct.similar_products.ShopeeSimilar",
+    "thegioididong.com":    "scraper.direct.similar_products.TGDDSimilar",
 }
 
 

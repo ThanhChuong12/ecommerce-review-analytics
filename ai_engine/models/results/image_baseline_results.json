@@ -1,34 +1,9 @@
 [
   {
-    "overall_accuracy": 0.9805934643796169,
-    "macro_f1": 0.9473269351042805,
-    "training_minutes": 49.4,
-    "evaluated_at": "2026-05-15T01:40:16.009626",
-    "per_class": {
-      "damaged": {
-        "precision": 0.9565217391304348,
-        "recall": 0.8712871287128713,
-        "f1": 0.9119170984455959,
-        "support": 101
-      },
-      "intact": {
-        "precision": 0.9827586206896551,
-        "recall": 0.9811365244046215,
-        "f1": 0.9819469026548673,
-        "support": 4241
-      },
-      "irrelevant": {
-        "precision": 0.9791380730167445,
-        "recall": 0.9831863285556781,
-        "f1": 0.9811580250309448,
-        "support": 3628
-      },
-      "wrong_item": {
-        "precision": 0.8888888888888888,
-        "recall": 0.9411764705882353,
-        "f1": 0.9142857142857143,
-        "support": 17
-      }
-    }
+    "backbone": "mobilenet_v3",
+    "overall_accuracy": 0.5812,
+    "macro_f1": 0.4361,
+    "training_minutes": 209.72,
+    "weights_path": "D:\\TU HOC\\ecommerce-review-analytics\\ai_engine\\models\\weights\\mobilenet_v3_defect.pt"
   }
 ]
