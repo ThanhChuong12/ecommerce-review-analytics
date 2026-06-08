@@ -52,7 +52,7 @@ data/processed/training_images.zip
 *.avi
 *.jpg
 *.jpeg
-*.png
+# *.png
 
 
 # --- Model weights (tắt để push kết quả train) ---
@@ -85,11 +85,9 @@ desktop.ini
 
 # Bỏ qua toàn bộ nội dung trong thư mục models và plots
 artifacts/models/**/*
-artifacts/plots/**/*
 
 # NHƯNG giữ lại file .gitkeep để duy trì cấu trúc thư mục trên GitHub
 !artifacts/models/**/.gitkeep
-!artifacts/plots/**/.gitkeep
 
 # Chặn file zip đóng gói Kaggle
 resnet50_kaggle_train.zip
