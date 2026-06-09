@@ -91,3 +91,14 @@ artifacts/models/**/*
 
 # Chặn file zip đóng gói Kaggle
 resnet50_kaggle_train.zip
+kaggle_dataset.zip
+
+# --- Weights và training artifacts (MobileNetV3/ResNet50) ---
+*.pt
+*.pth
+ai_engine/models/results/*_training_history.json
+ai_engine/models/results/*_error_analysis/
+ai_engine/models/weights/cpu_run_v2/
+
+# --- Data CSV (scraped, không commit) ---
+data/*.csv

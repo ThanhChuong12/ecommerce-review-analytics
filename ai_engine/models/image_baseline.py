@@ -21,9 +21,12 @@ Usage
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import shutil
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple
 
@@ -125,7 +128,28 @@ def _build_backbone(backbone: str) -> Tuple[nn.Module, int]:
             param.requires_grad = True
         return net, in_features
 
-    raise ValueError(f"Backbone khong hop le: '{backbone}'. Chon 'resnet50' hoac 'mobilenet_v3'.")
+    if backbone == "efficientnet_b0":
+        net = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1)
+        # Freeze toàn bộ features
+        for param in net.features.parameters():
+            param.requires_grad = False
+        in_features = net.classifier[1].in_features  # 1280
+        # Thay classifier: Linear(1280→512)→SiLU→Dropout→Linear(512→4)
+        net.classifier = nn.Sequential(
+            nn.Dropout(p=0.2),
+            nn.Linear(in_features, 512),
+            nn.SiLU(),
+            nn.Dropout(p=0.4),
+            nn.Linear(512, NUM_CLASSES),
+        )
+        for param in net.classifier.parameters():
+            param.requires_grad = True
+        return net, in_features
+
+    raise ValueError(
+        f"Backbone khong hop le: '{backbone}'. "
+        "Chon 'resnet50', 'mobilenet_v3', hoac 'efficientnet_b0'."
+    )
 
 
 def _unfreeze_last_block(net: nn.Module, backbone: str) -> list:
@@ -152,7 +176,173 @@ def _unfreeze_last_block(net: nn.Module, backbone: str) -> list:
                 param.requires_grad = True
                 backbone_params.append(param)
         logger.info("Unfroze MobileNetV3 features[13:] (%d params)", len(backbone_params))
+    elif backbone == "efficientnet_b0":
+        # EfficientNet-B0 có 9 blocks (0-8), unfreeze 2 blocks cuối
+        features = net.features  # type: ignore[attr-defined]
+        for block in features[7:]:  # type: ignore[index]
+            for param in block.parameters():
+                param.requires_grad = True
+                backbone_params.append(param)
+        logger.info("Unfroze EfficientNet-B0 features[7:] (%d params)", len(backbone_params))
     return backbone_params
+
+
+# ---------------------------------------------------------------------------
+# Helper functions cho báo cáo
+# ---------------------------------------------------------------------------
+
+def _count_params(net: nn.Module, backbone: str) -> dict:
+    """In và trả về thống kê số lượng tham số của model."""
+    total = sum(p.numel() for p in net.parameters())
+    trainable = sum(p.numel() for p in net.parameters() if p.requires_grad)
+    frozen = total - trainable
+    activation_map = {
+        "mobilenet_v3": "Hardswish",
+        "resnet50": "ReLU",
+        "efficientnet_b0": "SiLU (Swish)",
+    }
+    activation = activation_map.get(backbone, "ReLU")
+    logger.info("=" * 55)
+    logger.info("Model: %s", backbone.upper())
+    logger.info("  Total parameters:     %s", f"{total:,}")
+    logger.info("  Trainable parameters: %s (%.1f%%)", f"{trainable:,}", trainable / total * 100)
+    logger.info("  Frozen parameters:    %s (%.1f%%)", f"{frozen:,}", frozen / total * 100)
+    logger.info("  Activation function:  %s", activation)
+    logger.info("=" * 55)
+    return {"total": total, "trainable": trainable, "frozen": frozen, "activation": activation}
+
+
+def _plot_learning_curves(history: dict, save_dir: str, backbone: str) -> None:
+    """Vẽ biểu đồ Loss, Accuracy, Macro-F1 theo epoch và lưu PNG."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.warning("matplotlib chưa cài — bỏ qua Learning Curves.")
+        return
+    os.makedirs(save_dir, exist_ok=True)
+    ep = range(1, len(history["train_loss"]) + 1)
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig.suptitle(f"Learning Curves — {backbone.upper()}", fontsize=13, fontweight="bold")
+
+    # Loss
+    axes[0].plot(ep, history["train_loss"], "b-o", markersize=4, label="Train")
+    axes[0].plot(ep, history["val_loss"],   "r-o", markersize=4, label="Val")
+    axes[0].set_title("Loss"); axes[0].set_xlabel("Epoch"); axes[0].set_ylabel("Loss")
+    axes[0].legend(); axes[0].grid(alpha=0.3)
+
+    # Accuracy
+    axes[1].plot(ep, history["train_acc"], "b-o", markersize=4, label="Train")
+    axes[1].plot(ep, history["val_acc"],   "r-o", markersize=4, label="Val")
+    axes[1].set_title("Accuracy"); axes[1].set_xlabel("Epoch"); axes[1].set_ylabel("Accuracy")
+    axes[1].legend(); axes[1].grid(alpha=0.3)
+
+    # Macro-F1 (val only)
+    axes[2].plot(ep, history["val_f1"], "g-o", markersize=4, label="Val Macro-F1")
+    axes[2].set_title("Val Macro-F1"); axes[2].set_xlabel("Epoch"); axes[2].set_ylabel("F1")
+    axes[2].legend(); axes[2].grid(alpha=0.3)
+
+    plt.tight_layout()
+    out = os.path.join(save_dir, f"{backbone}_learning_curves.png")
+    plt.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close()
+    logger.info("Learning Curves → %s", out)
+
+
+def _plot_confusion_matrix(
+    all_labels: list, all_preds: list, class_names: list,
+    save_dir: str, backbone: str,
+) -> None:
+    """Vẽ Confusion Matrix (raw + normalized) và lưu PNG."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from sklearn.metrics import confusion_matrix
+    except ImportError:
+        logger.warning("matplotlib chưa cài — bỏ qua Confusion Matrix.")
+        return
+    os.makedirs(save_dir, exist_ok=True)
+    cm = confusion_matrix(all_labels, all_preds)
+    cm_norm = cm.astype(float) / cm.sum(axis=1, keepdims=True).clip(min=1)
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    fig.suptitle(f"Confusion Matrix — {backbone.upper()}", fontsize=13, fontweight="bold")
+    ticks = range(len(class_names))
+
+    for ax, data, title, fmt in [
+        (axes[0], cm,      "Raw Counts",          "d"),
+        (axes[1], cm_norm, "Normalized (Recall)", ".2f"),
+    ]:
+        im = ax.imshow(data, cmap="Blues", vmin=0, vmax=(1 if fmt == ".2f" else None))
+        plt.colorbar(im, ax=ax)
+        ax.set_xticks(ticks); ax.set_yticks(ticks)
+        ax.set_xticklabels(class_names, rotation=45, ha="right")
+        ax.set_yticklabels(class_names)
+        ax.set_xlabel("Predicted"); ax.set_ylabel("True")
+        ax.set_title(title)
+        thresh = data.max() / 2
+        for i in range(data.shape[0]):
+            for j in range(data.shape[1]):
+                ax.text(j, i, format(data[i, j], fmt),
+                        ha="center", va="center",
+                        color="white" if data[i, j] > thresh else "black", fontsize=9)
+
+    plt.tight_layout()
+    out = os.path.join(save_dir, f"{backbone}_confusion_matrix.png")
+    plt.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close()
+    logger.info("Confusion Matrix → %s", out)
+
+
+def _save_error_analysis(
+    val_paths: list, all_labels: list, all_preds: list,
+    class_names: list, save_dir: str, backbone: str, max_samples: int = 20,
+) -> None:
+    """Lưu JSON + ảnh của các mẫu dự đoán sai để phân tích lỗi."""
+    error_dir = os.path.join(save_dir, f"{backbone}_error_analysis")
+    os.makedirs(error_dir, exist_ok=True)
+
+    errors = [
+        {"image": str(val_paths[i]),
+         "true": class_names[all_labels[i]],
+         "pred": class_names[all_preds[i]]}
+        for i in range(len(all_preds))
+        if all_preds[i] != all_labels[i]
+    ]
+    error_pairs = Counter(
+        f"{class_names[t]}->{class_names[p]}"
+        for t, p in zip(all_labels, all_preds) if t != p
+    )
+    summary = {
+        "total_errors": len(errors),
+        "error_rate": round(len(errors) / max(len(all_labels), 1), 4),
+        "top_error_patterns": dict(error_pairs.most_common(8)),
+        "samples": errors[:max_samples],
+    }
+    with open(os.path.join(error_dir, "error_summary.json"), "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+
+    # Copy ảnh sai (tên file = true_pred_originalname)
+    copied = 0
+    for err in errors[:max_samples]:
+        src = Path(err["image"])
+        if src.exists():
+            dest = os.path.join(error_dir, f"{err['true']}_as_{err['pred']}_{src.name}")
+            try:
+                shutil.copy2(src, dest)
+                copied += 1
+            except OSError:
+                pass
+
+    logger.info(
+        "Error analysis: %d/%d sai (%.1f%%) | %d ảnh saved → %s",
+        len(errors), len(all_labels), summary["error_rate"] * 100, copied, error_dir,
+    )
+    for pattern, cnt in list(error_pairs.most_common(5)):
+        logger.info("  %s: %d lần", pattern, cnt)
 
 
 class ImageBaselineModel:
@@ -193,6 +383,7 @@ class ImageBaselineModel:
         val_split: float = 0.2,
         patience: int = 3,
         subset_ratio: float = 1.0,
+        results_dir: str = "ai_engine/models/results",  # thư mục lưu plots + history
     ) -> "ImageBaselineModel":
         """Fine-tune backbone trên dữ liệu ảnh đã gán nhãn.
 
@@ -290,7 +481,20 @@ class ImageBaselineModel:
             num_workers=n_workers, pin_memory=use_pin,
         )
 
+        # Lưu đường dẫn ảnh val cho error analysis
+        val_paths = [val_dataset.imgs[i][0] for i in val_idx]
+
         net = self._get_model()
+
+        # In số lượng tham số
+        param_info = _count_params(net, self.backbone)
+
+        # Khởi tạo history để vẽ Learning Curves
+        history: dict = {
+            "train_loss": [], "val_loss": [],
+            "train_acc":  [], "val_acc":  [],
+            "val_f1": [], "lr": [],
+        }
 
         # Giai đoạn 1: chỉ train head (backbone vẫn frozen)
         head_params = list(filter(lambda p: p.requires_grad, net.parameters()))
@@ -368,6 +572,14 @@ class ImageBaselineModel:
                 epoch, epochs, train_acc, val_acc, val_loss_avg, val_macro_f1,
             )
 
+            # Ghi history
+            history["train_loss"].append(round(train_loss / n_train, 5))
+            history["val_loss"].append(round(val_loss_avg, 5))
+            history["train_acc"].append(round(train_acc, 5))
+            history["val_acc"].append(round(val_acc, 5))
+            history["val_f1"].append(round(val_macro_f1, 5))
+            history["lr"].append(optimizer.param_groups[0]["lr"])
+
             scheduler.step(val_loss_avg)
 
             # FIX: Early stopping theo val_loss (unweighted) và checkpoint khi F1 tốt nhất
@@ -395,6 +607,15 @@ class ImageBaselineModel:
         # Restore best weights từ checkpoint
         net.load_state_dict(torch.load(best_weights_path, map_location=self.device))
 
+        # --- Lưu training history JSON + vẽ Learning Curves ---
+        os.makedirs(results_dir, exist_ok=True)
+        history_data = {**history, "param_info": param_info, "backbone": self.backbone}
+        history_path = os.path.join(results_dir, f"{self.backbone}_training_history.json")
+        with open(history_path, "w", encoding="utf-8") as f:
+            json.dump(history_data, f, indent=2)
+        logger.info("Training history → %s", history_path)
+        _plot_learning_curves(history, results_dir, self.backbone)
+
         # --- Final evaluation trên VAL SET (không bị data leakage) ---
         logger.info("=" * 60)
         logger.info("FINAL EVALUATION — val set only (%d images):", n_val)
@@ -416,9 +637,12 @@ class ImageBaselineModel:
         )
         logger.info("=" * 60)
 
-        # Lưu val report để train script dùng (tránh evaluate lại trên full data)
-        self._val_report = report_dict
+        # --- Vẽ Confusion Matrix + Error Analysis ---
+        _plot_confusion_matrix(all_labels, all_preds, self.class_names, results_dir, self.backbone)
+        _save_error_analysis(val_paths, all_labels, all_preds, self.class_names, results_dir, self.backbone)
 
+        # Lưu val report để train script dùng
+        self._val_report = report_dict
         logger.info("Training hoàn tất. Best val_loss=%.4f", best_val_loss)
         return self
 
@@ -562,6 +786,7 @@ class ImageBaselineModel:
         """Lưu state dict + metadata ra file .pt.
 
         Lưu thêm backbone name và class_names để load lại đúng cấu hình.
+        Hỗ trợ: resnet50 | mobilenet_v3 | efficientnet_b0
         """
         if self.model is None:
             raise RuntimeError("Model chưa được train. Gọi .fit() trước.")
