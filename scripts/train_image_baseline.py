@@ -67,6 +67,10 @@ def parse_args() -> argparse.Namespace:
         "--data-dir", default=DEFAULT_DATA_DIR,
         help="Thư mục ảnh train (ImageFolder format). Mặc định: labeled/train/",
     )
+    parser.add_argument(
+        "--val-dir", default=None,
+        help="Thư mục ảnh validation vật lý (ImageFolder format). Nếu cung cấp, fit() sẽ dùng thư mục này và bỏ qua val-split.",
+    )
     parser.add_argument("--epochs", type=int, default=15,
         help="Số epoch tối đa (default: 15 — early stopping thường dừng epoch 8-12)")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size (default: 32)")
@@ -114,6 +118,7 @@ def train_single(
     patience: int,
     subset_ratio: float = 1.0,
     results_dir: str = "ai_engine/models/results",
+    val_dir: str | None = None,
 ) -> dict:
     """Train 1 backbone và lưu weights. Trả về metrics summary."""
     logger.info("--- Bắt đầu train: %s ---", backbone.upper())
@@ -123,6 +128,7 @@ def train_single(
 
     model.fit(
         data_dir=data_dir,
+        val_dir=val_dir,
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
@@ -143,7 +149,7 @@ def train_single(
         logger.info("Sử dụng kết quả val set từ training (không bị data leakage).")
     else:
         logger.info("Fallback: evaluate model %s trên toàn bộ dataset...", backbone)
-        eval_report = model.evaluate(data_dir=data_dir, batch_size=batch_size)
+        eval_report = model.evaluate(data_dir=val_dir if val_dir else data_dir, batch_size=batch_size)
 
     elapsed = (time.time() - t_start) / 60
     summary = {
@@ -253,6 +259,7 @@ def main():
                 patience=args.patience,
                 subset_ratio=args.subset_ratio,
                 results_dir=args.results_dir,
+                val_dir=args.val_dir,
             )
         if result:
             all_results.append(result)

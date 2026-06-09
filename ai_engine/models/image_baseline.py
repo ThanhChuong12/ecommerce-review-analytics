@@ -85,7 +85,7 @@ def _build_transforms(is_train: bool) -> transforms.Compose:
     ])
 
 
-def _build_backbone(backbone: str) -> Tuple[nn.Module, int]:
+def _build_backbone(backbone: str, num_classes: int = 4) -> Tuple[nn.Module, int]:
     """Load pretrained backbone và trả về (model, số feature của layer cuối).
 
     Chiến lược fine-tuning 2 giai đoạn:
@@ -103,7 +103,7 @@ def _build_backbone(backbone: str) -> Tuple[nn.Module, int]:
             nn.Linear(in_features, 256),
             nn.ReLU(),
             nn.Dropout(p=0.2),
-            nn.Linear(256, NUM_CLASSES),
+            nn.Linear(256, num_classes),
         )
         return net, in_features
 
@@ -121,7 +121,7 @@ def _build_backbone(backbone: str) -> Tuple[nn.Module, int]:
             nn.Linear(in_features, 512),
             nn.Hardswish(),
             nn.Dropout(p=0.4),
-            nn.Linear(512, NUM_CLASSES),
+            nn.Linear(512, num_classes),
         )
         # FIX #2 (cont): Đảm bảo classifier luôn trainable
         for param in net.classifier.parameters():
@@ -140,7 +140,7 @@ def _build_backbone(backbone: str) -> Tuple[nn.Module, int]:
             nn.Linear(in_features, 512),
             nn.SiLU(),
             nn.Dropout(p=0.4),
-            nn.Linear(512, NUM_CLASSES),
+            nn.Linear(512, num_classes),
         )
         for param in net.classifier.parameters():
             param.requires_grad = True
@@ -367,16 +367,17 @@ class ImageBaselineModel:
         self.model: Optional[nn.Module] = None
         logger.info("ImageBaselineModel khởi tạo — backbone=%s | device=%s", backbone, self.device)
 
-    def _get_model(self) -> nn.Module:
+    def _get_model(self, num_classes: int = 4) -> nn.Module:
         """Khởi tạo model nếu chưa có, load lên device."""
         if self.model is None:
-            net, _ = _build_backbone(self.backbone)
+            net, _ = _build_backbone(self.backbone, num_classes=num_classes)
             self.model = net.to(self.device)
         return self.model
 
     def fit(
         self,
         data_dir: str,
+        val_dir: str | None = None,
         epochs: int = 10,
         batch_size: int = 32,
         lr: float = 1e-3,
@@ -387,62 +388,80 @@ class ImageBaselineModel:
     ) -> "ImageBaselineModel":
         """Fine-tune backbone trên dữ liệu ảnh đã gán nhãn.
 
-        Cấu trúc thư mục data_dir phải theo ImageFolder format:
-          data_dir/
-            intact/      *.jpg ...
-            damaged/     *.jpg ...
-            wrong_item/  *.jpg ...
-            irrelevant/  *.jpg ...
+        Cấu trúc thư mục data_dir phải theo ImageFolder format.
 
         Args:
-            data_dir: Đường dẫn đến thư mục chứa các subfolder theo nhãn.
-            epochs: Số epoch tối đa. Early stopping có thể dừng sớm hơn.
+            data_dir: Đường dẫn đến thư mục chứa các subfolder theo nhãn (hoặc train folder).
+            val_dir: Đường dẫn đến thư mục validation (nếu sử dụng phân chia vật lý).
+            epochs: Số epoch tối đa.
             batch_size: Kích thước mini-batch.
-            lr: Learning rate cho optimizer Adam.
-            val_split: Tỉ lệ dữ liệu dùng làm validation (0.2 = 20%).
-            patience: Số epoch chờ nếu val_loss không cải thiện trước khi dừng.
-            subset_ratio: Tỉ lệ data train dùng để train (0 < x <= 1.0).
-                          Dùng < 1.0 để giảm thời gian train trên CPU.
-                          Val set LUÔN dùng toàn bộ để evaluate công bằng.
-                          Ví dụ: 0.35 → giảm ~65% thời gian, train ~2h thay vì ~6h.
-
-        Returns:
-            self (để chain method).
+            lr: Learning rate.
+            val_split: Tỉ lệ dữ liệu dùng làm validation (khi dùng random split).
+            patience: Số epoch chờ.
+            subset_ratio: Tỉ lệ data train sử dụng.
+            results_dir: Thư mục kết quả.
         """
         from sklearn.model_selection import StratifiedShuffleSplit
         from sklearn.metrics import classification_report as sk_report
 
-        # --- FIX: 2 dataset RIÊNG BIỆT → tránh ghi đè transform ---
-        train_dataset = datasets.ImageFolder(
-            root=data_dir,
-            transform=_build_transforms(is_train=True),
-        )
-        val_dataset = datasets.ImageFolder(
-            root=data_dir,
-            transform=_build_transforms(is_train=False),
-        )
-
-        self.class_names = train_dataset.classes
-        logger.info("Dataset: %d images | Classes: %s", len(train_dataset), train_dataset.classes)
-
-        # --- FIX: StratifiedShuffleSplit → đảm bảo tỉ lệ class giống nhau ---
-        sss = StratifiedShuffleSplit(n_splits=1, test_size=val_split, random_state=42)
-        all_targets = train_dataset.targets
-        train_idx, val_idx = next(sss.split(range(len(train_dataset)), all_targets))
-
-        # --- subset_ratio: giảm train set để tiết kiệm thời gian trên CPU ---
-        # Val set KHÔNG bị ảnh hưởng → evaluate vẫn công bằng
-        if 0.0 < subset_ratio < 1.0:
-            sss_sub = StratifiedShuffleSplit(
-                n_splits=1, test_size=(1.0 - subset_ratio), random_state=42
+        if val_dir is not None:
+            # Physical split mode
+            train_dataset = datasets.ImageFolder(
+                root=data_dir,
+                transform=_build_transforms(is_train=True),
             )
-            sub_targets = [all_targets[i] for i in train_idx]
-            keep_local, _ = next(sss_sub.split(range(len(train_idx)), sub_targets))
-            train_idx = [train_idx[i] for i in keep_local]
-            logger.info(
-                "subset_ratio=%.2f → train set giảm còn %d ảnh (val vẫn %d ảnh)",
-                subset_ratio, len(train_idx), len(val_idx),
+            val_dataset = datasets.ImageFolder(
+                root=val_dir,
+                transform=_build_transforms(is_train=False),
             )
+            self.class_names = train_dataset.classes
+            num_classes = len(self.class_names)
+            logger.info("Physical Split Mode: Train: %d, Val: %d | Classes: %s", 
+                        len(train_dataset), len(val_dataset), self.class_names)
+            
+            train_idx = list(range(len(train_dataset)))
+            val_idx = list(range(len(val_dataset)))
+            all_targets = train_dataset.targets
+            
+            if 0.0 < subset_ratio < 1.0:
+                sss_sub = StratifiedShuffleSplit(
+                    n_splits=1, test_size=(1.0 - subset_ratio), random_state=42
+                )
+                keep_local, _ = next(sss_sub.split(range(len(train_idx)), all_targets))
+                train_idx = [train_idx[i] for i in keep_local]
+                logger.info(
+                    "subset_ratio=%.2f → train set giảm còn %d ảnh",
+                    subset_ratio, len(train_idx)
+                )
+        else:
+            # Random split mode
+            train_dataset = datasets.ImageFolder(
+                root=data_dir,
+                transform=_build_transforms(is_train=True),
+            )
+            val_dataset = datasets.ImageFolder(
+                root=data_dir,
+                transform=_build_transforms(is_train=False),
+            )
+            self.class_names = train_dataset.classes
+            num_classes = len(self.class_names)
+            logger.info("Random Split Mode: Dataset: %d images | Classes: %s", len(train_dataset), self.class_names)
+            
+            sss = StratifiedShuffleSplit(n_splits=1, test_size=val_split, random_state=42)
+            all_targets = train_dataset.targets
+            train_idx, val_idx = next(sss.split(range(len(train_dataset)), all_targets))
+            
+            if 0.0 < subset_ratio < 1.0:
+                sss_sub = StratifiedShuffleSplit(
+                    n_splits=1, test_size=(1.0 - subset_ratio), random_state=42
+                )
+                sub_targets = [all_targets[i] for i in train_idx]
+                keep_local, _ = next(sss_sub.split(range(len(train_idx)), sub_targets))
+                train_idx = [train_idx[i] for i in keep_local]
+                logger.info(
+                    "subset_ratio=%.2f → train set giảm còn %d ảnh (val vẫn %d ảnh)",
+                    subset_ratio, len(train_idx), len(val_idx),
+                )
 
         train_set = Subset(train_dataset, train_idx)  # augmented transforms
         val_set = Subset(val_dataset, val_idx)         # eval transforms (riêng biệt!)
@@ -452,7 +471,7 @@ class ImageBaselineModel:
 
         # WeightedRandomSampler: cân bằng class imbalance khi train
         train_targets = [all_targets[i] for i in train_idx]
-        class_counts = torch.bincount(torch.tensor(train_targets), minlength=NUM_CLASSES).float()
+        class_counts = torch.bincount(torch.tensor(train_targets), minlength=num_classes).float()
         sample_class_weights = 1.0 / class_counts.clamp(min=1)
         sample_weights = sample_class_weights[torch.tensor(train_targets)]
         sampler = WeightedRandomSampler(
@@ -464,7 +483,7 @@ class ImageBaselineModel:
 
         # --- FIX: class weights cho loss → phạt nặng khi đoán sai class nhỏ ---
         loss_weights = 1.0 / class_counts.clamp(min=1)
-        loss_weights = loss_weights / loss_weights.sum() * NUM_CLASSES
+        loss_weights = loss_weights / loss_weights.sum() * num_classes
         logger.info("Loss weights: %s",
                     {c: round(w, 3) for c, w in zip(train_dataset.classes, loss_weights.tolist())})
 
@@ -484,7 +503,7 @@ class ImageBaselineModel:
         # Lưu đường dẫn ảnh val cho error analysis
         val_paths = [val_dataset.imgs[i][0] for i in val_idx]
 
-        net = self._get_model()
+        net = self._get_model(num_classes=num_classes)
 
         # In số lượng tham số
         param_info = _count_params(net, self.backbone)
@@ -664,7 +683,7 @@ class ImageBaselineModel:
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"Không tìm thấy ảnh: {image_path}")
 
-        net = self._get_model()
+        net = self._get_model(num_classes=len(self.class_names))
         net.eval()
 
         transform = _build_transforms(is_train=False)
@@ -700,7 +719,7 @@ class ImageBaselineModel:
         """
         from PIL import Image
 
-        net = self._get_model()
+        net = self._get_model(num_classes=len(self.class_names))
         net.eval()
         transform = _build_transforms(is_train=False)
 
@@ -760,7 +779,7 @@ class ImageBaselineModel:
         )
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=2)
 
-        net = self._get_model()
+        net = self._get_model(num_classes=len(self.class_names))
         net.eval()
 
         all_preds, all_labels = [], []
@@ -811,14 +830,16 @@ class ImageBaselineModel:
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"Không tìm thấy file model: {filepath}")
 
-        checkpoint = torch.load(filepath, map_location="cpu")
+        checkpoint = torch.load(filepath, map_location="cpu", weights_only=False)
         backbone = checkpoint["backbone"]
+        class_names = checkpoint["class_names"]
+        num_classes = len(class_names)
 
         instance = cls(backbone=backbone)
-        net, _ = _build_backbone(backbone)
+        instance.class_names = class_names
+        net, _ = _build_backbone(backbone, num_classes=num_classes)
         net.load_state_dict(checkpoint["state_dict"])
         instance.model = net.to(instance.device)
-        instance.class_names = checkpoint["class_names"]
 
-        logger.info("Model loaded ← %s (backbone=%s)", filepath, backbone)
+        logger.info("Model loaded ← %s (backbone=%s, classes=%d)", filepath, backbone, num_classes)
         return instance
