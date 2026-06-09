@@ -1,7 +1,7 @@
 r"""
 train_mobilenet_kaggle.py
 --------------------------
-Kaggle Notebook script — MobileNetV3 Defect Detection (4-class)
+Kaggle Notebook script — MobileNetV3 Improved Defect Detection (Model 2)
 
 SETUP TRƯỚC KHI CHẠY:
   Bước 1 — Tạo 2 Kaggle Datasets:
@@ -22,6 +22,7 @@ SETUP TRƯỚC KHI CHẠY:
 import os
 import sys
 import shutil
+import json
 import subprocess
 from pathlib import Path
 
@@ -30,9 +31,9 @@ OK   = "\033[92m✅ \033[0m"
 WARN = "\033[93m⚠️  \033[0m"
 ERR  = "\033[91m❌ \033[0m"
 
-print("=" * 65)
-print("  MobileNetV3 Defect Detection — Kaggle GPU Training")
-print("=" * 65)
+print("=" * 75)
+print("  MobileNetV3 Improved Defect Detection (Model 2) — Kaggle GPU Training")
+print("=" * 75)
 
 
 # ── STEP 1: Kiểm tra GPU ───────────────────────────────────────────────────
@@ -40,42 +41,79 @@ print("\n[Step 1] Checking GPU...")
 import torch
 
 if not torch.cuda.is_available():
-    raise RuntimeError(f"{ERR}GPU không khả dụng! Vào Settings → Accelerator → GPU P100")
+    raise RuntimeError(f"{ERR}GPU không khả dụng! Vào Settings → Accelerator → GPU T4")
 
 print(f"{OK}GPU: {torch.cuda.get_device_name(0)}")
 print(f"{OK}VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
 
-# ── STEP 2: Extract offline code package ───────────────────────────────────
-print("\n[Step 2] Locating and extracting offline code package...")
+# ── STEP 2: Locate offline code package or extracted code ──────────────────
+print("\n[Step 2] Locating offline code package or extracted code...")
 
 import zipfile
-
-CODE_ZIP = None
-# Tìm bất kỳ file zip nào trong /kaggle/input chứa file train_image_baseline.py hoặc có tên liên quan đến code/model2/mobilenet
-for candidate in Path("/kaggle/input").rglob("*.zip"):
-    if "code" in candidate.name.lower() or "mobilenet" in candidate.name.lower():
-        CODE_ZIP = candidate
-        break
-
-if CODE_ZIP is None:
-    # Fallback: lấy file zip đầu tiên tìm thấy
-    for candidate in Path("/kaggle/input").rglob("*.zip"):
-        CODE_ZIP = candidate
-        break
-
-if CODE_ZIP is None:
-    raise FileNotFoundError(f"{ERR}Không tìm thấy file code offline dạng zip trong /kaggle/input! Đảm bảo đã add input dataset code offline.")
 
 WORK_DIR = Path("/kaggle/working/project")
 if WORK_DIR.exists():
     shutil.rmtree(WORK_DIR)
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 
-print(f"{OK}Found offline code package: {CODE_ZIP}")
-print(f"Extracting to {WORK_DIR}...")
-with zipfile.ZipFile(CODE_ZIP, "r") as zip_ref:
-    zip_ref.extractall(WORK_DIR)
+required_rel_files = [
+    Path("ai_engine/models/image_baseline.py"),
+    Path("scripts/train_image_baseline.py"),
+    Path("notebooks/train_mobilenet_kaggle.py"),
+]
+
+def is_project_root(path: Path) -> bool:
+    return all((path / rel).exists() for rel in required_rel_files)
+
+# Case A: Kaggle kept the uploaded code zip
+CODE_ZIP = None
+for candidate in Path("/kaggle/input").rglob("*.zip"):
+    name = candidate.name.lower()
+    if "code" in name or "mobilenet" in name or "model2" in name:
+        CODE_ZIP = candidate
+        break
+
+if CODE_ZIP is not None:
+    print(f"{OK}Found offline code ZIP: {CODE_ZIP}")
+    print(f"Extracting to {WORK_DIR}...")
+    with zipfile.ZipFile(CODE_ZIP, "r") as zip_ref:
+        zip_ref.extractall(WORK_DIR)
+
+# Case B: Kaggle already extracted the uploaded code dataset
+else:
+    print(f"{WARN}No code ZIP found. Searching for already-extracted code dataset...")
+
+    PROJECT_ROOT = None
+    for candidate in Path("/kaggle/input").rglob("ai_engine/models/image_baseline.py"):
+        possible_root = candidate.parents[2]  # root/ai_engine/models/image_baseline.py
+        if is_project_root(possible_root):
+            PROJECT_ROOT = possible_root
+            break
+
+    if PROJECT_ROOT is None:
+        print("\nAvailable /kaggle/input structure:")
+        for p in Path("/kaggle/input").glob("*"):
+            print(" -", p)
+            for sub in list(p.glob("*"))[:20]:
+                print("   -", sub)
+
+        raise FileNotFoundError(
+            f"{ERR}Không tìm thấy code offline trong /kaggle/input. "
+            "Hãy kiểm tra dataset code đã được Add Input đúng chưa."
+        )
+
+    print(f"{OK}Found extracted code root: {PROJECT_ROOT}")
+    print(f"Copying code to writable work dir: {WORK_DIR}")
+
+    for item in PROJECT_ROOT.iterdir():
+        dest = WORK_DIR / item.name
+        if item.is_dir():
+            shutil.copytree(item, dest, ignore=shutil.ignore_patterns(
+                "__pycache__", ".ipynb_checkpoints", ".git", "*.pt", "*.pth", "*.ckpt", "*.zip"
+            ))
+        else:
+            shutil.copy2(item, dest)
 
 os.chdir(WORK_DIR)
 sys.path.insert(0, str(WORK_DIR))
@@ -137,60 +175,85 @@ for split_name, split_path in [("Train", TRAIN_DIR), ("Val", VAL_DIR), ("Test", 
 
 
 # ── STEP 6: Train ──────────────────────────────────────────────────────────
-print("\n[Step 6] Starting training...\n" + "=" * 65)
+print("\n[Step 6] Starting training (Validation threshold selection mode)...\n" + "=" * 75)
 
-cmd = [
+cmd_train = [
     "python", "scripts/train_image_baseline.py",
-    "--backbone",   "mobilenet_v3",
-    "--data-dir",   TRAIN_DIR,
-    "--val-dir",    VAL_DIR,
-    "--epochs",     "15",
-    "--lr",         "1e-3",
+    "--backbone", "mobilenet_v3",
+    "--data-dir", TRAIN_DIR,
+    "--val-dir", VAL_DIR,
+    "--epochs", "15",
+    "--lr", "1e-3",
     "--batch-size", "32",
-    "--patience",   "5",
+    "--patience", "5",
+    "--subset-ratio", "1.0",
+    "--class-weight-mode", "sqrt",
+    "--threshold-mode", "maximize_macro_f1_subject_to_recall",
     "--weights-dir", str(WORK_DIR / "ai_engine/models/weights"),
+    "--results-dir", str(WORK_DIR / "ai_engine/models/results"),
+    "--weights-name", "mobilenet_v3_model2_improved_defect.pt",
+    "--results-name", "mobilenet_v3_model2_improved_results.json",
+    "--learning-curves-name", "mobilenet_v3_model2_improved_learning_curves.png",
+    "--confusion-matrix-name", "mobilenet_v3_model2_improved_confusion_matrix.png",
+    "--training-history-name", "mobilenet_v3_model2_improved_training_history.json",
+    "--threshold-tuning-name", "mobilenet_v3_model2_improved_threshold_tuning.json",
 ]
 
-result = subprocess.run(cmd, stdout=sys.stdout, stderr=sys.stdout, text=True)
-print("=" * 65)
-print(f"Training exit code: {result.returncode}")
+result_train = subprocess.run(cmd_train, stdout=sys.stdout, stderr=sys.stdout, text=True)
+print("=" * 75)
+print(f"Training exit code: {result_train.returncode}")
 
-if result.returncode != 0:
+if result_train.returncode != 0:
     raise RuntimeError(f"{ERR}Training thất bại! Xem log bên trên.")
 
 
-# ── STEP 7: Copy output ra /kaggle/working để download ────────────────────
-print("\n[Step 7] Saving outputs...")
+# ── STEP 7: Official Test Set Evaluation using Val Threshold ───────────────
+print("\n[Step 7] Evaluating on Test set using the validation-selected threshold...")
+cmd_eval = [
+    "python", "scripts/train_image_baseline.py",
+    "--backbone", "mobilenet_v3",
+    "--eval-test",
+    "--test-dir", TEST_DIR,
+    "--weights-dir", str(WORK_DIR / "ai_engine/models/weights"),
+    "--weights-name", "mobilenet_v3_model2_improved_defect.pt",
+    "--results-dir", str(WORK_DIR / "ai_engine/models/results"),
+    "--results-name", "mobilenet_v3_model2_improved_test_results.json",
+    "--threshold-file", str(WORK_DIR / "ai_engine/models/results/mobilenet_v3_model2_improved_threshold_tuning.json"),
+]
 
-OUTPUT_DIR  = Path("/kaggle/working/outputs")
-MODEL_SRC   = WORK_DIR / "ai_engine/models/weights/mobilenet_v3_defect.pt"
-RESULTS_SRC = WORK_DIR / "ai_engine/models/results/image_baseline_results.json"
+result_eval = subprocess.run(cmd_eval, stdout=sys.stdout, stderr=sys.stdout, text=True)
+print("=" * 75)
+print(f"Evaluation exit code: {result_eval.returncode}")
 
+if result_eval.returncode != 0:
+    logger.warning(f"{WARN}Evaluation test set failed, checking fallback...")
+
+
+# ── STEP 8: Save Output Files to /kaggle/working/outputs ───────────────────
+print("\n[Step 8] Saving outputs...")
+
+OUTPUT_DIR = Path("/kaggle/working/outputs")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-if MODEL_SRC.exists():
-    shutil.copy(MODEL_SRC, OUTPUT_DIR / "mobilenet_v3_model2_defect.pt")
-    print(f"{OK}Model saved → /kaggle/working/outputs/mobilenet_v3_model2_defect.pt")
-else:
-    print(f"{ERR}Model file không tìm thấy!")
-
-if RESULTS_SRC.exists():
-    shutil.copy(RESULTS_SRC, OUTPUT_DIR / "mobilenet_v3_model2_results.json")
-    print(f"{OK}Results saved → /kaggle/working/outputs/mobilenet_v3_model2_results.json")
-
-# Copy them artifacts voi ten Model 2 rieng biet
-RESULTS_SRC_DIR = WORK_DIR / "ai_engine/models/results"
+# Bản đồ ánh xạ các file kết quả từ Project dir sang outputs dir
 artifact_mapping = {
-    "mobilenet_v3_learning_curves.png": "mobilenet_v3_model2_learning_curves.png",
-    "mobilenet_v3_confusion_matrix.png": "mobilenet_v3_model2_confusion_matrix.png",
-    "mobilenet_v3_training_history.json": "mobilenet_v3_model2_training_history.json",
+    "ai_engine/models/weights/mobilenet_v3_model2_improved_defect.pt": "mobilenet_v3_model2_improved_defect.pt",
+    "ai_engine/models/results/mobilenet_v3_model2_improved_results.json": "mobilenet_v3_model2_improved_results.json",
+    "ai_engine/models/results/mobilenet_v3_model2_improved_learning_curves.png": "mobilenet_v3_model2_improved_learning_curves.png",
+    "ai_engine/models/results/mobilenet_v3_model2_improved_confusion_matrix.png": "mobilenet_v3_model2_improved_confusion_matrix.png",
+    "ai_engine/models/results/mobilenet_v3_model2_improved_training_history.json": "mobilenet_v3_model2_improved_training_history.json",
+    "ai_engine/models/results/mobilenet_v3_model2_improved_threshold_tuning.json": "mobilenet_v3_model2_improved_threshold_tuning.json",
+    "ai_engine/models/results/mobilenet_v3_model2_improved_test_results.json": "mobilenet_v3_model2_improved_test_results.json",
 }
-for src_name, dest_name in artifact_mapping.items():
-    src = RESULTS_SRC_DIR / src_name
+
+for src_rel, dest_name in artifact_mapping.items():
+    src = WORK_DIR / src_rel
     if src.exists():
         shutil.copy(src, OUTPUT_DIR / dest_name)
         print(f"{OK}Saved: {dest_name}")
+    else:
+        print(f"{WARN}Artifact not found: {src_rel}")
 
-print("\n" + "=" * 65)
+print("\n" + "=" * 75)
 print("  HOÀN TẤT — Download outputs từ tab Output của Notebook")
-print("=" * 65)
+print("=" * 75)
