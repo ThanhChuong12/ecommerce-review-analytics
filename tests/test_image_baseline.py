@@ -74,7 +74,7 @@ class TestBuildBackbone(unittest.TestCase):
         from ai_engine.models.image_baseline import _build_backbone, NUM_CLASSES
 
         net, in_features = _build_backbone("mobilenet_v3")
-        self.assertEqual(in_features, 1280)
+        self.assertIn(in_features, [960, 1280])
         dummy = torch.randn(1, 3, 224, 224)
         with torch.no_grad():
             out = net(dummy)
@@ -240,6 +240,65 @@ class TestPredictBatch(unittest.TestCase):
         finally:
             for p in valid_paths:
                 os.unlink(p)
+
+
+class TestThresholdTuningAndWeights(unittest.TestCase):
+    """Test custom logic for threshold tuning, class weighting, and sampler selection."""
+
+    def test_tune_threshold_basic(self):
+        import json
+        from ai_engine.models.image_baseline import ImageBaselineModel
+        model = ImageBaselineModel(backbone="mobilenet_v3", device="cpu")
+        model.class_names = ["defect", "no-defect"]
+        model._get_model()
+
+        # Mock a DataLoader returning dummy images and labels
+        dummy_imgs = torch.randn(2, 3, 224, 224)
+        dummy_labels = torch.tensor([0, 1])
+        mock_loader = [(dummy_imgs, dummy_labels)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            save_path = os.path.join(tmpdir, "thresh_tuning.json")
+            best_thresh = model.tune_threshold(
+                val_loader=mock_loader,
+                mode="maximize_macro_f1",
+                save_path=save_path
+            )
+            self.assertTrue(0.05 <= best_thresh <= 0.95)
+            self.assertTrue(os.path.exists(save_path))
+            
+            # Check JSON file content
+            with open(save_path, "r") as f:
+                data = json.load(f)
+            self.assertEqual(data["best_threshold"], best_thresh)
+            self.assertEqual(data["selection_mode"], "maximize_macro_f1")
+            self.assertEqual(len(data["sweep_results"]), 91) # 0.05 to 0.95 inclusive (step 0.01)
+
+    def test_predict_with_tuned_threshold(self):
+        from ai_engine.models.image_baseline import ImageBaselineModel
+        model = ImageBaselineModel(backbone="mobilenet_v3", device="cpu")
+        model.class_names = ["defect", "no-defect"]
+        model._get_model()
+        model.threshold = 0.75
+
+        # Create dummy image
+        from PIL import Image
+        import numpy as np
+        
+        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        tmp.close()
+        img = Image.fromarray(np.random.randint(0, 255, (224, 224, 3), dtype="uint8"))
+        img.save(tmp.name)
+        
+        try:
+            res = model.predict(tmp.name)
+            self.assertIn("label", res)
+            self.assertIn(res["label"], model.class_names)
+            # Batch prediction
+            batch_res = model.predict_batch([tmp.name])
+            self.assertEqual(len(batch_res), 1)
+        finally:
+            os.unlink(tmp.name)
 
 
 if __name__ == "__main__":

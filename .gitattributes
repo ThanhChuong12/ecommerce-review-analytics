@@ -1,3 +1,16 @@
 # Ignore Jupyter Notebook files for language detection
 *.ipynb linguist-detectable=false
 *.pth filter=lfs diff=lfs merge=lfs -text
+
+# Exclude forbidden folders from git archive
+data/ export-ignore
+labeled/ export-ignore
+reports/ export-ignore
+kaggle/ export-ignore
+.git/ export-ignore
+
+# Exclude forbidden file types from git archive
+*.pt export-ignore
+*.pth export-ignore
+*.ckpt export-ignore
+*.zip export-ignore

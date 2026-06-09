@@ -85,7 +85,7 @@ def _build_transforms(is_train: bool) -> transforms.Compose:
     ])
 
 
-def _build_backbone(backbone: str) -> Tuple[nn.Module, int]:
+def _build_backbone(backbone: str, num_classes: int = 4) -> Tuple[nn.Module, int]:
     """Load pretrained backbone và trả về (model, số feature của layer cuối).
 
     Chiến lược fine-tuning 2 giai đoạn:
@@ -103,7 +103,7 @@ def _build_backbone(backbone: str) -> Tuple[nn.Module, int]:
             nn.Linear(in_features, 256),
             nn.ReLU(),
             nn.Dropout(p=0.2),
-            nn.Linear(256, NUM_CLASSES),
+            nn.Linear(256, num_classes),
         )
         return net, in_features
 
@@ -121,7 +121,7 @@ def _build_backbone(backbone: str) -> Tuple[nn.Module, int]:
             nn.Linear(in_features, 512),
             nn.Hardswish(),
             nn.Dropout(p=0.4),
-            nn.Linear(512, NUM_CLASSES),
+            nn.Linear(512, num_classes),
         )
         # FIX #2 (cont): Đảm bảo classifier luôn trainable
         for param in net.classifier.parameters():
@@ -140,7 +140,7 @@ def _build_backbone(backbone: str) -> Tuple[nn.Module, int]:
             nn.Linear(in_features, 512),
             nn.SiLU(),
             nn.Dropout(p=0.4),
-            nn.Linear(512, NUM_CLASSES),
+            nn.Linear(512, num_classes),
         )
         for param in net.classifier.parameters():
             param.requires_grad = True
@@ -212,7 +212,7 @@ def _count_params(net: nn.Module, backbone: str) -> dict:
     return {"total": total, "trainable": trainable, "frozen": frozen, "activation": activation}
 
 
-def _plot_learning_curves(history: dict, save_dir: str, backbone: str) -> None:
+def _plot_learning_curves(history: dict, save_dir: str, backbone: str, filename: str | None = None) -> None:
     """Vẽ biểu đồ Loss, Accuracy, Macro-F1 theo epoch và lưu PNG."""
     try:
         import matplotlib
@@ -244,7 +244,8 @@ def _plot_learning_curves(history: dict, save_dir: str, backbone: str) -> None:
     axes[2].legend(); axes[2].grid(alpha=0.3)
 
     plt.tight_layout()
-    out = os.path.join(save_dir, f"{backbone}_learning_curves.png")
+    out_name = filename if filename else f"{backbone}_learning_curves.png"
+    out = os.path.join(save_dir, out_name)
     plt.savefig(out, dpi=150, bbox_inches="tight")
     plt.close()
     logger.info("Learning Curves → %s", out)
@@ -252,7 +253,7 @@ def _plot_learning_curves(history: dict, save_dir: str, backbone: str) -> None:
 
 def _plot_confusion_matrix(
     all_labels: list, all_preds: list, class_names: list,
-    save_dir: str, backbone: str,
+    save_dir: str, backbone: str, filename: str | None = None,
 ) -> None:
     """Vẽ Confusion Matrix (raw + normalized) và lưu PNG."""
     try:
@@ -291,7 +292,8 @@ def _plot_confusion_matrix(
                         color="white" if data[i, j] > thresh else "black", fontsize=9)
 
     plt.tight_layout()
-    out = os.path.join(save_dir, f"{backbone}_confusion_matrix.png")
+    out_name = filename if filename else f"{backbone}_confusion_matrix.png"
+    out = os.path.join(save_dir, out_name)
     plt.savefig(out, dpi=150, bbox_inches="tight")
     plt.close()
     logger.info("Confusion Matrix → %s", out)
@@ -365,18 +367,20 @@ class ImageBaselineModel:
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.class_names = CLASS_NAMES
         self.model: Optional[nn.Module] = None
-        logger.info("ImageBaselineModel khởi tạo — backbone=%s | device=%s", backbone, self.device)
+        self.threshold: float = 0.5
+        logger.info("ImageBaselineModel khởi tạo — backbone=%s | device=%s | threshold=%.3f", backbone, self.device, self.threshold)
 
-    def _get_model(self) -> nn.Module:
+    def _get_model(self, num_classes: int = 4) -> nn.Module:
         """Khởi tạo model nếu chưa có, load lên device."""
         if self.model is None:
-            net, _ = _build_backbone(self.backbone)
+            net, _ = _build_backbone(self.backbone, num_classes=num_classes)
             self.model = net.to(self.device)
         return self.model
 
     def fit(
         self,
         data_dir: str,
+        val_dir: str | None = None,
         epochs: int = 10,
         batch_size: int = 32,
         lr: float = 1e-3,
@@ -384,65 +388,97 @@ class ImageBaselineModel:
         patience: int = 3,
         subset_ratio: float = 1.0,
         results_dir: str = "ai_engine/models/results",  # thư mục lưu plots + history
+        class_weight_mode: str = "sqrt",
+        use_sampler: bool = False,
+        threshold_mode: str = "maximize_macro_f1_subject_to_recall",
+        learning_curves_name: str | None = None,
+        confusion_matrix_name: str | None = None,
+        training_history_name: str | None = None,
+        threshold_tuning_name: str | None = None,
     ) -> "ImageBaselineModel":
         """Fine-tune backbone trên dữ liệu ảnh đã gán nhãn.
 
-        Cấu trúc thư mục data_dir phải theo ImageFolder format:
-          data_dir/
-            intact/      *.jpg ...
-            damaged/     *.jpg ...
-            wrong_item/  *.jpg ...
-            irrelevant/  *.jpg ...
+        Cấu trúc thư mục data_dir phải theo ImageFolder format.
 
         Args:
-            data_dir: Đường dẫn đến thư mục chứa các subfolder theo nhãn.
-            epochs: Số epoch tối đa. Early stopping có thể dừng sớm hơn.
+            data_dir: Đường dẫn đến thư mục chứa các subfolder theo nhãn (hoặc train folder).
+            val_dir: Đường dẫn đến thư mục validation (nếu sử dụng phân chia vật lý).
+            epochs: Số epoch tối đa.
             batch_size: Kích thước mini-batch.
-            lr: Learning rate cho optimizer Adam.
-            val_split: Tỉ lệ dữ liệu dùng làm validation (0.2 = 20%).
-            patience: Số epoch chờ nếu val_loss không cải thiện trước khi dừng.
-            subset_ratio: Tỉ lệ data train dùng để train (0 < x <= 1.0).
-                          Dùng < 1.0 để giảm thời gian train trên CPU.
-                          Val set LUÔN dùng toàn bộ để evaluate công bằng.
-                          Ví dụ: 0.35 → giảm ~65% thời gian, train ~2h thay vì ~6h.
-
-        Returns:
-            self (để chain method).
+            lr: Learning rate.
+            val_split: Tỉ lệ dữ liệu dùng làm validation (khi dùng random split).
+            patience: Số epoch chờ.
+            subset_ratio: Tỉ lệ data train sử dụng.
+            results_dir: Thư mục kết quả.
+            class_weight_mode: Cách tính trọng số lớp cho loss function ('none', 'balanced', 'sqrt').
+            use_sampler: Có dùng WeightedRandomSampler hay không.
+            threshold_mode: Cách chọn threshold tốt nhất trên validation set.
+            learning_curves_name: Tên file lưu learning curves.
+            confusion_matrix_name: Tên file lưu confusion matrix.
+            training_history_name: Tên file lưu training history.
+            threshold_tuning_name: Tên file lưu threshold tuning results.
         """
         from sklearn.model_selection import StratifiedShuffleSplit
         from sklearn.metrics import classification_report as sk_report
 
-        # --- FIX: 2 dataset RIÊNG BIỆT → tránh ghi đè transform ---
-        train_dataset = datasets.ImageFolder(
-            root=data_dir,
-            transform=_build_transforms(is_train=True),
-        )
-        val_dataset = datasets.ImageFolder(
-            root=data_dir,
-            transform=_build_transforms(is_train=False),
-        )
-
-        self.class_names = train_dataset.classes
-        logger.info("Dataset: %d images | Classes: %s", len(train_dataset), train_dataset.classes)
-
-        # --- FIX: StratifiedShuffleSplit → đảm bảo tỉ lệ class giống nhau ---
-        sss = StratifiedShuffleSplit(n_splits=1, test_size=val_split, random_state=42)
-        all_targets = train_dataset.targets
-        train_idx, val_idx = next(sss.split(range(len(train_dataset)), all_targets))
-
-        # --- subset_ratio: giảm train set để tiết kiệm thời gian trên CPU ---
-        # Val set KHÔNG bị ảnh hưởng → evaluate vẫn công bằng
-        if 0.0 < subset_ratio < 1.0:
-            sss_sub = StratifiedShuffleSplit(
-                n_splits=1, test_size=(1.0 - subset_ratio), random_state=42
+        if val_dir is not None:
+            # Physical split mode
+            train_dataset = datasets.ImageFolder(
+                root=data_dir,
+                transform=_build_transforms(is_train=True),
             )
-            sub_targets = [all_targets[i] for i in train_idx]
-            keep_local, _ = next(sss_sub.split(range(len(train_idx)), sub_targets))
-            train_idx = [train_idx[i] for i in keep_local]
-            logger.info(
-                "subset_ratio=%.2f → train set giảm còn %d ảnh (val vẫn %d ảnh)",
-                subset_ratio, len(train_idx), len(val_idx),
+            val_dataset = datasets.ImageFolder(
+                root=val_dir,
+                transform=_build_transforms(is_train=False),
             )
+            self.class_names = train_dataset.classes
+            num_classes = len(self.class_names)
+            logger.info("Physical Split Mode: Train: %d, Val: %d | Classes: %s", 
+                        len(train_dataset), len(val_dataset), self.class_names)
+            
+            train_idx = list(range(len(train_dataset)))
+            val_idx = list(range(len(val_dataset)))
+            all_targets = train_dataset.targets
+            
+            if 0.0 < subset_ratio < 1.0:
+                sss_sub = StratifiedShuffleSplit(
+                    n_splits=1, test_size=(1.0 - subset_ratio), random_state=42
+                )
+                keep_local, _ = next(sss_sub.split(range(len(train_idx)), all_targets))
+                train_idx = [train_idx[i] for i in keep_local]
+                logger.info(
+                    "subset_ratio=%.2f → train set giảm còn %d ảnh",
+                    subset_ratio, len(train_idx)
+                )
+        else:
+            # Random split mode
+            train_dataset = datasets.ImageFolder(
+                root=data_dir,
+                transform=_build_transforms(is_train=True),
+            )
+            val_dataset = datasets.ImageFolder(
+                root=data_dir,
+                transform=_build_transforms(is_train=False),
+            )
+            self.class_names = train_dataset.classes
+            num_classes = len(self.class_names)
+            logger.info("Random Split Mode: Dataset: %d images | Classes: %s", len(train_dataset), self.class_names)
+            
+            sss = StratifiedShuffleSplit(n_splits=1, test_size=val_split, random_state=42)
+            all_targets = train_dataset.targets
+            train_idx, val_idx = next(sss.split(range(len(train_dataset)), all_targets))
+            
+            if 0.0 < subset_ratio < 1.0:
+                sss_sub = StratifiedShuffleSplit(
+                    n_splits=1, test_size=(1.0 - subset_ratio), random_state=42
+                )
+                sub_targets = [all_targets[i] for i in train_idx]
+                keep_local, _ = next(sss_sub.split(range(len(train_idx)), sub_targets))
+                train_idx = [train_idx[i] for i in keep_local]
+                logger.info(
+                    "subset_ratio=%.2f → train set giảm còn %d ảnh (val vẫn %d ảnh)",
+                    subset_ratio, len(train_idx), len(val_idx),
+                )
 
         train_set = Subset(train_dataset, train_idx)  # augmented transforms
         val_set = Subset(val_dataset, val_idx)         # eval transforms (riêng biệt!)
@@ -450,32 +486,54 @@ class ImageBaselineModel:
         n_train = len(train_idx)
         n_val = len(val_idx)
 
-        # WeightedRandomSampler: cân bằng class imbalance khi train
-        train_targets = [all_targets[i] for i in train_idx]
-        class_counts = torch.bincount(torch.tensor(train_targets), minlength=NUM_CLASSES).float()
-        sample_class_weights = 1.0 / class_counts.clamp(min=1)
-        sample_weights = sample_class_weights[torch.tensor(train_targets)]
-        sampler = WeightedRandomSampler(
-            weights=sample_weights,
-            num_samples=len(sample_weights),
-            replacement=True,
-        )
-        logger.info("Class counts (train): %s", dict(zip(train_dataset.classes, class_counts.int().tolist())))
-
-        # --- FIX: class weights cho loss → phạt nặng khi đoán sai class nhỏ ---
-        loss_weights = 1.0 / class_counts.clamp(min=1)
-        loss_weights = loss_weights / loss_weights.sum() * NUM_CLASSES
-        logger.info("Loss weights: %s",
-                    {c: round(w, 3) for c, w in zip(train_dataset.classes, loss_weights.tolist())})
-
         # --- FIX: pin_memory và num_workers theo platform ---
         use_pin = torch.cuda.is_available()
         n_workers = 0 if os.name == 'nt' else 2
 
-        train_loader = DataLoader(
-            train_set, batch_size=batch_size, sampler=sampler,
-            num_workers=n_workers, pin_memory=use_pin,
-        )
+        # WeightedRandomSampler vs Standard shuffling
+        if use_sampler:
+            train_targets = [all_targets[i] for i in train_idx]
+            class_counts = torch.bincount(torch.tensor(train_targets), minlength=num_classes).float()
+            sample_class_weights = 1.0 / class_counts.clamp(min=1)
+            sample_weights = sample_class_weights[torch.tensor(train_targets)]
+            sampler = WeightedRandomSampler(
+                weights=sample_weights,
+                num_samples=len(sample_weights),
+                replacement=True,
+            )
+            train_loader = DataLoader(
+                train_set, batch_size=batch_size, sampler=sampler,
+                num_workers=n_workers, pin_memory=use_pin,
+            )
+            logger.info("Using WeightedRandomSampler for class balance during training.")
+        else:
+            train_loader = DataLoader(
+                train_set, batch_size=batch_size, shuffle=True,
+                num_workers=n_workers, pin_memory=use_pin,
+            )
+            logger.info("Using standard shuffling (no sampler) for training.")
+
+        # Class counts & weights
+        train_targets = [all_targets[i] for i in train_idx]
+        class_counts = torch.bincount(torch.tensor(train_targets), minlength=num_classes).float()
+        logger.info("Class counts (train): %s", dict(zip(train_dataset.classes, class_counts.int().tolist())))
+
+        if class_weight_mode == "none":
+            loss_weights = None
+            logger.info("Loss weights: None (no class weighting)")
+        elif class_weight_mode == "balanced":
+            loss_weights = 1.0 / class_counts.clamp(min=1)
+            loss_weights = loss_weights / loss_weights.sum() * num_classes
+            logger.info("Loss weights (balanced): %s",
+                        {c: round(w, 3) for c, w in zip(train_dataset.classes, loss_weights.tolist())})
+        elif class_weight_mode == "sqrt":
+            loss_weights = 1.0 / torch.sqrt(class_counts.clamp(min=1))
+            loss_weights = loss_weights / loss_weights.sum() * num_classes
+            logger.info("Loss weights (sqrt): %s",
+                        {c: round(w, 3) for c, w in zip(train_dataset.classes, loss_weights.tolist())})
+        else:
+            raise ValueError(f"Unknown class_weight_mode: {class_weight_mode}")
+
         val_loader = DataLoader(
             val_set, batch_size=batch_size, shuffle=False,
             num_workers=n_workers, pin_memory=use_pin,
@@ -484,7 +542,7 @@ class ImageBaselineModel:
         # Lưu đường dẫn ảnh val cho error analysis
         val_paths = [val_dataset.imgs[i][0] for i in val_idx]
 
-        net = self._get_model()
+        net = self._get_model(num_classes=num_classes)
 
         # In số lượng tham số
         param_info = _count_params(net, self.backbone)
@@ -502,13 +560,13 @@ class ImageBaselineModel:
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=0.5, patience=2
         )
-        # Train criterion: có class weights để penalize sai class thiểu số
-        # label_smoothing=0.05 (giảm từ 0.1) — phù hợp hơn cho dataset nhỏ
+        
+        # Train criterion: CrossEntropyLoss với class weights
+        weight_tensor = loss_weights.to(self.device) if loss_weights is not None else None
         criterion = nn.CrossEntropyLoss(
-            weight=loss_weights.to(self.device), label_smoothing=0.05
+            weight=weight_tensor, label_smoothing=0.05
         )
         # FIX #4: Val criterion KHÔNG có class weights → early stopping công bằng
-        # Val set có phân phối tự nhiên; weighted loss làm early stopping bias
         val_criterion = nn.CrossEntropyLoss()
 
         backbone_unfrozen = False
@@ -516,7 +574,6 @@ class ImageBaselineModel:
         best_val_f1 = 0.0
         epochs_no_improve = 0
         # Tăng patience: val_loss với imbalanced data không đơn điệu
-        # Override patience nếu muốn dùng giá trị từ argument
         effective_patience = max(patience, 5)
         import tempfile
         best_weights_path = os.path.join(tempfile.gettempdir(), f"{self.backbone}_best.pt")
@@ -582,7 +639,7 @@ class ImageBaselineModel:
 
             scheduler.step(val_loss_avg)
 
-            # FIX: Early stopping theo val_loss (unweighted) và checkpoint khi F1 tốt nhất
+            # Checkpoint khi F1 hoặc val_loss tốt nhất
             improved = False
             if val_loss_avg < best_val_loss:
                 best_val_loss = val_loss_avg
@@ -610,21 +667,52 @@ class ImageBaselineModel:
         # --- Lưu training history JSON + vẽ Learning Curves ---
         os.makedirs(results_dir, exist_ok=True)
         history_data = {**history, "param_info": param_info, "backbone": self.backbone}
-        history_path = os.path.join(results_dir, f"{self.backbone}_training_history.json")
+        hist_name = training_history_name if training_history_name else f"{self.backbone}_training_history.json"
+        history_path = os.path.join(results_dir, hist_name)
         with open(history_path, "w", encoding="utf-8") as f:
             json.dump(history_data, f, indent=2)
         logger.info("Training history → %s", history_path)
-        _plot_learning_curves(history, results_dir, self.backbone)
+        _plot_learning_curves(history, results_dir, self.backbone, filename=learning_curves_name)
+
+        # --- Threshold tuning on validation set ---
+        tune_name = threshold_tuning_name if threshold_tuning_name else f"{self.backbone}_threshold_tuning.json"
+        tune_path = os.path.join(results_dir, tune_name)
+        self.tune_threshold(
+            val_loader=val_loader,
+            mode=threshold_mode,
+            save_path=tune_path
+        )
 
         # --- Final evaluation trên VAL SET (không bị data leakage) ---
         logger.info("=" * 60)
-        logger.info("FINAL EVALUATION — val set only (%d images):", n_val)
+        logger.info("FINAL EVALUATION — val set only (%d images) using threshold %.3f:", n_val, self.threshold)
         net.eval()
         all_preds, all_labels = [], []
         with torch.no_grad():
             for imgs, labels in val_loader:
                 imgs = imgs.to(self.device)
-                preds = net(imgs).argmax(1).cpu().tolist()
+                outputs = net(imgs)
+                probs = torch.softmax(outputs, dim=1)
+                
+                if len(self.class_names) == 2:
+                    defect_idx = 0
+                    if "defect" in self.class_names:
+                        defect_idx = self.class_names.index("defect")
+                    elif "damaged" in self.class_names:
+                        defect_idx = self.class_names.index("damaged")
+                        
+                    prob_defect = probs[:, defect_idx]
+                    if defect_idx == 1:
+                        preds = (prob_defect >= self.threshold).long().cpu().tolist()
+                    else:
+                        preds = torch.where(
+                            prob_defect >= self.threshold,
+                            torch.zeros_like(prob_defect, dtype=torch.long),
+                            torch.ones_like(prob_defect, dtype=torch.long)
+                        ).cpu().tolist()
+                else:
+                    preds = outputs.argmax(dim=1).cpu().tolist()
+                    
                 all_preds.extend(preds)
                 all_labels.extend(labels.tolist())
 
@@ -638,13 +726,123 @@ class ImageBaselineModel:
         logger.info("=" * 60)
 
         # --- Vẽ Confusion Matrix + Error Analysis ---
-        _plot_confusion_matrix(all_labels, all_preds, self.class_names, results_dir, self.backbone)
+        _plot_confusion_matrix(all_labels, all_preds, self.class_names, results_dir, self.backbone, filename=confusion_matrix_name)
         _save_error_analysis(val_paths, all_labels, all_preds, self.class_names, results_dir, self.backbone)
 
         # Lưu val report để train script dùng
         self._val_report = report_dict
-        logger.info("Training hoàn tất. Best val_loss=%.4f", best_val_loss)
+        logger.info("Training hoàn tất. Best val_loss=%.4f | Selected Threshold=%.3f", best_val_loss, self.threshold)
         return self
+
+    def tune_threshold(
+        self,
+        val_loader: DataLoader,
+        mode: str = "maximize_macro_f1_subject_to_recall",
+        save_path: str | None = None,
+    ) -> float:
+        """Runs threshold sweep on validation set and selects the best threshold.
+        
+        Args:
+            val_loader: DataLoader for the validation set.
+            mode: threshold selection mode:
+                  - 'maximize_defect_f1'
+                  - 'maximize_macro_f1'
+                  - 'maximize_macro_f1_subject_to_recall'
+            save_path: JSON path to save tuning results.
+        """
+        import numpy as np
+        from sklearn.metrics import precision_recall_fscore_support, f1_score
+        
+        net = self._get_model(num_classes=len(self.class_names))
+        net.eval()
+        
+        # 1. Collect all predictions (probabilities) and true labels on validation set
+        all_probs = []
+        all_labels = []
+        
+        # Find defect index
+        defect_idx = 0
+        if "defect" in self.class_names:
+            defect_idx = self.class_names.index("defect")
+        elif "damaged" in self.class_names:
+            defect_idx = self.class_names.index("damaged")
+            
+        with torch.no_grad():
+            for imgs, labels in val_loader:
+                imgs = imgs.to(self.device)
+                outputs = net(imgs)
+                probs = torch.softmax(outputs, dim=1)
+                all_probs.extend(probs[:, defect_idx].cpu().tolist())
+                all_labels.extend(labels.tolist())
+                
+        all_probs = np.array(all_probs)
+        all_labels = np.array(all_labels)
+        
+        # 2. Sweep thresholds from 0.05 to 0.95 with step 0.01
+        thresholds = np.arange(0.05, 0.96, 0.01)
+        sweep_results = []
+        
+        for thresh in thresholds:
+            thresh = round(float(thresh), 3)
+            if defect_idx == 1:
+                preds = (all_probs >= thresh).astype(int)
+            else:
+                preds = np.where(all_probs >= thresh, 0, 1)
+                
+            p, r, f, _ = precision_recall_fscore_support(all_labels, preds, labels=[0, 1], zero_division=0)
+            defect_p = float(p[defect_idx])
+            defect_r = float(r[defect_idx])
+            defect_f1 = float(f[defect_idx])
+            macro_f1 = float(f1_score(all_labels, preds, average="macro", zero_division=0))
+            
+            sweep_results.append({
+                "threshold": thresh,
+                "defect_precision": round(defect_p, 4),
+                "defect_recall": round(defect_r, 4),
+                "defect_f1": round(defect_f1, 4),
+                "macro_f1": round(macro_f1, 4)
+            })
+            
+        # 3. Select best threshold based on selection mode
+        best_threshold = 0.5
+        if mode == "maximize_defect_f1":
+            best_candidate = max(sweep_results, key=lambda x: x["defect_f1"])
+            best_threshold = best_candidate["threshold"]
+        elif mode == "maximize_macro_f1":
+            best_candidate = max(sweep_results, key=lambda x: x["macro_f1"])
+            best_threshold = best_candidate["threshold"]
+        elif mode == "maximize_macro_f1_subject_to_recall":
+            # Filter candidates with defect_recall >= 0.80
+            candidates = [r for r in sweep_results if r["defect_recall"] >= 0.80]
+            if candidates:
+                best_candidate = max(candidates, key=lambda x: x["macro_f1"])
+                best_threshold = best_candidate["threshold"]
+            else:
+                # Fallback: maximize defect recall
+                max_recall = max(r["defect_recall"] for r in sweep_results)
+                candidates_max_recall = [r for r in sweep_results if r["defect_recall"] == max_recall]
+                best_candidate = max(candidates_max_recall, key=lambda x: x["macro_f1"])
+                best_threshold = best_candidate["threshold"]
+                
+        logger.info(
+            "Threshold sweep completed using mode '%s'. Best threshold selected: %.3f",
+            mode, best_threshold
+        )
+        
+        # 4. Save results to JSON
+        if save_path:
+            tuning_data = {
+                "best_threshold": best_threshold,
+                "selection_mode": mode,
+                "sweep_results": sweep_results
+            }
+            os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+            with open(save_path, "w", encoding="utf-8") as f:
+                json.dump(tuning_data, f, indent=2)
+            logger.info("Saved threshold tuning results to: %s", save_path)
+            
+        self.threshold = best_threshold
+        return best_threshold
 
     def predict(self, image_path: str) -> Dict[str, object]:
         """Dự đoán nhãn cho một ảnh đơn lẻ.
@@ -654,9 +852,9 @@ class ImageBaselineModel:
 
         Returns:
             dict với keys:
-              - label (str): Nhãn dự đoán, vd "damaged".
+              - label (str): Nhãn dự đoán, vd "defect".
               - confidence (float): Xác suất của nhãn được chọn (0–1).
-              - probabilities (dict): Xác suất đầy đủ cho cả 4 nhãn.
+              - probabilities (dict): Xác suất đầy đủ cho các nhãn.
               - inference_ms (float): Thời gian inference tính bằng milli-giây.
         """
         from PIL import Image
@@ -664,7 +862,7 @@ class ImageBaselineModel:
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"Không tìm thấy ảnh: {image_path}")
 
-        net = self._get_model()
+        net = self._get_model(num_classes=len(self.class_names))
         net.eval()
 
         transform = _build_transforms(is_train=False)
@@ -673,14 +871,32 @@ class ImageBaselineModel:
 
         t0 = time.perf_counter()
         with torch.no_grad():
-            logits = net(tensor)                           # (1, 4)
-            probs = torch.softmax(logits, dim=1)[0]       # (4,)
+            logits = net(tensor)                           # (1, num_classes)
+            probs = torch.softmax(logits, dim=1)[0]       # (num_classes,)
         inference_ms = (time.perf_counter() - t0) * 1000
 
-        pred_idx = probs.argmax().item()
+        threshold = getattr(self, "threshold", 0.5)
+        if len(self.class_names) == 2:
+            defect_idx = 0
+            if "defect" in self.class_names:
+                defect_idx = self.class_names.index("defect")
+            elif "damaged" in self.class_names:
+                defect_idx = self.class_names.index("damaged")
+            
+            prob_defect = probs[defect_idx].item()
+            if prob_defect >= threshold:
+                pred_idx = defect_idx
+                confidence = prob_defect
+            else:
+                pred_idx = 1 - defect_idx
+                confidence = 1.0 - prob_defect
+        else:
+            pred_idx = probs.argmax().item()
+            confidence = probs[pred_idx].item()
+
         return {
             "label": self.class_names[pred_idx],
-            "confidence": round(probs[pred_idx].item(), 4),
+            "confidence": round(confidence, 4),
             "probabilities": {
                 name: round(probs[i].item(), 4)
                 for i, name in enumerate(self.class_names)
@@ -700,11 +916,20 @@ class ImageBaselineModel:
         """
         from PIL import Image
 
-        net = self._get_model()
+        net = self._get_model(num_classes=len(self.class_names))
         net.eval()
         transform = _build_transforms(is_train=False)
 
         results = []
+        threshold = getattr(self, "threshold", 0.5)
+        
+        defect_idx = 0
+        if len(self.class_names) == 2:
+            if "defect" in self.class_names:
+                defect_idx = self.class_names.index("defect")
+            elif "damaged" in self.class_names:
+                defect_idx = self.class_names.index("damaged")
+
         for i in range(0, len(image_paths), batch_size):
             batch_paths = image_paths[i: i + batch_size]
             tensors = []
@@ -728,11 +953,22 @@ class ImageBaselineModel:
             inference_ms = (time.perf_counter() - t0) * 1000 / len(tensors)
 
             for j, path in enumerate(valid_paths):
-                pred_idx = probs[j].argmax().item()
+                if len(self.class_names) == 2:
+                    prob_defect = probs[j][defect_idx].item()
+                    if prob_defect >= threshold:
+                        pred_idx = defect_idx
+                        confidence = prob_defect
+                    else:
+                        pred_idx = 1 - defect_idx
+                        confidence = 1.0 - prob_defect
+                else:
+                    pred_idx = probs[j].argmax().item()
+                    confidence = probs[j][pred_idx].item()
+
                 results.append({
                     "image_path": path,
                     "label": self.class_names[pred_idx],
-                    "confidence": round(probs[j][pred_idx].item(), 4),
+                    "confidence": round(confidence, 4),
                     "probabilities": {
                         name: round(probs[j][k].item(), 4)
                         for k, name in enumerate(self.class_names)
@@ -742,12 +978,13 @@ class ImageBaselineModel:
 
         return results
 
-    def evaluate(self, data_dir: str, batch_size: int = 32) -> Dict[str, float]:
+    def evaluate(self, data_dir: str, batch_size: int = 32, threshold: float | None = None) -> Dict[str, float]:
         """Đánh giá model trên tập test (accuracy, per-class accuracy).
 
         Args:
             data_dir: Thư mục ảnh dạng ImageFolder (subfolder theo nhãn).
             batch_size: Batch size cho DataLoader.
+            threshold: Ngưỡng phân loại lớp defect (nếu None, dùng self.threshold hoặc 0.5).
 
         Returns:
             dict chứa overall_accuracy và per-class accuracy.
@@ -760,15 +997,37 @@ class ImageBaselineModel:
         )
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=2)
 
-        net = self._get_model()
+        net = self._get_model(num_classes=len(self.class_names))
         net.eval()
+
+        eval_thresh = threshold if threshold is not None else getattr(self, "threshold", 0.5)
 
         all_preds, all_labels = [], []
         with torch.no_grad():
             for imgs, labels in loader:
                 imgs = imgs.to(self.device)
                 outputs = net(imgs)
-                preds = outputs.argmax(dim=1).cpu().tolist()
+                probs = torch.softmax(outputs, dim=1)
+                
+                if len(self.class_names) == 2:
+                    defect_idx = 0
+                    if "defect" in self.class_names:
+                        defect_idx = self.class_names.index("defect")
+                    elif "damaged" in self.class_names:
+                        defect_idx = self.class_names.index("damaged")
+                    
+                    prob_defect = probs[:, defect_idx]
+                    if defect_idx == 1:
+                        preds = (prob_defect >= eval_thresh).long().cpu().tolist()
+                    else:
+                        preds = torch.where(
+                            prob_defect >= eval_thresh,
+                            torch.zeros_like(prob_defect, dtype=torch.long),
+                            torch.ones_like(prob_defect, dtype=torch.long)
+                        ).cpu().tolist()
+                else:
+                    preds = outputs.argmax(dim=1).cpu().tolist()
+                
                 all_preds.extend(preds)
                 all_labels.extend(labels.tolist())
 
@@ -778,25 +1037,27 @@ class ImageBaselineModel:
             output_dict=True,
         )
         accuracy = report["accuracy"]
-        logger.info("Evaluation — Overall Accuracy: %.4f", accuracy)
+        logger.info("Evaluation (threshold=%.3f) — Overall Accuracy: %.4f", eval_thresh, accuracy)
         logger.info("\n%s", classification_report(all_labels, all_preds, target_names=dataset.classes))
         return report
 
     def save(self, filepath: str) -> None:
         """Lưu state dict + metadata ra file .pt.
 
-        Lưu thêm backbone name và class_names để load lại đúng cấu hình.
+        Lưu thêm backbone name, class_names và threshold để load lại đúng cấu hình.
         Hỗ trợ: resnet50 | mobilenet_v3 | efficientnet_b0
         """
         if self.model is None:
             raise RuntimeError("Model chưa được train. Gọi .fit() trước.")
         os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+        threshold = getattr(self, "threshold", 0.5)
         torch.save({
             "backbone": self.backbone,
             "class_names": self.class_names,
             "state_dict": self.model.state_dict(),
+            "threshold": threshold,
         }, filepath)
-        logger.info("Model saved → %s", filepath)
+        logger.info("Model saved → %s (threshold=%.3f)", filepath, threshold)
 
     @classmethod
     def load(cls, filepath: str) -> "ImageBaselineModel":
@@ -811,14 +1072,18 @@ class ImageBaselineModel:
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"Không tìm thấy file model: {filepath}")
 
-        checkpoint = torch.load(filepath, map_location="cpu")
+        checkpoint = torch.load(filepath, map_location="cpu", weights_only=False)
         backbone = checkpoint["backbone"]
+        class_names = checkpoint["class_names"]
+        num_classes = len(class_names)
 
         instance = cls(backbone=backbone)
-        net, _ = _build_backbone(backbone)
+        instance.class_names = class_names
+        net, _ = _build_backbone(backbone, num_classes=num_classes)
         net.load_state_dict(checkpoint["state_dict"])
         instance.model = net.to(instance.device)
-        instance.class_names = checkpoint["class_names"]
+        instance.threshold = checkpoint.get("threshold", 0.5)
 
-        logger.info("Model loaded ← %s (backbone=%s)", filepath, backbone)
+        logger.info("Model loaded ← %s (backbone=%s, classes=%d, threshold=%.3f)", 
+                    filepath, backbone, num_classes, instance.threshold)
         return instance
