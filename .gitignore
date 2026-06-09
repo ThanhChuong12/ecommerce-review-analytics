@@ -37,7 +37,10 @@ scraping_agent/output/*
 scraping_agent/data/*
 !scraping_agent/output/.gitkeep
 
-# Thư mục xử lý Media & Ảnh
+# --- CSV data thô (scraped data) ---
+data/*.csv
+
+# --- Thư mục xử lý Media & Ảnh ---
 image_labeling/new_data/
 image_labeling/data/frames/
 image_labeling/data/raw_media/
@@ -45,24 +48,24 @@ image_labeling/data/labeled/
 image_labeling.zip
 data.zip
 data/processed/training_images.zip
-# ai_engine/models/*.pth  ← tắt để push kết quả train
-# Chặn theo định dạng
 
-*.mp4
-*.avi
-*.jpg
-*.jpeg
-*.png
-
-
-# --- Model weights (tắt để push kết quả train) ---
-# ai_engine/models/weights/*.pt
-# ai_engine/models/weights/*.pth
-# ai_engine/models/weights/*.bin
-# ai_engine/models/weights/*.onnx
-
-# --- Labeled dataset (anh lon, khong commit) ---
+# --- Labeled dataset (ảnh lớn, không commit) ---
 labeled/
+
+# --- Model weights (binary lớn) ---
+*.pt
+*.pth
+*.bin
+*.onnx
+
+# --- Training artifacts (kết quả train, ảnh lớn) ---
+ai_engine/models/results/*.png
+ai_engine/models/results/*_error_analysis/
+ai_engine/models/results/*_training_history.json
+ai_engine/models/weights/cpu_run_v2/
+
+# Giữ lại file results JSON nhỏ (summary metrics)
+!ai_engine/models/results/image_baseline_results.json
 
 # --- Thu muc test tam thoi ---
 test_*/
@@ -91,5 +94,6 @@ artifacts/plots/**/*
 !artifacts/models/**/.gitkeep
 !artifacts/plots/**/.gitkeep
 
-# Chặn file zip đóng gói Kaggle
+# --- Chặn file zip đóng gói Kaggle ---
 resnet50_kaggle_train.zip
+kaggle_dataset.zip
