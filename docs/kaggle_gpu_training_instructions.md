@@ -2,13 +2,15 @@
 
 > Purpose: Fine-tune ResNet50 on Kaggle GPU to improve defect detection beyond the CPU baseline.  
 > CPU baseline: defect_f1 = 0.4175, defect_recall = 0.488, training_mode = frozen  
-> Target: defect_f1 ≥ 0.85, defect_recall ≥ 0.80
+> Target: defect_f1 ≥ 0.85, defect_recall ≥ 0.80, macro_f1 ≥ 0.85
 
 ---
 
 ## Overview
 
-The CPU-trained ResNet50 model plateaued because only the FC head was trained (4.3% of parameters). On Kaggle GPU we will unfreeze `layer4` of ResNet50 alongside the FC head (~6.4M trainable parameters) using differential learning rates. This is called **layer4 fine-tuning**.
+The CPU-trained ResNet50 model plateaued because only the FC head was trained (4.3% of parameters). On Kaggle GPU we will unfreeze `layer4` of ResNet50 alongside the FC head (~6.4M trainable parameters) using differential learning rates on a clean **70/15/15 stratified dataset split**. This is called **layer4 fine-tuning**.
+
+The entire training, validation early stopping, threshold tuning, and independent test-set evaluation are fully integrated into `scripts/train_defect_model.py`.
 
 ---
 
@@ -22,18 +24,18 @@ python scripts/package_kaggle_resnet50.py
 
 Expected output:
 ```
-resnet50_kaggle_train.zip   (in project root)
+resnet50_kaggle_train_split.zip   (in project root)
 ```
 
-The script will print the ZIP path, file size, and image counts. Verify before uploading.
+The script will print the ZIP path, file size, top-level contents, and excluded items. Verify before uploading.
 
 ---
 
 ## Step 2 — Upload to Kaggle
 
 1. Go to [kaggle.com](https://www.kaggle.com) → **Datasets** → **New Dataset**
-2. Name: `resnet50-kaggle-train` (Kaggle will slugify this)
-3. Upload: `resnet50_kaggle_train.zip`
+2. Name: `resnet50-kaggle-train-split` (Kaggle will slugify this to `resnet50-kaggle-train-split`)
+3. Upload: `resnet50_kaggle_train_split.zip`
 4. Set visibility to **Private**
 5. Click **Create**
 
@@ -42,10 +44,9 @@ The script will print the ZIP path, file size, and image counts. Verify before u
 ## Step 3 — Create a Kaggle Notebook
 
 1. Go to **Notebooks** → **New Notebook** → **Script** (not notebook)
-2. Click **Add Input** → your uploaded dataset → `resnet50-kaggle-train`
+2. Click **Add Input** → your uploaded dataset → `resnet50-kaggle-train-split`
 3. Go to **Settings** (right panel):
-   - **Accelerator**: GPU P100 *(preferred — 16 GB VRAM, stable)*
-   - If P100 is not available: GPU T4 x1
+   - **Accelerator**: GPU P100 *(preferred — 16 GB VRAM, stable)* or GPU T4 x2
    - **Persistence**: Files
 
 ---
@@ -82,13 +83,11 @@ print("GPU count:", torch.cuda.device_count())
 python scripts/kaggle_gpu_train_setup.py
 ```
 
-This script:
+This setup script:
 - Finds the uploaded data under `/kaggle/input`
-- Extracts the ZIP if needed
-- Copies everything to `/kaggle/working/resnet50_project` (read-write)
+- Extracts the ZIP to `/kaggle/working/resnet50_project` (read-write)
 - Verifies GPU availability
-- Verifies all required files
-- Counts dataset images
+- Verifies all required files and split dataset structure
 - Backs up the CPU checkpoint to `resnet50_defect_cpu_backup.pth`
 - Prints the recommended training commands
 
@@ -100,7 +99,7 @@ This script:
 cd /kaggle/working/resnet50_project
 
 python scripts/train_defect_model.py \
-    --data-dir data/image_dataset \
+    --data-dir data/image_dataset_split \
     --epochs 25 \
     --batch-size 64 \
     --lr 5e-4 \
@@ -108,23 +107,26 @@ python scripts/train_defect_model.py \
     --oversample 10 \
     --patience 8 \
     --unfreeze-layer4 \
-    --save-path ai_engine/models/resnet50_defect_gpu_layer4.pth
+    --save-path ai_engine/models/resnet50_defect_gpu_layer4.pth \
+    --metrics-output reports/resnet50_split_test_metrics.json \
+    --figures-dir reports/figures
 ```
 
-**What this does:**
-- `--unfreeze-layer4`: freezes conv1/layer1-3, unfreezes layer4 + FC head (~6.4M params)
-- `--lr 5e-4`: learning rate for FC head
-- `--backbone-lr 1e-5`: smaller LR for layer4 (avoids catastrophic forgetting)
-- `--oversample 10`: 10× defect oversampling → near-balanced training set
-- `--patience 8`: stop if no defect F1 improvement for 8 consecutive epochs
-- `--save-path`: new GPU checkpoint (does NOT overwrite CPU checkpoint)
-- Checkpoint is saved on **defect F1 improvement only**, never on accuracy
+**What this unified script does:**
+- **Layer4 Fine-Tuning**: freezes conv1/layer1-3, unfreezes layer4 + FC head (~6.4M params).
+- **Split-Aware**: loads Train from `train/` subdir and Validation from `val/` subdir.
+- **Oversampling**: only oversamples the Train set (10× ratio) and keeps Validation/Test clean.
+- **Early Stopping**: stops training if validation defect F1 does not improve for 8 consecutive epochs.
+- **Plotting**: generates epoch-by-epoch loss, accuracy, and F1 curves in `reports/figures/`.
+- **Threshold Tuning**: sweeps probabilities on the Validation split (only) to select the optimal threshold.
+- **Test Evaluation**: runs inference on the unseen Test set split using the tuned threshold.
+- **Metrics Report**: generates `reports/resnet50_split_test_metrics.json` and `.md`.
+- **Misclassified Grid**: saves a grid of misclassified test examples to analyze model errors.
 
 ### If CUDA out-of-memory (OOM), retry with:
-
 ```bash
 python scripts/train_defect_model.py \
-    --data-dir data/image_dataset \
+    --data-dir data/image_dataset_split \
     --epochs 25 \
     --batch-size 32 \
     --lr 5e-4 \
@@ -132,93 +134,47 @@ python scripts/train_defect_model.py \
     --oversample 10 \
     --patience 8 \
     --unfreeze-layer4 \
-    --save-path ai_engine/models/resnet50_defect_gpu_layer4.pth
+    --save-path ai_engine/models/resnet50_defect_gpu_layer4.pth \
+    --metrics-output reports/resnet50_split_test_metrics.json \
+    --figures-dir reports/figures
 ```
 
 ---
 
-## Step 7 — Threshold tuning
+## Step 7 — Copy and Download Output Files
 
-After training completes, find the best decision threshold:
-
-```bash
-python scripts/tune_threshold.py \
-    --model-path ai_engine/models/resnet50_defect_gpu_layer4.pth \
-    --data-dir data/image_dataset \
-    --val-split 0.2 \
-    --seed 42 \
-    --batch-size 64
-```
-
-Note the best threshold printed (e.g., `Best F1 threshold = 0.XX`).
-
----
-
-## Step 8 — Final evaluation
-
-```bash
-python scripts/evaluate_models.py image \
-    --model-path ai_engine/models/resnet50_defect_gpu_layer4.pth \
-    --data-path data/image_dataset \
-    --batch-size 64
-```
-
-This generates:
-- Classification report (precision/recall/F1 per class)
-- Confusion matrix
-- `reports/figures/confusion_matrix_resnet50_(defect_detection).png`
-
----
-
-## Step 9 — Collect output files
-
+Prepare the outputs folder for downloading:
 ```bash
 mkdir -p /kaggle/working/resnet50_project/outputs
 
 cp /kaggle/working/resnet50_project/ai_engine/models/resnet50_defect_gpu_layer4.pth \
    /kaggle/working/resnet50_project/outputs/resnet50_defect_gpu_best.pth
 
-cp /kaggle/working/resnet50_project/reports/figures/confusion_matrix_resnet50_*.png \
+cp /kaggle/working/resnet50_project/reports/resnet50_split_test_metrics.* \
+   /kaggle/working/resnet50_project/outputs/ 2>/dev/null || true
+
+cp /kaggle/working/resnet50_project/reports/figures/*.png \
    /kaggle/working/resnet50_project/outputs/ 2>/dev/null || true
 ```
 
----
-
-## Step 10 — Download results from Kaggle
-
-Kaggle saves outputs automatically. After your session ends:
-
+After your session ends:
 1. Go to your Notebook → **Output** tab
-2. Download:
-   - `resnet50_project/outputs/resnet50_defect_gpu_best.pth`
-   - `resnet50_project/outputs/confusion_matrix_resnet50_*.png`
-3. Place the `.pth` file in your local `ai_engine/models/` directory
-4. Fill in `reports/resnet50_gpu_training_report_template.md` with the final metrics
+2. Download the `outputs/` folder containing:
+   - `resnet50_defect_gpu_best.pth`
+   - `resnet50_split_test_metrics.json`
+   - `resnet50_split_test_metrics.md`
+   - All curves, confusion matrix, and misclassified example plots
+3. Place `resnet50_defect_gpu_best.pth` into your local `ai_engine/models/` directory.
 
 ---
 
 ## Quality Gate
 
-| Criterion | Target | CPU Baseline |
-|-----------|--------|-------------|
-| defect_f1 > 0.4175 | Minimum | 0.4175 |
-| defect_f1 ≥ 0.85 | Goal | 0.4175 |
-| defect_recall ≥ 0.80 | Goal (should not collapse) | 0.488 |
-
-> ⚠️ **Do not report success based on accuracy alone.** The validation set is 10.75:1 imbalanced. Defect F1 and defect recall are the primary success metrics.
-
----
-
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| CUDA OOM | Reduce `--batch-size` from 64 to 32 |
-| Dataset not found | Check `find /kaggle/input -maxdepth 4 -name "*.pth"` |
-| Module not found | Verify `kaggle_gpu_train_setup.py` added project to `sys.path` |
-| No GPU available | Go to Notebook Settings → Accelerator → GPU P100 |
-| Recall collapses | Try lower threshold (e.g., 0.35–0.45) in `tune_threshold.py` |
-| F1 doesn't improve | Try `--lr 1e-4 --backbone-lr 5e-6` with more patience |
+| Metric | Target | CPU Baseline |
+|---|---|---|
+| Defect Recall | ≥ 0.80 | 0.4880 |
+| Defect F1 | ≥ 0.85 | 0.4175 |
+| Macro F1 | ≥ 0.85 | 0.6908 |
 
 ---
 
@@ -228,9 +184,7 @@ Kaggle saves outputs automatically. After your session ends:
 |------|---------|
 | `scripts/package_kaggle_resnet50.py` | Creates upload ZIP locally |
 | `scripts/kaggle_gpu_train_setup.py` | Kaggle environment setup |
-| `scripts/train_defect_model.py` | Training (updated with `--unfreeze-layer4`) |
-| `scripts/tune_threshold.py` | Post-training threshold search |
-| `scripts/evaluate_models.py` | Final evaluation + confusion matrix |
-| `ai_engine/models/resnet50_defect.pth` | CPU baseline (DO NOT OVERWRITE) |
+| `scripts/train_defect_model.py` | Unified training, validation early-stopping, threshold tuning, and testing |
+| `ai_engine/models/resnet50_defect.pth` | CPU baseline checkpoint (DO NOT OVERWRITE) |
 | `ai_engine/models/resnet50_defect_gpu_layer4.pth` | GPU checkpoint (new file) |
-| `reports/resnet50_gpu_training_report_template.md` | Report template to fill in |
+| `reports/resnet50_train_val_test_report.md` | Academic split training report |

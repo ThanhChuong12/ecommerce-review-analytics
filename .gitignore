@@ -93,3 +93,10 @@ artifacts/plots/**/*
 
 # Chặn file zip đóng gói Kaggle
 resnet50_kaggle_train.zip
+
+# General exclusions for model files, zip, and temp folders
+*.zip
+*.pth
+*.pt
+tmp_extract/
+data/image_dataset_split/

@@ -4,7 +4,7 @@ kaggle_gpu_train_setup.py
 Kaggle environment setup script for ResNet50 GPU fine-tuning.
 
 Run this as the FIRST cell/script inside a Kaggle Notebook after uploading
-resnet50_kaggle_train.zip as a dataset.
+resnet50_kaggle_train_split.zip as a dataset.
 
 Usage (inside Kaggle Notebook):
     python scripts/kaggle_gpu_train_setup.py
@@ -63,12 +63,7 @@ if not IS_KAGGLE:
 # ── 2. Find the uploaded dataset / ZIP ────────────────────────────────────
 sep("Step 2 — Locating uploaded project data")
 
-CANDIDATE_NAMES = [
-    "resnet50-kaggle-train",
-    "resnet50_kaggle_train",
-    "resnet50kagglertrain",
-]
-INNER_FOLDER = "resnet50_kaggle_train"
+INNER_FOLDER = "resnet50_kaggle_train_split"
 
 found_source: Path | None = None
 found_via_zip = False
@@ -111,7 +106,7 @@ if found_source is None:
 if found_source is None:
     print(err("Could not locate the project folder under /kaggle/input."))
     print("  Please verify the dataset was uploaded correctly.")
-    print("  Expected structure: /kaggle/input/<dataset-slug>/resnet50_kaggle_train/")
+    print("  Expected structure: /kaggle/input/<dataset-slug>/resnet50_kaggle_train_split/")
     sys.exit(1)
 
 
@@ -156,7 +151,7 @@ try:
     if cuda_ok:
         print(ok("GPU ready for training"))
     else:
-        print(err("No GPU detected! Enable GPU in Notebook settings: Notebook → Settings → Accelerator → GPU P100"))
+        print(err("No GPU detected! Enable GPU in Notebook settings: Notebook → Settings → Accelerator → GPU T4 x2 or P100"))
 except ImportError:
     print(warn("PyTorch not installed. Run: pip install torch torchvision"))
 
@@ -171,9 +166,12 @@ REQUIRED = [
     "scripts/prepare_dataset.py",
     "ai_engine/image_processing/defect_detection.py",
     "ai_engine/image_processing/augmentation/transforms.py",
-    "ai_engine/models/resnet50_defect.pth",
-    "data/image_dataset/defect",
-    "data/image_dataset/no-defect",
+    "data/image_dataset_split/train/defect",
+    "data/image_dataset_split/train/no-defect",
+    "data/image_dataset_split/val/defect",
+    "data/image_dataset_split/val/no-defect",
+    "data/image_dataset_split/test/defect",
+    "data/image_dataset_split/test/no-defect",
 ]
 
 all_ok = True
@@ -201,20 +199,16 @@ def count_images(folder: Path) -> int:
     return sum(1 for f in folder.iterdir()
                if f.is_file() and f.suffix.lower() in IMG_EXTS)
 
-n_defect   = count_images(PROJECT_DIR / "data/image_dataset/defect")
-n_no_defect = count_images(PROJECT_DIR / "data/image_dataset/no-defect")
-ratio = n_no_defect / max(n_defect, 1)
+train_def = count_images(PROJECT_DIR / "data/image_dataset_split/train/defect")
+train_norm = count_images(PROJECT_DIR / "data/image_dataset_split/train/no-defect")
+val_def = count_images(PROJECT_DIR / "data/image_dataset_split/val/defect")
+val_norm = count_images(PROJECT_DIR / "data/image_dataset_split/val/no-defect")
+test_def = count_images(PROJECT_DIR / "data/image_dataset_split/test/defect")
+test_norm = count_images(PROJECT_DIR / "data/image_dataset_split/test/no-defect")
 
-print(f"  defect   : {n_defect} images")
-print(f"  no-defect: {n_no_defect} images")
-print(f"  ratio    : {ratio:.2f}:1  (imbalance)")
-
-if n_defect < 100:
-    print(err(f"defect class has only {n_defect} images — too few to train reliably"))
-elif n_defect < 1000:
-    print(warn(f"defect class has {n_defect} images — training may still be imbalanced"))
-else:
-    print(ok(f"defect class count ({n_defect}) acceptable for training"))
+print(f"  Train: defect={train_def:4d} | no-defect={train_norm:5d}")
+print(f"  Val  : defect={val_def:4d} | no-defect={val_norm:5d}")
+print(f"  Test : defect={test_def:4d} | no-defect={test_norm:5d}")
 
 
 # ── 8. Backup CPU checkpoint ──────────────────────────────────────────────
@@ -230,7 +224,6 @@ if cpu_ckpt.exists():
     else:
         print(ok(f"CPU backup already exists: {cpu_backup.name}"))
 
-    # Print CPU checkpoint metrics
     try:
         import torch
         ckpt = torch.load(cpu_ckpt, map_location="cpu", weights_only=False)
@@ -256,9 +249,9 @@ print(f"""
   Ensure you are in the project directory first:
     cd {PROJ}
 
-  ── MAIN GPU TRAINING COMMAND ──────────────────────────────────
+  ── MAIN GPU TRAINING & EVALUATION PIPELINE ─────────────────────
   python scripts/train_defect_model.py \\
-      --data-dir data/image_dataset \\
+      --data-dir data/image_dataset_split \\
       --epochs 25 \\
       --batch-size 64 \\
       --lr 5e-4 \\
@@ -266,29 +259,35 @@ print(f"""
       --oversample 10 \\
       --patience 8 \\
       --unfreeze-layer4 \\
-      --save-path ai_engine/models/resnet50_defect_gpu_layer4.pth
+      --save-path ai_engine/models/resnet50_defect_gpu_layer4.pth \\
+      --metrics-output reports/resnet50_split_test_metrics.json \\
+      --figures-dir reports/figures
 
   If CUDA out-of-memory (OOM), retry with:
       --batch-size 32
 
-  ── THRESHOLD TUNING ────────────────────────────────────────────
-  python scripts/tune_threshold.py \\
-      --model-path ai_engine/models/resnet50_defect_gpu_layer4.pth \\
-      --data-dir data/image_dataset \\
-      --val-split 0.2 --seed 42 --batch-size 64
+  *Note: train_defect_model.py will automatically:
+    1. Train the model using the 70% Train split.
+    2. Monitor/early-stop on the 15% Validation split.
+    3. Save training/validation curves.
+    4. Tune decision threshold on the Validation split.
+    5. Perform final evaluation on the 15% unseen Test split.
+    6. Save official metrics to reports/resnet50_split_test_metrics.json/md.
+    7. Plot confusion matrix and misclassified examples.
 
-  ── FINAL EVALUATION ────────────────────────────────────────────
+  ── STANDARDIZED EVALUATION (Optional verification) ────────────
   python scripts/evaluate_models.py image \\
       --model-path ai_engine/models/resnet50_defect_gpu_layer4.pth \\
-      --data-path data/image_dataset \\
+      --data-path data/image_dataset_split \\
       --batch-size 64
 
   ── COPY OUTPUTS ────────────────────────────────────────────────
   mkdir -p outputs
   cp ai_engine/models/resnet50_defect_gpu_layer4.pth outputs/resnet50_defect_gpu_best.pth
-  cp reports/figures/confusion_matrix_resnet50_*.png outputs/ 2>/dev/null || true
+  cp reports/resnet50_split_test_metrics.* outputs/ 2>/dev/null || true
+  cp reports/figures/* outputs/ 2>/dev/null || true
 
-  Download /kaggle/working/resnet50_project/outputs/ after training.
+  Download the '/kaggle/working/resnet50_project/outputs/' directory after training.
 {'─'*68}
 """)
 

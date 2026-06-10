@@ -160,16 +160,32 @@ class FocalLoss(nn.Module):
 
 
 def get_dataloaders(data_dir: str, batch_size: int = 32, val_split: float = 0.2,
-                    seed: int = 42, oversample_defect: int = 1):
+                    seed: int = 42, oversample_defect: int = 1,
+                    train_dir: str = None, val_dir: str = None):
     """
     Tao DataLoaders cho Training va Validation.
 
     Dung Stratified Split de dam bao ty le defect/no-defect dong deu
-    giua train va val — tranh truong hop val set co qua it anh defect.
+    giua train va val — tranh truong hop val set co qua item defect.
 
-    - train_dataset (is_train=True): ap dung augmentation + oversampling cho defect
-    - val_dataset (is_train=False): chi resize + normalize, KHONG oversample
+    Neu data_dir chua cac subfolder 'train' va 'val', hoac train_dir va val_dir duoc cung cap,
+    se load truc tiep tu cac thu muc do ma khong can split.
     """
+    path = Path(data_dir)
+    has_sub_splits = (path / "train").exists() and (path / "val").exists()
+
+    if has_sub_splits or (train_dir and val_dir):
+        t_dir = train_dir or str(path / "train")
+        v_dir = val_dir or str(path / "val")
+
+        train_dataset = ProductDefectDataset(data_dir=t_dir, is_train=True, oversample_defect=oversample_defect)
+        val_dataset = ProductDefectDataset(data_dir=v_dir, is_train=False, oversample_defect=1)
+
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+
+        return train_loader, val_loader
+
     # Tao base dataset (khong oversample) de lay labels goc cho stratified split
     base_dataset = ProductDefectDataset(data_dir=data_dir, is_train=False, oversample_defect=1)
     base_size = len(base_dataset)

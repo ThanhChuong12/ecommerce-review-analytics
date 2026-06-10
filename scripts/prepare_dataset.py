@@ -260,6 +260,85 @@ def check_balance(data_dir: Path) -> None:
     print()
 
 
+def prepare_split_dataset(src_dir: Path, dest_dir: Path, train_ratio: float = 0.7,
+                          val_ratio: float = 0.15, test_ratio: float = 0.15, seed: int = 42) -> None:
+    """
+    Split a binary dataset into Train/Validation/Test folders using a stratified split.
+    Source: src_dir/defect/ and src_dir/no-defect/
+    Dest: dest_dir/{train,val,test}/{defect,no-defect}/
+    """
+    from sklearn.model_selection import train_test_split
+
+    print(f"\nCreating stratified split (Ratio: {train_ratio:.2f}/{val_ratio:.2f}/{test_ratio:.2f})...")
+
+    defect_src = src_dir / "defect"
+    no_defect_src = src_dir / "no-defect"
+
+    if not defect_src.exists() or not no_defect_src.exists():
+        print(f"[ERROR] Source folders for splitting not found in: {src_dir}")
+        sys.exit(1)
+
+    exts = {".jpg", ".jpeg", ".png", ".webp"}
+
+    defect_files = [f for f in defect_src.iterdir() if f.is_file() and f.suffix.lower() in exts]
+    no_defect_files = [f for f in no_defect_src.iterdir() if f.is_file() and f.suffix.lower() in exts]
+
+    print(f"Found {len(defect_files)} defect images and {len(no_defect_files)} no-defect images.")
+
+    all_files = defect_files + no_defect_files
+    labels = [1] * len(defect_files) + [0] * len(no_defect_files)
+
+    # Stratified split: Train and Temp (Val + Test)
+    temp_ratio = val_ratio + test_ratio
+    train_files, temp_files, train_labels, temp_labels = train_test_split(
+        all_files, labels,
+        test_size=temp_ratio,
+        stratify=labels,
+        random_state=seed
+    )
+
+    # Split Temp into Val and Test
+    # E.g. val_ratio / temp_ratio = 0.15 / 0.30 = 0.5 (equal split)
+    val_prop = val_ratio / temp_ratio
+    val_files, test_files, val_labels, test_labels = train_test_split(
+        temp_files, temp_labels,
+        test_size=1.0 - val_prop,
+        stratify=temp_labels,
+        random_state=seed
+    )
+
+    # Setup folders
+    splits = {
+        "train": (train_files, train_labels),
+        "val": (val_files, val_labels),
+        "test": (test_files, test_labels)
+    }
+
+    for split_name, (files, split_labels) in splits.items():
+        defect_dest = dest_dir / split_name / "defect"
+        no_defect_dest = dest_dir / split_name / "no-defect"
+
+        if defect_dest.exists():
+            shutil.rmtree(defect_dest)
+        if no_defect_dest.exists():
+            shutil.rmtree(no_defect_dest)
+
+        defect_dest.mkdir(parents=True, exist_ok=True)
+        no_defect_dest.mkdir(parents=True, exist_ok=True)
+
+        copied = 0
+        for f, lbl in zip(files, split_labels):
+            target_dir = defect_dest if lbl == 1 else no_defect_dest
+            shutil.copy2(f, target_dir / f.name)
+            copied += 1
+
+        n_def = sum(1 for l in split_labels if l == 1)
+        n_nodef = sum(1 for l in split_labels if l == 0)
+        print(f"  {split_name:5} split -> defect: {n_def:5} | no-defect: {n_nodef:5} | total: {copied:5}")
+
+    print(f"\n[SUCCESS] Split dataset created at: {dest_dir}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Prepare binary ImageFolder dataset for ResNet50 defect detection.",
@@ -306,6 +385,41 @@ def main() -> None:
         action="store_true",
         help="Use CSV as image path source instead of labeled/ folder structure.",
     )
+    parser.add_argument(
+        "--split",
+        action="store_true",
+        help="Split the prepared dataset into train/val/test splits (70/15/15 ratio).",
+    )
+    parser.add_argument(
+        "--split-dir",
+        type=str,
+        default="data/image_dataset_split",
+        help="Directory to save the train/val/test splits (default: data/image_dataset_split)",
+    )
+    parser.add_argument(
+        "--train-ratio",
+        type=float,
+        default=0.7,
+        help="Ratio for training set (default: 0.7)",
+    )
+    parser.add_argument(
+        "--val-ratio",
+        type=float,
+        default=0.15,
+        help="Ratio for validation set (default: 0.15)",
+    )
+    parser.add_argument(
+        "--test-ratio",
+        type=float,
+        default=0.15,
+        help="Ratio for test set (default: 0.15)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for splitting (default: 42)",
+    )
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parent.parent
@@ -318,26 +432,40 @@ def main() -> None:
     output_dir = root / args.output_dir
     images_root = root / args.images_root
 
-    print()
-    print("=" * 60)
-    print("  ResNet50 Dataset Preparation")
-    print("=" * 60)
-    print(f"  images root : {images_root}")
-    print(f"  output dir  : {output_dir}")
-    print(f"  label map   : {args.label_map}")
-    print()
+    # Prepare binary image dataset first if we are not just splitting an existing one
+    if not (args.split and output_dir.exists() and (output_dir / "defect").exists() and (output_dir / "no-defect").exists()):
+        print()
+        print("=" * 60)
+        print("  ResNet50 Dataset Preparation")
+        print("=" * 60)
+        print(f"  images root : {images_root}")
+        print(f"  output dir  : {output_dir}")
+        print(f"  label map   : {args.label_map}")
+        print()
 
-    if args.use_csv:
-        labels_csv = root / args.labels_csv
-        print(f"  Mode: CSV-based (labels from {labels_csv})")
-        prepare_from_csv(labels_csv, images_root, output_dir)
-    else:
-        print("  Mode: Folder-based (from image_labeling/data/labeled/)")
-        prepare_from_labeled_dirs(images_root, output_dir)
+        if args.use_csv:
+            labels_csv = root / args.labels_csv
+            print(f"  Mode: CSV-based (labels from {labels_csv})")
+            prepare_from_csv(labels_csv, images_root, output_dir)
+        else:
+            print("  Mode: Folder-based (from image_labeling/data/labeled/)")
+            prepare_from_labeled_dirs(images_root, output_dir)
 
-    # Auto-run balance check after preparation
-    print()
-    check_balance(output_dir)
+        # Auto-run balance check after preparation
+        print()
+        check_balance(output_dir)
+
+    # Perform Train/Validation/Test split if requested
+    if args.split:
+        split_dir = root / args.split_dir
+        prepare_split_dataset(
+            src_dir=output_dir,
+            dest_dir=split_dir,
+            train_ratio=args.train_ratio,
+            val_ratio=args.val_ratio,
+            test_ratio=args.test_ratio,
+            seed=args.seed
+        )
 
 
 if __name__ == "__main__":
