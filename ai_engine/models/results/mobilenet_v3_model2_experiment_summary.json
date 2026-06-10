@@ -1,0 +1,28 @@
+{
+  "selected_result": "mobilenet_v3_baseline",
+  "dataset_split": {
+    "train": {"defect": 1162, "no-defect": 12495},
+    "val": {"defect": 249, "no-defect": 2678},
+    "test": {"defect": 249, "no-defect": 2678}
+  },
+  "experiments": {
+    "mobilenet_v3_baseline": {
+      "test_accuracy": 0.7947,
+      "test_macro_f1": 0.6290,
+      "defect_precision": 0.26,
+      "defect_recall": 0.74,
+      "defect_f1": 0.38,
+      "status": "selected"
+    },
+    "mobilenet_v3_threshold_0_12": {
+      "test_accuracy": 0.6382,
+      "test_macro_f1": 0.5214,
+      "defect_precision": 0.1713,
+      "defect_recall": 0.8474,
+      "defect_f1": 0.2849,
+      "threshold": 0.12,
+      "status": "not_selected"
+    }
+  },
+  "evaluation_note": "labeled/test was only a local junction alias to data/image_dataset_split/test. No new test set was created."
+}

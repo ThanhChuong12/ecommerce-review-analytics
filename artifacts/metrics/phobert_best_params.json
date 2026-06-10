@@ -1,0 +1,8 @@
+{
+  "gamma": 1.3549024013538666,
+  "learning_rate": 4.763247810434059e-05,
+  "weight_decay": 0.050831617675038715,
+  "warmup_ratio": 0.016234244280055068,
+  "num_train_epochs": 2,
+  "per_device_train_batch_size": 16
+}

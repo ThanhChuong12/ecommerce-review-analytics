@@ -1,5 +1,6 @@
 # pyrefly: ignore [missing-import]
 from fastapi import FastAPI, BackgroundTasks, Request
+import asyncio
 import requests
 import requests.exceptions
 import time
@@ -92,6 +93,44 @@ def heavy_ai_process(product_id: int, url: str) -> None:
 
     summary = "Sản phẩm được đánh giá khá tốt về chất lượng, tuy nhiên có nhiều phản ánh về việc đóng gói kém dẫn đến hỏng hóc trong quá trình vận chuyển."
     
+    # --- Similar products: thử lấy thật từ scraper, fallback về mock nếu thất bại ---
+    real_similar: list[dict] = []
+    try:
+        import sys
+        from pathlib import Path
+        _agent_root = str(Path(__file__).resolve().parent.parent / "scraping_agent")
+        if _agent_root not in sys.path:
+            sys.path.insert(0, _agent_root)
+        # pyrefly: ignore [missing-import]
+        from similar_products_fetcher import scrape_similar_products
+
+        # heavy_ai_process là sync function → chạy coroutine bằng asyncio.run()
+        similar_items = asyncio.run(scrape_similar_products(url, limit=5))
+        real_similar = [
+            {
+                "name":       p.name,
+                "thumbnail":  p.image_url,
+                "url":        p.url,
+                "trustScore": random.randint(80, 98),  # placeholder cho đến khi có real score
+            }
+            for p in similar_items if p.name
+        ]
+        if real_similar:
+            print(f"[Python AI] Similar products: đã lấy được {len(real_similar)} sản phẩm từ scraper")
+    except Exception as _e:
+        print(f"[Python AI] Similar products scraper thất bại, dùng mock: {_e}")
+
+    # Nếu scraper không trả về gì (URL không hỗ trợ hoặc bị block) → fallback mock
+    alternative_products = real_similar or [
+        {
+            "name": p["name"],
+            "thumbnail": p["thumbnail"],
+            "url": p["url"],
+            "trustScore": random.randint(80, 98)
+        }
+        for p in random.sample([p for p in mock_products if p["name"] != product_name], min(5, len(mock_products)-1))
+    ]
+
     # --- Dữ liệu AI nâng cao (Metadata) ---
     metadata = {
         "spamPercentage": random.randint(10, 45),
@@ -121,15 +160,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
             ]
         },
         "smartAdvice": "💡 Gợi ý mua hàng: Sản phẩm có chất lượng tốt nhưng rủi ro hư hỏng bao bì cao. Khuyến nghị bạn NHẮN TIN CHO SHOP yêu cầu bọc thêm màng xốp nổ (Bubble Wrap) trước khi đặt hàng.",
-        "alternativeProducts": [
-            {
-                "name": p["name"],
-                "thumbnail": p["thumbnail"],
-                "url": p["url"],
-                "trustScore": random.randint(80, 98)
-            }
-            for p in random.sample([p for p in mock_products if p["name"] != product_name], min(5, len(mock_products)-1))
-        ]
+        "alternativeProducts": alternative_products,
     }
 
     # Sinh Time Series data

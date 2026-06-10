@@ -1,0 +1,13 @@
+[
+  {
+    "backbone": "mobilenet_v3",
+    "overall_accuracy": 0.6382,
+    "macro_f1": 0.5214,
+    "defect_precision": 0.1713,
+    "defect_recall": 0.8474,
+    "defect_f1": 0.2849,
+    "weights_path": "D:\\Regular_School\\N3\\HK2\\ML\\ecommerce-review-analytics-model2\\ai_engine\\models\\weights\\mobilenet_v3_model2_defect.pt",
+    "threshold_used": 0.12,
+    "eval_set": "TEST"
+  }
+]
