@@ -109,3 +109,7 @@ data/*.csv
 /data/
 /reports/figures/
 /reports/figures_model2/
+
+# --- ResNet50 Improve Temp & Split Exclusions ---
+tmp_extract/
+data/image_dataset_split/

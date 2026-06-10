@@ -4,22 +4,13 @@ package_kaggle_resnet50.py
 Creates a ZIP archive of project files required to run ResNet50
 defect-detection GPU fine-tuning on Kaggle.
 
+This version packages the pre-split dataset (data/image_dataset_split).
+
 Usage:
     python scripts/package_kaggle_resnet50.py
 
 Output:
-    resnet50_kaggle_train.zip   (in project root)
-
-ZIP internal layout:
-    resnet50_kaggle_train/
-        scripts/
-        ai_engine/
-        data/image_dataset/defect/
-        data/image_dataset/no-defect/
-        docs/
-        reports/
-        requirements.txt  (if present)
-        ai_engine/__init__.py etc.
+    resnet50_kaggle_train_split.zip   (in project root)
 """
 
 import os
@@ -30,8 +21,8 @@ import time
 
 # ── Project root is one level above this script ────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
-ZIP_NAME = "resnet50_kaggle_train.zip"
-ZIP_ROOT = "resnet50_kaggle_train"          # folder name inside the ZIP
+ZIP_NAME = "resnet50_kaggle_train_split.zip"
+ZIP_ROOT = "resnet50_kaggle_train_split"          # folder name inside the ZIP
 OUTPUT_ZIP = ROOT / ZIP_NAME
 
 # ── Files/dirs that must be present ─────────────────────────────────────────
@@ -42,13 +33,14 @@ REQUIRED_FILES = [
     "scripts/prepare_dataset.py",
     "ai_engine/image_processing/defect_detection.py",
     "ai_engine/image_processing/augmentation/transforms.py",
-    "ai_engine/models/resnet50_defect.pth",
-    "docs/resnet50_training_flow.md",
-    "reports/resnet50_training_report.md",
 ]
 REQUIRED_DIRS = [
-    "data/image_dataset/defect",
-    "data/image_dataset/no-defect",
+    "data/image_dataset_split/train/defect",
+    "data/image_dataset_split/train/no-defect",
+    "data/image_dataset_split/val/defect",
+    "data/image_dataset_split/val/no-defect",
+    "data/image_dataset_split/test/defect",
+    "data/image_dataset_split/test/no-defect",
 ]
 
 # ── Optional files (included if they exist) ──────────────────────────────────
@@ -61,14 +53,14 @@ OPTIONAL_FILES = [
     "ai_engine/image_processing/augmentation/__init__.py",
     "scripts/kaggle_gpu_train_setup.py",
     "scripts/package_kaggle_resnet50.py",
+    "docs/resnet50_training_flow.md",
     "docs/kaggle_gpu_training_instructions.md",
-    "reports/resnet50_gpu_training_report_template.md",
 ]
 
 # ── Patterns to exclude ───────────────────────────────────────────────────────
 EXCLUDE_DIRS  = {"__pycache__", ".git", ".venv", "venv", "env",
                  ".ipynb_checkpoints", ".mypy_cache", ".pytest_cache", "node_modules"}
-EXCLUDE_EXTS  = {".pyc", ".pyo", ".ipynb", ".log", ".tmp"}
+EXCLUDE_EXTS  = {".pyc", ".pyo", ".ipynb", ".log", ".tmp", ".pth", ".pt"}
 EXCLUDE_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini"}
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -88,7 +80,7 @@ def _should_exclude(path: Path) -> bool:
 def count_images(folder: Path) -> int:
     if not folder.exists():
         return 0
-    return sum(1 for f in folder.iterdir()
+    return sum(1 for f in folder.glob("**/*")
                if f.is_file() and f.suffix.lower() in IMAGE_EXTS)
 
 
@@ -125,13 +117,7 @@ def verify_requirements() -> bool:
     return ok
 
 
-def add_file(zf: zipfile.ZipFile, src: Path, arcname: str) -> None:
-    if _should_exclude(src):
-        return
-    zf.write(src, arcname)
-
-
-def add_dir(zf: zipfile.ZipFile, src_dir: Path, arc_prefix: str) -> int:
+def add_dir(zf: zipfile.ZipFile, src_dir: Path) -> int:
     count = 0
     for item in sorted(src_dir.rglob("*")):
         if _should_exclude(item):
@@ -165,11 +151,11 @@ def build_zip() -> None:
                 total_files += 1
                 print(f"  + {arc}")
 
-        # ── Required dirs (image_dataset) ──────────────────────────────────
+        # ── Required dirs (image_dataset_split) ────────────────────────────
         for rel in REQUIRED_DIRS:
             p = ROOT / rel
             if p.exists():
-                n = add_dir(zf, p, ZIP_ROOT)
+                n = add_dir(zf, p)
                 total_files += n
                 print(f"  + {ZIP_ROOT}/{rel}/  ({n} files)")
 
@@ -191,25 +177,28 @@ def build_zip() -> None:
     print("  Step 3 — Summary")
     print("=" * 64)
     print(f"  ZIP path    : {OUTPUT_ZIP}")
-    print(f"  ZIP size    : {size_mb:.1f} MB")
+    print(f"  ZIP size    : {size_mb:.2f} MB")
     print(f"  Total files : {total_files}")
-    print(f"  Time        : {elapsed:.1f}s")
-
-    # ── Dataset counts ──────────────────────────────────────────────────────
-    n_defect   = count_images(ROOT / "data/image_dataset/defect")
-    n_no_defect = count_images(ROOT / "data/image_dataset/no-defect")
-    ratio = n_no_defect / max(n_defect, 1)
+    print(f"  Time elapsed: {elapsed:.2f}s")
     print()
-    print("  Dataset image counts:")
-    print(f"    defect   : {n_defect}")
-    print(f"    no-defect: {n_no_defect}")
-    print(f"    ratio    : {ratio:.2f}:1  (no-defect:defect)")
-    print()
-    print("  Upload this ZIP to Kaggle:")
-    print("    Notebook -> Add Input -> Upload Dataset -> select ZIP")
-    print()
-    print("  Then run inside Kaggle:")
-    print("    python scripts/kaggle_gpu_train_setup.py")
+    
+    # Print Top-Level Contents of the Zip
+    print("  Top-Level Contents of ZIP:")
+    with zipfile.ZipFile(OUTPUT_ZIP, "r") as zf:
+        top_levels = set()
+        for name in zf.namelist():
+            rel_name = name.replace(f"{ZIP_ROOT}/", "", 1)
+            parts = Path(rel_name).parts
+            if parts:
+                top_levels.add(parts[0])
+        for tl in sorted(top_levels):
+            print(f"    - {tl}")
+            
+    # Print Excluded Items
+    print("\n  Excluded Patterns:")
+    print(f"    Directories: {', '.join(sorted(list(EXCLUDE_DIRS)))}")
+    print(f"    Extensions : {', '.join(sorted(list(EXCLUDE_EXTS)))}")
+    print(f"    Names      : {', '.join(sorted(list(EXCLUDE_NAMES)))}")
     print()
 
 
@@ -220,22 +209,33 @@ def verify_zip() -> None:
     checks = {
         f"{ZIP_ROOT}/scripts/": False,
         f"{ZIP_ROOT}/ai_engine/": False,
-        f"{ZIP_ROOT}/data/image_dataset/defect/": False,
-        f"{ZIP_ROOT}/data/image_dataset/no-defect/": False,
-        f"{ZIP_ROOT}/ai_engine/models/resnet50_defect.pth": False,
+        f"{ZIP_ROOT}/data/image_dataset_split/train/": False,
+        f"{ZIP_ROOT}/data/image_dataset_split/val/": False,
+        f"{ZIP_ROOT}/data/image_dataset_split/test/": False,
     }
     with zipfile.ZipFile(OUTPUT_ZIP, "r") as zf:
         names = zf.namelist()
         for key in list(checks.keys()):
             checks[key] = any(n.startswith(key) or n == key for n in names)
 
+    ok = True
     for key, found in checks.items():
         status = "[OK]     " if found else "[MISSING]"
         print(f"  {status}  {key}")
+        if not found:
+            ok = False
+
+    # Assert no model weight checkpoints are included
+    pth_files = [n for n in names if n.endswith(".pth") or n.endswith(".pt")]
+    if pth_files:
+        print(f"  [FAIL]   Found checkpoint files in ZIP: {pth_files}")
+        ok = False
+    else:
+        print("  [OK]     No checkpoint files (.pth/.pt) included in ZIP (clean environment).")
 
     print()
-    print("  Packaging complete." if all(checks.values())
-          else "  WARNING: Some expected entries not found in ZIP.")
+    print("  Packaging complete." if ok
+          else "  WARNING: ZIP verification failed or included model checkpoints.")
 
 
 def main() -> None:
