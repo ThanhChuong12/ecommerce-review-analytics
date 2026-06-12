@@ -1,31 +1,65 @@
 """
-Cross-Modal Fusion Engine.
+Cross-Modal Fusion Engine v2.0.
 
 Calculates a Trust Score (0-100) by fusing signals from:
 - Text Modality (PhoBERT sentiment probabilities)
-- Image Modality (ResNet intact/broken probabilities)
-- Authenticity (Spam detection boolean)
+- Image Modality (ResNet defect/no_defect probabilities)
+- Image Meta (CLIP relevance boolean)
+- Authenticity Meta (Spam detection boolean)
 
 Key Upgrades:
-- Dynamic Weighting: Handles missing images gracefully by redistributing weights.
+- Pydantic Input Normalization: Enforces structured type validation.
+- Dynamic Weighting: Handles irrelevant or missing images gracefully by redistributing weights.
 - Spam Penalty: Instantly severely penalizes the trust score if spam is detected.
-- Conflict Resolution: Flags reviews where text is positive but the image is broken.
-- Typed Output: Uses dataclass for structured, type-safe API responses.
+- Conflict Resolution: Flags reviews with positive text but defective image, or negative text but perfect image.
+- Flags Output: Returns list of strings for Frontend notification/rendering.
 """
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import List, Optional
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+
+# --- Input Models ---
+
+class TextProbs(BaseModel):
+    positive: float
+    negative: float
+    neutral: float
+
+
+class ImageProbs(BaseModel):
+    defect: float
+    no_defect: float
+
+
+class ImageMeta(BaseModel):
+    is_irrelevant: bool
+
+
+class AuthMeta(BaseModel):
+    is_spam: bool
+
+
+class FusionInput(BaseModel):
+    text_probs: TextProbs
+    image_probs: Optional[ImageProbs] = None
+    image_meta: Optional[ImageMeta] = None
+    auth_meta: AuthMeta
+
+
+# --- Output Structure ---
 
 @dataclass
 class FusionResult:
     """Typed output structure for the Cross-Modal Fusion Engine."""
     final_score: float
     is_conflict: bool
-    reason_code: str
+    flags: List[str]
+    reason_code: str  # Kept for backward compatibility with LLM Recommendation client
 
 
 class TrustScoreCalculator:
@@ -46,78 +80,87 @@ class TrustScoreCalculator:
         self.base_image_weight = base_image_weight
         self.base_auth_weight = base_auth_weight
 
-    def calculate(
-        self, 
-        text_probs: Dict[str, float], 
-        image_probs: Optional[Dict[str, float]], 
-        is_spam: bool
-    ) -> FusionResult:
+    def calculate(self, inputs: FusionInput) -> FusionResult:
         """
         Calculate the multimodal trust score.
 
         Args:
-            text_probs: Dictionary with sentiment keys ('positive', 'negative', 'neutral').
-            image_probs: Dictionary with visual keys ('intact', 'broken'). Can be None.
-            is_spam: Boolean flag from the anti-spam detection module.
+            inputs: A FusionInput containing text probabilities, image probabilities,
+                    image metadata, and authenticity metadata.
 
         Returns:
-            A FusionResult containing the final score, conflict flag, and reasoning.
+            A FusionResult containing the final score, conflict flag, flags list, and reasoning.
         """
-        # 1. Spam Penalty (Instant severe penalty)
-        if is_spam:
+        # Step 1: The Gatekeeper (Absolute risk filter)
+        if inputs.auth_meta.is_spam:
             logger.warning("Spam detected! Applying severe penalty.")
             return FusionResult(
                 final_score=5.0, 
                 is_conflict=False, 
+                flags=["RISK: Fraudulent Review (Spam/Seeding)"],
                 reason_code="SPAM_DETECTED"
             )
 
-        # 2. Dynamic Weighting (Handle missing image modality)
-        if image_probs is None:
+        # Step 2: CLIP Intervention & Dynamic Weighting
+        flags = []
+        is_conflict = False
+
+        if inputs.image_probs is None:
             logger.info("Image modality missing. Redistributing image weight to text.")
             weight_text = self.base_text_weight + self.base_image_weight
             weight_image = 0.0
-            image_intact_prob = 0.0
-            image_broken_prob = 0.0
-            base_reason = "MISSING_IMAGE"
+            image_score = 0.0
+            reason_code = "MISSING_IMAGE"
+            use_image = False
+        elif inputs.image_meta is not None and inputs.image_meta.is_irrelevant:
+            logger.info("Irrelevant image detected. Ignoring image probabilities and redistributing image weight to text.")
+            weight_text = self.base_text_weight + self.base_image_weight
+            weight_image = 0.0
+            image_score = 0.0
+            flags.append("WARNING: Irrelevant Product Image")
+            reason_code = "IRRELEVANT_IMAGE"
+            use_image = False
         else:
             weight_text = self.base_text_weight
             weight_image = self.base_image_weight
-            image_intact_prob = image_probs.get("intact", 0.0)
-            image_broken_prob = image_probs.get("broken", 0.0)
-            base_reason = "MULTIMODAL_OK"
+            image_score = inputs.image_probs.no_defect * 100.0
+            reason_code = "MULTIMODAL_OK"
+            use_image = True
 
-        text_positive_prob = text_probs.get("positive", 0.0)
-        
-        # 3. Calculate Base Components (Scale 0 to 100)
-        score_text = text_positive_prob * 100.0
-        score_image = image_intact_prob * 100.0
+        # Step 4: Trust Score Calculation - Text and Authenticity
+        score_text = (inputs.text_probs.positive * 100.0) + (inputs.text_probs.neutral * 50.0)
         score_auth = 100.0  # Since is_spam is False
 
         # Weighted sum of components
         final_score = (
             (score_text * weight_text) + 
-            (score_image * weight_image) + 
+            (image_score * weight_image) + 
             (score_auth * self.base_auth_weight)
         )
 
-        # 4. Multimodal Conflict Detection
-        is_conflict = False
-        reason_code = base_reason
-
-        # Define conflict: Text says the product is great (>60% pos) 
-        # but the image clearly shows a broken item (>60% broken)
-        if image_probs is not None:
-            if text_positive_prob > 0.6 and image_broken_prob > 0.6:
-                logger.warning("Multimodal conflict! Positive text but Broken image.")
+        # Step 3: Conflict Detection (Only when relevant image is present)
+        if use_image and inputs.image_probs is not None:
+            # Conflict 1: Positive Text - Defective Image
+            if inputs.text_probs.positive > 0.6 and inputs.image_probs.defect > 0.6:
+                logger.warning("Multimodal conflict! Positive text but defect image.")
                 is_conflict = True
+                final_score *= 0.5  # Apply 50% penalty
+                flags.append("CONFLICT: Suspicious praise due to defective product image")
                 reason_code = "MULTIMODAL_CONFLICT"
-                final_score *= 0.5  # Apply a 50% penalty for conflicting signals
+            
+            # Conflict 2: Negative Text - No-Defect Image
+            elif inputs.text_probs.negative > 0.6 and inputs.image_probs.no_defect > 0.8:
+                logger.warning("Multimodal notice! Negative text but no-defect image.")
+                is_conflict = True
+                # No penalty, but attach warning flag
+                flags.append("NOTICE: Customer complaint but no visible product defects")
+                reason_code = "MULTIMODAL_CONFLICT"
 
-        # 5. Final Score Adjustments and Reasoning
+        # Final Score Adjustments and clamp
         final_score = max(0.0, min(round(final_score, 2), 100.0))
 
-        if not is_conflict and image_probs is not None:
+        # Adjust reason code for backward compatibility if no conflict
+        if not is_conflict and use_image:
             if final_score >= 80.0:
                 reason_code = "HIGH_TRUST"
             elif final_score >= 50.0:
@@ -128,5 +171,6 @@ class TrustScoreCalculator:
         return FusionResult(
             final_score=final_score,
             is_conflict=is_conflict,
+            flags=flags,
             reason_code=reason_code
         )
