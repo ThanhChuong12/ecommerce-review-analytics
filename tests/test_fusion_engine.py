@@ -1,4 +1,4 @@
-"""Unit tests for Cross-Modal Fusion Engine v2.0.
+"""Unit tests for Cross-Modal Fusion Engine v2.0 (MobileNetV3 version).
 
 Run:
     python -m unittest tests/test_fusion_engine.py -v
@@ -10,7 +10,6 @@ from ai_engine.fusion.fusion_engine import (
     FusionInput,
     TextProbs,
     ImageProbs,
-    ImageMeta,
     AuthMeta,
 )
 
@@ -25,8 +24,7 @@ class TestFusionEngine(unittest.TestCase):
         """Step 1: Spam detected should instantly terminate and severely penalize trust score."""
         inputs = FusionInput(
             text_probs=TextProbs(positive=0.9, negative=0.0, neutral=0.1),
-            image_probs=ImageProbs(defect=0.0, no_defect=1.0),
-            image_meta=ImageMeta(is_irrelevant=False),
+            image_probs=ImageProbs(intact=1.0, damaged=0.0, wrong_item=0.0, irrelevant=0.0),
             auth_meta=AuthMeta(is_spam=True)
         )
         result = self.calculator.calculate(inputs)
@@ -42,7 +40,6 @@ class TestFusionEngine(unittest.TestCase):
         inputs = FusionInput(
             text_probs=TextProbs(positive=1.0, negative=0.0, neutral=0.0),
             image_probs=None,
-            image_meta=None,
             auth_meta=AuthMeta(is_spam=False)
         )
         result = self.calculator.calculate(inputs)
@@ -59,7 +56,6 @@ class TestFusionEngine(unittest.TestCase):
         inputs_neutral = FusionInput(
             text_probs=TextProbs(positive=0.0, negative=0.0, neutral=1.0),
             image_probs=None,
-            image_meta=None,
             auth_meta=AuthMeta(is_spam=False)
         )
         result_neutral = self.calculator.calculate(inputs_neutral)
@@ -72,8 +68,7 @@ class TestFusionEngine(unittest.TestCase):
         """Step 2: Irrelevant image should ignore image probs and redistribute weight to text."""
         inputs = FusionInput(
             text_probs=TextProbs(positive=1.0, negative=0.0, neutral=0.0),
-            image_probs=ImageProbs(defect=0.9, no_defect=0.1), # Highly defective, but irrelevant!
-            image_meta=ImageMeta(is_irrelevant=True),
+            image_probs=ImageProbs(intact=0.1, damaged=0.0, wrong_item=0.0, irrelevant=0.9), # Irrelevant is highest!
             auth_meta=AuthMeta(is_spam=False)
         )
         result = self.calculator.calculate(inputs)
@@ -90,8 +85,7 @@ class TestFusionEngine(unittest.TestCase):
         """Step 4: Check score calculation when all signals are normal and relevant."""
         inputs = FusionInput(
             text_probs=TextProbs(positive=0.8, negative=0.1, neutral=0.1),
-            image_probs=ImageProbs(defect=0.1, no_defect=0.9),
-            image_meta=ImageMeta(is_irrelevant=False),
+            image_probs=ImageProbs(intact=0.9, damaged=0.1, wrong_item=0.0, irrelevant=0.0),
             auth_meta=AuthMeta(is_spam=False)
         )
         result = self.calculator.calculate(inputs)
@@ -111,8 +105,7 @@ class TestFusionEngine(unittest.TestCase):
         """Step 3: Conflict 1 (Positive text > 0.6 and Defect image > 0.6) -> Penalize 50% score."""
         inputs = FusionInput(
             text_probs=TextProbs(positive=0.7, negative=0.1, neutral=0.2),
-            image_probs=ImageProbs(defect=0.8, no_defect=0.2),
-            image_meta=ImageMeta(is_irrelevant=False),
+            image_probs=ImageProbs(intact=0.2, damaged=0.8, wrong_item=0.0, irrelevant=0.0),
             auth_meta=AuthMeta(is_spam=False)
         )
         result = self.calculator.calculate(inputs)
@@ -132,8 +125,7 @@ class TestFusionEngine(unittest.TestCase):
         """Step 3: Conflict 2 (Negative text > 0.6 and No-Defect image > 0.8) -> Warning flag, no penalty."""
         inputs = FusionInput(
             text_probs=TextProbs(positive=0.1, negative=0.8, neutral=0.1),
-            image_probs=ImageProbs(defect=0.1, no_defect=0.9),
-            image_meta=ImageMeta(is_irrelevant=False),
+            image_probs=ImageProbs(intact=0.9, damaged=0.1, wrong_item=0.0, irrelevant=0.0),
             auth_meta=AuthMeta(is_spam=False)
         )
         result = self.calculator.calculate(inputs)
