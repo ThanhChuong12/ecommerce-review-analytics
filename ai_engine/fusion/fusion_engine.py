@@ -76,6 +76,11 @@ class FusionResult(BaseModel):
     is_conflict: bool
     flags: List[str]
     reason_code: ReasonCode
+    prediction_confidence: float = Field(
+        ge=0.0, le=1.0,
+        description="Confidence of the fusion prediction (0=uncertain, 1=very confident). "
+                    "Derived from top-2 probability margin of each active modality."
+    )
 
 
 class TrustScoreCalculator:
@@ -90,7 +95,7 @@ class TrustScoreCalculator:
     CONFLICT_PENALTY_MULTIPLIER = 0.5
     NOTICE_TEXT_NEG_THRESHOLD = 0.6
     NOTICE_IMG_PERFECT_THRESHOLD = 0.8
-    NEUTRAL_SCORE_MULTIPLIER = 50.0
+
     HIGH_TRUST_THRESHOLD = 80.0
     MODERATE_TRUST_THRESHOLD = 50.0
 
@@ -108,6 +113,22 @@ class TrustScoreCalculator:
         self.base_image_weight = base_image_weight
         self.base_auth_weight = base_auth_weight
 
+    @staticmethod
+    def _compute_modality_confidence(probs: list) -> float:
+        """Top-2 probability margin as a confidence proxy.
+
+        A high margin (e.g. 0.95 vs 0.03) indicates a certain prediction.
+        A low margin (e.g. 0.40 vs 0.35) indicates an uncertain prediction.
+
+        Args:
+            probs: All class probabilities for a single modality.
+
+        Returns:
+            Confidence score in [0.0, 1.0].
+        """
+        sorted_p = sorted(probs, reverse=True)
+        return float(sorted_p[0] - sorted_p[1]) if len(sorted_p) >= 2 else 1.0
+
     def calculate(self, inputs: FusionInput) -> FusionResult:
         # Step 1: The Gatekeeper (Absolute risk filter)
         if inputs.auth_meta.is_spam:
@@ -116,7 +137,8 @@ class TrustScoreCalculator:
                 final_score=self.SPAM_PENALTY_SCORE,
                 is_conflict=False,
                 flags=["RISK: Fraudulent Review (Spam/Seeding)"],
-                reason_code="SPAM_DETECTED"
+                reason_code="SPAM_DETECTED",
+                prediction_confidence=1.0  # Spam detection is binary: always certain
             )
 
         flags = []
@@ -147,17 +169,49 @@ class TrustScoreCalculator:
             reason_code = "MULTIMODAL_OK"
             use_image = True
 
-        # Step 3: Base Trust Score Calculation
-        score_text = (inputs.text_probs.positive * 100.0) + (inputs.text_probs.neutral * self.NEUTRAL_SCORE_MULTIPLIER)
+        # Step 3: Confidence-Aware Effective Weight Calculation
+        # Modalities with uncertain predictions (low top-2 margin) contribute less.
+        text_conf = self._compute_modality_confidence([
+            inputs.text_probs.positive,
+            inputs.text_probs.negative,
+            inputs.text_probs.neutral,
+        ])
+        img_conf = (
+            self._compute_modality_confidence([inputs.image_probs.defect, inputs.image_probs.no_defect])
+            if (use_image and inputs.image_probs is not None)
+            else 0.0
+        )
+
+        # Blend base weight with confidence-proportional weight (50/50).
+        # confidence=0.0 → 50% of base weight; confidence=1.0 → 100% of base weight.
+        raw_text_w = weight_text * (0.5 + 0.5 * text_conf)
+        raw_img_w  = weight_image * (0.5 + 0.5 * img_conf)
+        raw_auth_w = self.base_auth_weight  # Auth is binary: certainty always 1.0
+        total_raw  = raw_text_w + raw_img_w + raw_auth_w
+
+        eff_text_w = raw_text_w / total_raw
+        eff_img_w  = raw_img_w  / total_raw
+        eff_auth_w = raw_auth_w / total_raw
+
+        # Overall prediction confidence: average of active modalities
+        prediction_confidence = round(
+            (text_conf + img_conf) / 2.0 if use_image else text_conf, 4
+        )
+
+        # Step 4: Base Trust Score Calculation
+        # score_text = 50 + 50*(positive - negative), ranges [0, 100].
+        # Written explicitly so negative sentiment's role is clear.
+        # Equivalent to: positive*100 + neutral*50 (since probs sum to 1).
+        score_text = 50.0 + 50.0 * (inputs.text_probs.positive - inputs.text_probs.negative)
         score_auth = 100.0  # Safe assumption: is_spam is False at this point
 
         final_score = (
-            (score_text * weight_text) + 
-            (image_score * weight_image) + 
-            (score_auth * self.base_auth_weight)
+            (score_text * eff_text_w) +
+            (image_score * eff_img_w) +
+            (score_auth * eff_auth_w)
         )
 
-        # Step 4: Conflict Detection (Evaluated only if relevant image is present)
+        # Step 5: Conflict Detection (Evaluated only if relevant image is present)
         if use_image:
             # Conflict 1: Positive Text - Defective Image
             if (inputs.text_probs.positive > self.CONFLICT_TEXT_POS_THRESHOLD and 
@@ -170,9 +224,13 @@ class TrustScoreCalculator:
                 reason_code = "MULTIMODAL_CONFLICT"
             
             # Conflict 2: Negative Text - No-Defect Image
-            elif (inputs.text_probs.negative > self.NOTICE_TEXT_NEG_THRESHOLD and 
+            # Note: No score penalty applied intentionally. Unlike Conflict 1 (suspicious praise
+            # of a broken product), a negative review with a visually intact image may reflect
+            # legitimate complaints about service, shipping, or non-visible quality issues.
+            # We flag it for transparency but do not penalize the trust score.
+            elif (inputs.text_probs.negative > self.NOTICE_TEXT_NEG_THRESHOLD and
                   inputs.image_probs.no_defect > self.NOTICE_IMG_PERFECT_THRESHOLD):
-                
+
                 logger.warning("Multimodal notice: Negative text but perfect image.")
                 is_conflict = True
                 flags.append("NOTICE: Customer complaint but no visible product defects")
@@ -193,5 +251,6 @@ class TrustScoreCalculator:
             final_score=final_score,
             is_conflict=is_conflict,
             flags=flags,
-            reason_code=reason_code
+            reason_code=reason_code,
+            prediction_confidence=prediction_confidence
         )
