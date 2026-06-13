@@ -1,10 +1,10 @@
 """
-Cross-Modal Fusion Engine v2.0.
+Cross-Modal Fusion Engine
 
 Calculates a Trust Score (0-100) by fusing signals from:
 - Text Modality (PhoBERT sentiment probabilities)
 - Image Modality (MobileNetV3 4-class probabilities: intact, damaged, wrong_item, irrelevant)
-- Authenticity Meta (Spam detection boolean)
+- Authenticity Meta (Spam detection with severity score)
 """
 
 import logging
@@ -57,6 +57,10 @@ class ImageProbs(BaseModel):
 
 class AuthMeta(BaseModel):
     is_spam: bool
+    spam_score: float = Field(
+        default=0.0, ge=0.0, le=1.0,
+        description="Spam severity (0=borderline, 1=definite). Ignored when is_spam=False."
+    )
 
 
 class FusionInput(BaseModel):
@@ -86,11 +90,14 @@ class TrustScoreCalculator:
     
     # Configuration constants to replace magic numbers
     SPAM_PENALTY_SCORE = 5.0
+    SPAM_MILD_CEILING = 20.0
     CONFLICT_TEXT_POS_THRESHOLD = 0.6
     CONFLICT_IMG_DEFECT_THRESHOLD = 0.6
     CONFLICT_PENALTY_MULTIPLIER = 0.5
     NOTICE_TEXT_NEG_THRESHOLD = 0.6
     NOTICE_IMG_PERFECT_THRESHOLD = 0.8
+    NOTICE_PENALTY_MULTIPLIER = 0.8
+    IRRELEVANT_MIN_THRESHOLD = 0.4
 
     HIGH_TRUST_THRESHOLD = 80.0
     MODERATE_TRUST_THRESHOLD = 50.0
@@ -120,11 +127,30 @@ class TrustScoreCalculator:
         return float(sorted_p[0] - sorted_p[1]) if len(sorted_p) >= 2 else 1.0
 
     def calculate(self, inputs: FusionInput) -> FusionResult:
-        # Step 1: The Gatekeeper (Absolute risk filter)
+        """Calculate a unified Trust Score (0-100) by fusing multimodal AI signals.
+
+        Pipeline:
+            1. Gatekeeper — spam detected → severity-modulated low score.
+            2. Image routing — missing/irrelevant image → redistribute weight to text.
+            3. Confidence-aware weighting — top-2 probability margin adjusts effective weights.
+            4. Base score calculation — weighted sum of text, image, and auth scores.
+            5. Conflict detection — cross-modal disagreement → penalty and flags.
+
+        Args:
+            inputs: FusionInput containing text probs, optional image probs, and auth metadata.
+
+        Returns:
+            FusionResult with final_score, is_conflict, flags, reason_code, and prediction_confidence.
+        """
+        # Step 1: The Gatekeeper (Absolute risk filter, severity-modulated)
         if inputs.auth_meta.is_spam:
-            logger.warning("Spam detected! Applying severe penalty.")
+            severity = inputs.auth_meta.spam_score if inputs.auth_meta.spam_score > 0 else 1.0
+            penalty_score = round(
+                self.SPAM_PENALTY_SCORE + (1.0 - severity) * (self.SPAM_MILD_CEILING - self.SPAM_PENALTY_SCORE), 2
+            )
+            logger.warning("Spam detected (severity=%.2f)! Trust penalized to %.1f.", severity, penalty_score)
             return FusionResult(
-                final_score=self.SPAM_PENALTY_SCORE,
+                final_score=penalty_score,
                 is_conflict=False,
                 flags=["RISK: Fraudulent Review (Spam/Seeding)"],
                 reason_code="SPAM_DETECTED",
@@ -143,7 +169,8 @@ class TrustScoreCalculator:
             reason_code = "MISSING_IMAGE"
             use_image = False
             
-        elif (inputs.image_probs.irrelevant > inputs.image_probs.intact and
+        elif (inputs.image_probs.irrelevant > self.IRRELEVANT_MIN_THRESHOLD and
+              inputs.image_probs.irrelevant > inputs.image_probs.intact and
               inputs.image_probs.irrelevant > inputs.image_probs.damaged and
               inputs.image_probs.irrelevant > inputs.image_probs.wrong_item):
             logger.info("Irrelevant image detected. Redistributing weight to text.")
@@ -157,7 +184,8 @@ class TrustScoreCalculator:
         else:
             weight_text = self.base_text_weight
             weight_image = self.base_image_weight
-            image_score = inputs.image_probs.intact * 100.0
+            defect_prob = inputs.image_probs.damaged + inputs.image_probs.wrong_item
+            image_score = max(0.0, inputs.image_probs.intact * 100.0 - defect_prob * 50.0)
             reason_code = "MULTIMODAL_OK"
             use_image = True
 
@@ -188,10 +216,14 @@ class TrustScoreCalculator:
         eff_img_w  = raw_img_w  / total_raw
         eff_auth_w = raw_auth_w / total_raw
 
-        # Overall prediction confidence
-        prediction_confidence = round(
-            (text_conf + img_conf) / 2.0 if use_image else text_conf, 4
-        )
+        # Overall prediction confidence (weighted by effective modality weights)
+        if use_image:
+            modal_total = eff_text_w + eff_img_w
+            prediction_confidence = round(
+                (text_conf * eff_text_w + img_conf * eff_img_w) / modal_total, 4
+            )
+        else:
+            prediction_confidence = round(text_conf, 4)
 
         # Step 4: Base Trust Score Calculation
         score_text = 50.0 + 50.0 * (inputs.text_probs.positive - inputs.text_probs.negative)
@@ -216,12 +248,13 @@ class TrustScoreCalculator:
                 flags.append("CONFLICT: Suspicious praise due to defective product image")
                 reason_code = "MULTIMODAL_CONFLICT"
             
-            # Conflict 2: Negative Text - No-Defect Image
+            # Conflict 2: Negative Text - No-Defect Image (lighter penalty)
             elif (inputs.text_probs.negative > self.NOTICE_TEXT_NEG_THRESHOLD and
                   inputs.image_probs.intact > self.NOTICE_IMG_PERFECT_THRESHOLD):
 
                 logger.warning("Multimodal notice: Negative text but perfect image.")
                 is_conflict = True
+                final_score *= self.NOTICE_PENALTY_MULTIPLIER
                 flags.append("NOTICE: Customer complaint but no visible product defects")
                 reason_code = "MULTIMODAL_CONFLICT"
 
