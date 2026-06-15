@@ -1,0 +1,189 @@
+\section{Giới thiệu bài toán}
+
+\subsection{Bối cảnh và động lực}
+
+Thị trường thương mại điện tử (TMĐT) Việt Nam đang tăng trưởng với tốc độ vượt bậc, với hàng chục triệu đánh giá sản phẩm được đăng tải mỗi ngày trên các nền tảng lớn như Shopee, Tiki và Thế Giới Di Động. Tuy nhiên, người tiêu dùng ngày càng đối mặt với ba thách thức nghiêm trọng mà các hệ thống hiện tại chưa giải quyết triệt để:
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item \textbf{Đánh giá giả mạo:} Bình luận được tạo bởi bot hoặc người dùng được trả tiền; thường có nội dung trùng lặp, cấu trúc câu rập khuôn, đăng tải trong cùng khoảng thời gian ngắn nhằm thao túng điểm đánh giá sản phẩm.
+    \item \textbf{Hình ảnh đính kèm không liên quan:} Người dùng đính kèm ảnh phong cảnh, ảnh cá nhân hoặc ảnh bất kỳ để đủ điều kiện nhận thưởng coin từ sàn TMĐT, khiến người mua không thể đánh giá được chất lượng thực tế qua hình ảnh.
+    \item \textbf{Thiếu phân tích theo khía cạnh:} Hệ thống đánh giá hiện tại chỉ hiển thị điểm sao tổng thể, không phân biệt được mức độ hài lòng riêng lẻ về chất lượng sản phẩm, tình trạng đóng gói hay dịch vụ vận chuyển --- những thông tin có giá trị quyết định đến quyết định mua sắm.
+\end{itemize}
+
+\subsection{Phát biểu bài toán}
+
+Nhóm xây dựng hệ thống \textbf{Multimodal Review Analytics Dashboard} --- một bảng điều khiển phân tích đánh giá đa phương thức, tích hợp đồng thời Xử lý ngôn ngữ tự nhiên (NLP) và Thị giác máy tính (CV). Hệ thống có khả năng thu thập dữ liệu đánh giá theo thời gian thực thông qua URL sản phẩm do người dùng cung cấp, từ đó xử lý song song nội dung văn bản và hình ảnh đính kèm, nhằm:
+
+\begin{enumerate}[labelsep=10pt, leftmargin=2cm]
+    \item \textbf{Phát hiện review spam/seeding:} Lọc bỏ bình luận trùng lặp và giả mạo bằng chiến lược kết hợp Rule-based và các mô hình ML truyền thống (Isolation Forest, SVM).
+    \item \textbf{Phân loại cảm xúc theo khía cạnh:} Chấm điểm cảm xúc riêng biệt cho ba khía cạnh --- \textit{chất lượng sản phẩm}, \textit{tình trạng đóng gói}, \textit{dịch vụ vận chuyển} --- thông qua so sánh hiệu năng giữa kiến trúc TF-IDF + Logistic Regression (baseline) và mô hình học sâu PhoBERT (nâng cao).
+    \item \textbf{Phát hiện hình ảnh rác:} Ứng dụng mô hình CLIP để đánh giá độ tương đồng ngữ nghĩa giữa hình ảnh đính kèm và sản phẩm, phát hiện ảnh không liên quan mà không cần dữ liệu huấn luyện có nhãn.
+    \item \textbf{Nhận diện hàng hóa hư hỏng:} Áp dụng kỹ thuật Transfer Learning với mạng CNN đa tầng (ResNet/MobileNet) để phát hiện hộp hàng bị móp méo, nứt vỡ từ ảnh đính kèm trong đánh giá.
+    \item \textbf{Tổng hợp insight bằng LLM:} Sử dụng API của Mô hình ngôn ngữ lớn (Gemini hoặc GPT) để đối chiếu chéo kết quả từ cả hai nhánh Text và Image, sinh báo cáo cảnh báo rủi ro tự động cho người dùng.
+\end{enumerate}
+
+\begin{infobox}{Chiến lược Cross - modal Fusion}
+Hệ thống áp dụng logic đối chiếu chéo (Cross - modal Fusion) giữa kết quả nhánh văn bản và nhánh hình ảnh trước khi tổng hợp báo cáo:
+\begin{itemize}
+    \item \textit{Text khen ngợi + Ảnh không liên quan đến sản phẩm} $\Rightarrow$ Gắn cờ \textbf{``Đánh giá ảo''}
+    \item \textit{Text tiêu cực + Ảnh hộp móp méo/nứt vỡ} $\Rightarrow$ Cảnh báo \textbf{``Rủi ro vận chuyển''}
+    \item \textit{Nội dung văn bản trùng lặp hàng loạt} $\Rightarrow$ Lọc \textbf{``Seeding/Bot''}
+\end{itemize}
+Chiến lược này giúp giảm thiểu false positive so với phân tích đơn phương thức.
+\end{infobox}
+
+\subsection{Mục tiêu và câu hỏi nghiên cứu}
+
+Dự án hướng đến bốn mục tiêu đo lường được:
+
+\begin{enumerate}[labelsep=10pt, leftmargin=2cm]
+    \item Xây dựng pipeline thu thập dữ liệu đa nguồn (Shopee, Tiki, Thế Giới Di Động, Lazada) hoạt động toàn tự động, thu được $\geq 10.000$ đánh giá có ảnh kèm nhãn chất lượng.
+    \item Đạt Macro~F1 $\geq 0{,}75$ trên tác vụ phân loại cảm xúc 3 lớp (tích cực/tiêu cực/trung lập) bằng mô hình tốt nhất.
+    \item Đạt độ chính xác (Accuracy) $\geq 85\%$ trên tác vụ nhận diện hộp hàng hư hỏng.
+    \item Tích hợp toàn bộ pipeline vào Dashboard trực quan, cho phép người dùng nhập URL sản phẩm và nhận báo cáo đánh giá rủi ro trong vòng dưới 5 phút.
+\end{enumerate}
+
+Dựa trên các mục tiêu trên, nhóm đặt ra ba câu hỏi nghiên cứu chính:
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item \textbf{RQ1:} Liệu mô hình học sâu (PhoBERT) có cải thiện đáng kể so với baseline TF-IDF + Logistic Regression trên dữ liệu đánh giá tiếng Việt mất cân bằng nặng (94\% tích cực)?
+    \item \textbf{RQ2:} Kết hợp cả hai nguồn thông tin văn bản và hình ảnh có giúp phát hiện đánh giá giả chính xác hơn so với phân tích văn bản đơn thuần?
+    \item \textbf{RQ3:} Phương pháp zero-shot bằng CLIP có thể thay thế các bộ phân loại ảnh có giám sát ở bài toán phát hiện ảnh rác trên dữ liệu thương mại điện tử Việt Nam?
+\end{itemize}
+
+\subsection{Phạm vi ứng dụng}
+
+Hệ thống nhắm đến bốn nền tảng TMĐT lớn tại Việt Nam, được lựa chọn dựa trên độ phủ thị trường và khả năng thu thập dữ liệu kỹ thuật:
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item \textbf{Shopee Vietnam} (\url{https://shopee.vn}): Nền tảng TMĐT B2C lớn nhất Việt Nam với hàng triệu sản phẩm đa danh mục.
+    \item \textbf{Tiki} (\url{https://tiki.vn}): Nền tảng uy tín, cung cấp API công khai thuận tiện cho thu thập dữ liệu, chuyên về sách và điện tử.
+    \item \textbf{Thế Giới Di Động} (\url{https://www.thegioididong.com}): Chuỗi bán lẻ điện tử lớn nhất Việt Nam, tập trung vào điện thoại và thiết bị công nghệ.
+    \item \textbf{Lazada Vietnam} (\url{https://www.lazada.vn}): Nền tảng TMĐT khu vực Đông Nam Á với lượng đánh giá đa dạng về danh mục hàng hóa.
+\end{itemize}
+
+\subsection{Kiến trúc hệ thống tổng quan}
+
+Nhằm đáp ứng yêu cầu so sánh hiệu năng và tối ưu hóa hệ thống, dự án triển khai một luồng xử lý đa phương thức với các module sau:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{|l|l|X|}
+\hline
+\rowcolor[HTML]{E8E8E8}
+\multicolumn{1}{|c|}{\textbf{Module}} & 
+\multicolumn{1}{|c|}{\textbf{Nhánh}} & 
+\multicolumn{1}{|c|}{\textbf{Mô tả}} \\
+\hline
+Scraping Agent & Thu thập & Dispatcher tự động định tuyến URL đến engine phù hợp: Direct API (Tiki, TGDD), Playwright Interception (Lazada), LLM Agent (Shopee) \\
+\hline
+Spam Filter & Văn bản & Rule-based kết hợp Isolation Forest / SVM phát hiện seeding và bình luận trùng lặp \\
+\hline
+Sentiment ABSA & Văn bản & TF-IDF + Logistic Regression (baseline) vs. PhoBERT (nâng cao) phân loại cảm xúc theo 3 khía cạnh \\
+\hline
+Image Relevance & Hình ảnh & CLIP Zero-shot đánh giá độ tương đồng ảnh--sản phẩm, phát hiện ảnh không liên quan \\
+\hline
+Defect Detection & Hình ảnh & Transfer Learning ResNet/MobileNet nhận diện hộp hàng hư hỏng \\
+\hline
+LLM Insight & Tổng hợp & Gemini / GPT API đối chiếu chéo kết quả hai nhánh, sinh báo cáo cảnh báo rủi ro \\
+\hline
+Dashboard & Trình bày & ReactJS + Plotly hiển thị kết quả phân tích trực quan, Node.js/Express làm API Gateway \\
+\hline
+\end{tabularx}
+\captionof{table}{\centering Tổng quan các module trong Multimodal Pipeline}
+\end{center}
+
+\subsection{Công cụ và môi trường sử dụng}
+
+\subsubsection{Ngôn ngữ lập trình và môi trường}
+\begin{itemize}
+    \item \textbf{Ngôn ngữ chính:} Python 3.x (xử lý dữ liệu, xây dựng mô hình ML/DL và Scraping Agent).
+    \item \textbf{Ngôn ngữ frontend:} JavaScript (ReactJS, Node.js/ExpressJS cho Dashboard và API Gateway).
+    \item \textbf{Môi trường phát triển:} Jupyter Notebook (EDA và thử nghiệm mô hình), VS Code (phát triển module).
+    \item \textbf{Quản lý phiên bản:} Git / GitHub.
+    \item \textbf{Containerization:} Docker (đóng gói từng module độc lập).
+\end{itemize}
+
+\subsubsection{Công cụ thu thập dữ liệu}
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item \textbf{browser-use ($\geq$0.12.0):} Framework điều khiển Playwright bằng LLM, dùng cho Approach 2 (Shopee và các nền tảng chưa hỗ trợ Direct API).
+    \item \textbf{Playwright ($\geq$1.40.0):} Điều hướng trình duyệt Chromium và thực hiện network interception cho Lazada.
+    \item \textbf{httpx ($\geq$0.27.0):} HTTP client bất đồng bộ cho Direct API scraping (Tiki, TGDD).
+    \item \textbf{Pydantic ($\geq$2.0.0):} Validation và serialization schema dữ liệu đầu ra.
+\end{itemize}
+
+\subsubsection{Mô hình AI và thư viện học máy}
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item \textbf{NLP:} Scikit-learn (TF-IDF, Logistic Regression, SVM, Isolation Forest) làm baseline; Hugging Face Transformers với PhoBERT (\texttt{vinai/phobert-base}) làm mô hình nâng cao. PhoBERT được lựa chọn vì là mô hình BERT duy nhất được huấn luyện trước trên corpus tiếng Việt lớn (20~GB), vượt trội hơn các mô hình đa ngôn ngữ (XLM-R) về hiểu biết ngữ cảnh đặc thù tiếng Việt.
+    \item \textbf{CV:} OpenAI CLIP (Zero-shot image classification) được chọn vì khả năng phân loại không cần dữ liệu huấn luyện có nhãn --- ý tưởng không thực tế khi thu thập nhãn cho hàng chục loại ảnh rác khác nhau; PyTorch + Torchvision với ResNet50/MobileNetV3 Transfer Learning cho bài toán nhị phân nhận diện hộp hư hỏng.
+    \item \textbf{LLM:} Google Gemini API / OpenAI GPT API cho tổng hợp insight và sinh báo cáo. Gemini được ưu tiên vì giửa chi phí thấp nhất trong các API thương mại.
+    \item \textbf{Phân tích và trực quan hóa:} Pandas, NumPy, Matplotlib, Seaborn, Plotly.
+\end{itemize}
+
+\subsection{Phân công nhiệm vụ}
+
+\newlist{tableitemize}{itemize}{1}
+\setlist[tableitemize]{
+    label=\textbullet,
+    leftmargin=1.2em,
+    nosep,
+    before=\vspace{-0.5\baselineskip},
+    after=\vspace{0.2\baselineskip}
+}
+
+\begin{center}
+    \newcounter{memberrow}
+    \setcounter{memberrow}{0}
+    \renewcommand{\arraystretch}{1.5}
+
+    \begin{tabularx}{\textwidth}{|>{\stepcounter{memberrow}\thememberrow}c|p{3.5cm}|c|X|c|}
+        \hline
+        \rowcolor[HTML]{E8E8E8}
+        \multicolumn{1}{|c|}{\textbf{STT}} & \centering\textbf{Họ và tên} & \textbf{MSSV} & \centering\textbf{Nhiệm vụ chính} & \textbf{Đóng góp} \\
+        \hline
+
+        & \textbf{Lê Hà Thanh Chương} & 23120195 &
+        \begin{tableitemize}
+            \item Quản lý dự án; thiết kế kiến trúc hệ thống và quy trình luồng dữ liệu tổng thể.
+            \item Xây dựng NLP Pipeline (Tiền xử lý, chuẩn hóa Teencode, Emoji mapping).
+            \item Trích xuất đặc trưng văn bản (TF-IDF \& Dense Embedding với Sentence-Transformers).
+            \item Xây dựng mô hình phân tích cảm xúc \& khía cạnh (Zero-shot) tích hợp LLM Fallback.
+            \item Phân tích EDA không gian đặc trưng văn bản (PCA, t-SNE, Clustering).
+        \end{tableitemize} & 100\% \\ \hline
+
+        & \textbf{Trà Văn Sỹ} & 23120197 &
+        \begin{tableitemize}
+            \item Xây dựng pipeline tiền xử lý ảnh và trích xuất frame từ dữ liệu Video.
+            \item Phát triển hệ thống Auto-Labeling ảnh bằng Gemini Vision API; thiết kế Few-shot prompt.
+            \item Thực hiện EDA dữ liệu hình ảnh (Phân phối pixel, Mất cân bằng lớp, pHash, Blur/Contrast).
+            \item Hỗ trợ cấu hình Scraping Agent và tổng hợp báo cáo luận văn.
+        \end{tableitemize} & 100\% \\ \hline
+
+        & \textbf{Huỳnh Đức Thịnh} & 23120199 &
+        \begin{tableitemize}
+            \item Phát triển cơ chế Dispatcher định tuyến động thu thập dữ liệu thời gian thực.
+            \item Xây dựng Direct API Agent trích xuất dữ liệu từ Tiki và Thế Giới Di Động.
+            \item Xây dựng LLM Browser Agent (Playwright) rẽ nhánh chống bot trên Shopee/Lazada.
+            \item Đóng gói tập dữ liệu thô (Text, Image URLs, Metadata, Rating) phục vụ pipeline.
+        \end{tableitemize} & 100\% \\ \hline
+
+        & \textbf{Bùi Trung Hiếu} & 23120257 &
+        \begin{tableitemize}
+            \item Phát triển bộ lọc Spam/Seeding Rule-based (Cosine Similarity, phân tích hành vi).
+            \item Xây dựng tập Ground Truth và trực quan hóa kết quả phát hiện Spam.
+            \item Phân tích EDA văn bản: Đánh giá mất cân bằng lớp (Class Imbalance) \& Kiểm định thống kê (Mann-Whitney U Test).
+            \item Phân tích từ vựng chuyên sâu (Word Cloud, Zipf's Law, N-gram).
+        \end{tableitemize} & 100\% \\ \hline
+
+        & \textbf{Lê Công Phúc} & 23120330 &
+        \begin{tableitemize}
+            \item Hỗ trợ xây dựng kịch bản thu thập dữ liệu cho các nền tảng thương mại điện tử.
+            \item Phân tích không gian đặc trưng hình ảnh bằng PCA và trực quan hóa t-SNE; đánh giá tác động của việc thay đổi kích thước ảnh (SSIM, PSNR).
+            \item Trích xuất đặc trưng cục bộ và dò biên (Sobel, Prewitt, Canny) và thực hiện kiểm định One-way ANOVA.
+            \item Hỗ trợ trình bày, chuẩn hóa tài liệu và viết báo cáo tiến độ.
+        \end{tableitemize} & 100\% \\ \hline
+
+    \end{tabularx}
+\end{center}
+
+\clearpage

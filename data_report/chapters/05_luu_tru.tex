@@ -1,0 +1,142 @@
+\section{Lưu trữ và quản lý dữ liệu}
+
+\subsection{Tổ chức cấu trúc thư mục}
+
+Toàn bộ dữ liệu của dự án được tổ chức theo cấu trúc thư mục phân cấp rõ ràng, tách biệt giữa dữ liệu thô, dữ liệu đã xử lý và dữ liệu huấn luyện mô hình:
+
+\begin{verbatim}
+ecommerce-review-analytics/
+|-- data/
+|   |-- raw/
+|   |   |-- all_reviews.csv         
+|   |
+|   |-- processed/
+|   |   |-- processed_labeled_reviews.csv  
+|   |   |-- labeling_metadata.json        
+|   |
+|   |-- kaggle/
+|   |   |-- damaged_packaging/
+|   |   |   |-- intact/
+|   |   |   |-- damaged/
+|
+|-- image_labeling/
+|   |-- data/
+|   |   |-- raw_media/             
+|   |   |-- labeled/
+|   |   |   |-- intact/
+|   |   |   |-- damaged/
+|   |   |   |-- unrelated/
+|
+|-- notebooks/
+|   |-- 01_Data_Preprocessing_and_Labeling.ipynb
+|   |-- 02_EDA_and_Feature_Space_Analysis.ipynb
+|
+|-- ai_engine/
+|   |-- text_processing/
+|   |   |-- preprocessor.py
+|   |   |-- sentiment_analysis.py
+|   |   |-- embeddings.py
+|   |   |-- config.py
+|   |-- llm_integration/
+|   |   |-- llm_client.py
+|
+|-- scraping_agent/
+|-- web_platform/
+|-- requirements.txt
+|-- docker-compose.yml
+\end{verbatim}
+
+\begin{infobox}{Quy tắc đặt tên}
+\begin{itemize}
+    \item \texttt{review\_id}: định danh gốc do sàn cấp (chuỗi số, ví dụ: \texttt{\"123456789\"} cho Tiki, \texttt{\"7890abc\"} cho Shopee). Không có prefix đặc biệt vì giữ nguyên ID gốc từ API sàn.
+    \item \texttt{product\_id}: mã sản phẩm theo nền tảng, trích xuất từ URL (ví dụ: \texttt{\"277596856\"} cho Tiki).
+    \item Tên file CSV: bao gồm prefix mô tả và timestamp phiên bản (\texttt{all\_reviews\_20250428.csv}).
+\end{itemize}
+\end{infobox}
+
+\subsection{Định dạng lưu trữ và phiên bản}
+
+\subsubsection{Định dạng file}
+
+Dữ liệu thô từ scraping được lưu ở định dạng CSV (UTF-8 BOM) vì scraper xuất trực tiếp ra CSV ngay từ bước thu thập. Dữ liệu JSON là tùy chọn khi người dùng chạy với cờ \texttt{--format json}. Bảng dưới đây tổng hợp định dạng lưu trữ cho từng loại dữ liệu kèm ước tính dung lượng thực tế:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{|l|l|c|X|}
+\hline
+\rowcolor[HTML]{E8E8E8}
+\textbf{Loại dữ liệu} & \textbf{Định dạng} & \textbf{Dung lượng ước tính} & \textbf{Lý do lựa chọn} \\
+\hline
+Dữ liệu thô (text) & CSV (UTF-8) & $\sim$4~MB & Xuất trực tiếp từ scraper, tương thích rộng với Pandas \\
+\hline
+Dữ liệu xử lý (text) & CSV (UTF-8) & $\sim$7~MB & Tương thích rộng với Pandas, scikit-learn, PhoBERT pipeline \\
+\hline
+TF-IDF matrix & \texttt{.npz} (SciPy sparse) & $\sim$12~MB & Tiết kiệm bộ nhớ cho ma trận thưa chiều cao \\
+\hline
+PhoBERT tokens & \texttt{.pt} (PyTorch tensor) & $\sim$58~MB & Tương thích trực tiếp với DataLoader PyTorch \\
+\hline
+Hình ảnh thô & JPG/PNG & $\sim$2,8~GB & Giữ nguyên định dạng gốc sau tải về \\
+\hline
+Hình ảnh xử lý & PNG (224$\times$224) & $\sim$410~MB & Chuẩn hóa kích thước, không mất thông tin do nén \\
+\hline
+Báo cáo chất lượng & JSON & $<$1~MB & Có thể đọc bằng máy và dễ diff giữa các phiên bản \\
+\hline
+\end{tabularx}
+\captionof{table}{\centering Định dạng lưu trữ và dung lượng ước tính cho từng loại dữ liệu}
+\end{center}
+
+\subsubsection{Quản lý phiên bản}
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Git + GitHub: toàn bộ mã nguồn (scraper, preprocessing, models) được quản lý phiên bản bằng Git. Dữ liệu thô không được đẩy lên GitHub (liệt kê trong \texttt{.gitignore}).
+    \item Đặt tên phiên bản: file dữ liệu xử lý bao gồm hậu tố phiên bản như \texttt{cleaned\_reviews\_v1.csv}, \texttt{cleaned\_reviews\_v2.csv}.
+    \item Changelog: file \texttt{data/CHANGELOG.md} ghi lại mọi thay đổi trong pipeline xử lý dữ liệu, bao gồm ngày, mô tả thay đổi và người thực hiện.
+\end{itemize}
+
+\subsection{Phân chia tập dữ liệu}
+
+Nhóm áp dụng chiến lược phân chia stratified split để đảm bảo tỉ lệ nhãn được giữ nguyên trong cả ba tập. Tất cả phép phân chia đều sử dụng \texttt{random\_state=42} để đảm bảo tính tái lập --- chỉ số phân chia được lưu thêm vào \texttt{data/splits/split\_indices.json} để tái tạo chính xác bất kỳ lúc nào.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{|l|c|c|X|}
+\hline
+\rowcolor[HTML]{E8E8E8}
+\textbf{Tập} & \textbf{Tỉ lệ} & \textbf{Số mẫu (text)} & \textbf{Mục đích} \\
+\hline
+Train & 70\% & $\sim$7.000 & Huấn luyện mô hình \\
+\hline
+Validation & 15\% & $\sim$1.500 & Điều chỉnh siêu tham số \\
+\hline
+Test & 15\% & $\sim$1.500 & Đánh giá cuối cùng (chỉ dùng một lần) \\
+\hline
+\end{tabularx}
+\captionof{table}{\centering Chiến lược phân chia tập dữ liệu}
+\end{center}
+
+\begin{warningbox}{Tránh data leakage}
+Tập Test được tạo ra một lần duy nhất vào đầu dự án và được lưu riêng trong thư mục \texttt{data/splits/}. Mọi quyết định về tiền xử lý và mô hình đều được thực hiện chỉ dựa trên tập Train và Validation, tuyệt đối không tham khảo tập Test cho đến giai đoạn đánh giá cuối.
+\end{warningbox}
+
+\subsection{Chiến lược sao lưu và bảo mật dữ liệu}
+
+\subsubsection{Chiến lược sao lưu}
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Mã nguồn (code): quản lý bằng Git và đẩy lên GitHub. Dữ liệu thô và ảnh không được commit (liệt kê trong \texttt{.gitignore}) để tránh vượt giới hạn dung lượng và vi phạm quyền dữ liệu sàn.
+    \item Dữ liệu lớn (ảnh, tensor): sao lưu thủ công lên Google Drive theo chu kỳ cuối mỗi phiên thu thập. Cấu trúc thư mục phản ánh chính xác cấu trúc cục bộ để đảm bảo khả năng phục hồi hoàn chỉnh.
+    \item Artifact mô hình (checkpoint \texttt{.pt}, TF-IDF \texttt{.npz}): được đưa vào kế hoạch lưu với tên phiên bản rõ ràng (\texttt{model\_v1\_20250428.pt}) và changelog tương ứng trong \texttt{data/CHANGELOG.md}.
+\end{itemize}
+
+\subsubsection{Bảo mật và quyền riêng tư (PII)}
+
+Dữ liệu thu thập từ các sàn thương mại điện tử có thể chứa thông tin nhận dạng cá nhân (PII --- Personally Identifiable Information). Nhóm áp dụng các biện pháp bảo vệ sau:
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Không lưu username, hỏ tên hoặc ảnh đại diện người dùng --- schema \texttt{Review} chỉ lưu nội dung bình luận, rating, ngày và metadata sản phẩm.
+    \item Không lưu cookie, session token hay bất kỳ thông tin xác thực nào của người dùng thực trên sàn.
+    \item File \texttt{browser\_data/} (của Playwright) chỉ lưu phương thức ẩn danh của scraper (cookie giả), không lưu thông tin người dùng thật; thư mục này liệt kê trong \texttt{.gitignore}.
+    \item Toàn bộ dữ liệu chỉ phục vụ mục đích nghiên cứu học thuật phi thương mại theo giấy phép CC BY 4.0.
+\end{itemize}
+
+\clearpage

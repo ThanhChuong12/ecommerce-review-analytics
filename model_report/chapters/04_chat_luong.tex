@@ -1,0 +1,30 @@
+\section{Cấu hình huấn luyện}
+
+\subsection{Hàm mất mát (Loss Function)}
+% Ghi chú:
+% - Baseline: Đề cập việc dùng Log-loss/Hinge loss kết hợp `class_weight='balanced'`.
+% - PhoBERT: Tự xây dựng hàm **Focal Loss** thay vì Cross-entropy. Giải thích tại sao: Để phạt nặng các mẫu thiểu số (Tiêu cực/Trung lập) và giảm sự chú ý vào nhãn đa số (Tích cực).
+
+\subsection{Thuật toán tối ưu và Tốc độ học}
+% Ghi chú:
+% - Trình bày thuật toán tối ưu (AdamW).
+% - Tốc độ học (Learning rate): Nêu rõ con số 2e-5 cho quá trình Fine-tuning PhoBERT.
+% - Nêu việc sử dụng Learning Rate Scheduler (Cosine Decay with Warmup) để giúp mô hình hội tụ ổn định.
+
+\subsection{Siêu tham số và Phương pháp tinh chỉnh}
+% Ghi chú:
+% - Liệt kê các siêu tham số chính: Batch size (16), Epochs (4), Max length (256), Weight decay (0.01).
+% - Tinh chỉnh tham số: Giải thích việc dùng 5-Fold Cross Validation để tự động tìm ra bộ trọng số (Weights) tối ưu cho Ensemble Baseline thay vì thử nghiệm thủ công.
+% Ghi chú (BỔ SUNG CHO SPAM MODEL):
+% - Liệt kê siêu tham số của PhoBERT (Batch size 16, Epochs 4...).
+% - Liệt kê siêu tham số của Isolation Forest: Số lượng cây `n_estimators = 200` và Tỷ lệ ô nhiễm dự kiến `contamination = 0.1` đến `0.15`. 
+% - Giải thích việc thiết lập ngưỡng `dup_threshold = 0.85` (Cosine similarity) để bắt các bình luận seeding sao chép văn mẫu.
+
+\subsection{Cấu hình huấn luyện Mô hình Thị giác (ResNet50)}
+% Ghi chú (MỚI THÊM):
+% - Trình bày cấu hình Transfer Learning cho ResNet50.
+% - Nêu rõ việc đóng băng (freeze) các lớp tích chập cơ sở và chỉ fine-tune các lớp Dense (Fully Connected) cuối cùng.
+% - Hàm mất mát: Cross-entropy. Thuật toán tối ưu: Adam. Tốc độ học: Nêu rõ LR được sử dụng.
+% - Nhắc đến việc dùng Data Loader chia batch và áp dụng Image Augmentation trên tập Train.
+
+\clearpage

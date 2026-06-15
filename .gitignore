@@ -88,3 +88,5 @@ artifacts/plots/**/*
 # NHƯNG giữ lại file .gitkeep để duy trì cấu trúc thư mục trên GitHub
 !artifacts/models/**/.gitkeep
 !artifacts/plots/**/.gitkeep
+
+/ai_context
