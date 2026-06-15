@@ -38,26 +38,28 @@ scraping_agent/data/*
 !scraping_agent/output/.gitkeep
 
 # Thư mục xử lý Media & Ảnh
-image_labeling/data/
-image_labeling/frames/
-image_labeling/raw_media/
+image_labeling/new_data/
+image_labeling/data/frames/
+image_labeling/data/raw_media/
+image_labeling/data/labeled/
 image_labeling.zip
 data.zip
 data/processed/training_images.zip
-ai_engine/models/*.pth
+# ai_engine/models/*.pth  ← tắt để push kết quả train
 # Chặn theo định dạng
+
 *.mp4
 *.avi
 *.jpg
 *.jpeg
-*.png
+# *.png
 
 
-# --- Model weights (dung Git LFS neu can) ---
-ai_engine/models/weights/*.pt
-ai_engine/models/weights/*.pth
-ai_engine/models/weights/*.bin
-ai_engine/models/weights/*.onnx
+# --- Model weights (tắt để push kết quả train) ---
+# ai_engine/models/weights/*.pt
+# ai_engine/models/weights/*.pth
+# ai_engine/models/weights/*.bin
+# ai_engine/models/weights/*.onnx
 
 # --- Labeled dataset (anh lon, khong commit) ---
 labeled/
@@ -83,10 +85,34 @@ desktop.ini
 
 # Bỏ qua toàn bộ nội dung trong thư mục models và plots
 artifacts/models/**/*
-artifacts/plots/**/*
 
 # NHƯNG giữ lại file .gitkeep để duy trì cấu trúc thư mục trên GitHub
 !artifacts/models/**/.gitkeep
 !artifacts/plots/**/.gitkeep
 
 /ai_context
+
+# Chặn file zip đóng gói Kaggle
+resnet50_kaggle_train.zip
+kaggle_dataset.zip
+
+# --- Weights và training artifacts (MobileNetV3/ResNet50) ---
+*.pt
+*.pth
+ai_engine/models/results/*_training_history.json
+ai_engine/models/results/*_error_analysis/
+ai_engine/models/weights/cpu_run_v2/
+
+# --- Data CSV (scraped, không commit) ---
+data/*.csv
+# --- Model 2 training artifacts ---
+*.ckpt
+*.zip
+/kaggle/
+/data/
+/reports/figures/
+/reports/figures_model2/
+
+# --- ResNet50 Improve Temp & Split Exclusions ---
+tmp_extract/
+data/image_dataset_split/

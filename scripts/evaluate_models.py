@@ -165,11 +165,20 @@ def compute_roc_auc(
     unique_labels = class_labels or sorted(list(np.unique(y_true)))
     n_classes = len(unique_labels)
 
+    # FIX: Scikit-learn's LabelBinarizer sorts string classes alphabetically by default.
+    # Alphabetical sorting maps "defect" to 0 and "no-defect" to 1, while y_proba columns
+    # are ordered ["no-defect", "defect"] (indices 0 and 1). This mismatch inverted the
+    # binary ROC-AUC calculation (e.g. producing 1 - AUC = 0.0012).
+    # We resolve this by converting labels to integer indices according to unique_labels order.
+    label_to_idx = {label: i for i, label in enumerate(unique_labels)}
+    y_true_int = np.array([label_to_idx[y] for y in y_true])
+
     lb = LabelBinarizer()
-    y_bin = lb.fit_transform(y_true)
+    lb.fit(range(n_classes))
+    y_bin = lb.transform(y_true_int)
 
     # Với bài toán nhị phân, LabelBinarizer cho ra (n_samples, 1)
-    # nhưng roc_auc_score cần (n_samples, 2) hoặc xác suất của lớp dương
+    # đại diện cho lớp 1 (tức unique_labels[1])
     if n_classes == 2:
         # y_proba có thể là (n_samples, 2) hoặc (n_samples, 1)
         if y_proba.ndim == 2 and y_proba.shape[1] == 2:
@@ -406,15 +415,13 @@ def evaluate_image_model(
     save_plot: bool = True,
     plot_dir: str = "reports/figures",
 ) -> dict:
-    """Đánh giá mô hình ResNet50 defect-detection đã lưu.
-
-    Tái sử dụng DataLoader từ defect_detection.py (split validation cố định).
+    """Đánh giá mô hình ResNet50 defect-detection đã lưu trên Test set (hoặc Validation split).
 
     Args:
         model_path: Đường dẫn tới checkpoint .pth.
-        data_path: Thư mục dữ liệu chứa subfolder 'defect' và 'no-defect'.
+        data_path: Thư mục dữ liệu (nếu chứa 'test/' sẽ dùng 'test/').
         batch_size: Batch size cho DataLoader.
-        val_split: Tỉ lệ validation (phải khớp với lúc train để đúng split).
+        val_split: Tỉ lệ validation (nếu chia offline split).
         save_plot: Có lưu biểu đồ hay không.
         plot_dir: Thư mục lưu biểu đồ.
 
@@ -423,52 +430,69 @@ def evaluate_image_model(
     """
     import torch
     import torch.nn.functional as F
+    from torch.utils.data import DataLoader
 
     from ai_engine.image_processing.defect_detection import (
         get_dataloaders,
         get_resnet50_model,
+        ProductDefectDataset,
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Device: %s", device)
 
-    # Load data (only need validation loader)
-    logger.info("Loading data from: %s", data_path)
-    _, val_loader = get_dataloaders(
-        data_dir=data_path,
-        batch_size=batch_size,
-        val_split=val_split,
-    )
-    logger.info("Validation samples: %d", len(val_loader.dataset))
+    # Detect split folder
+    path = Path(data_path)
+    test_dir = path / "test"
+
+    if test_dir.exists():
+        test_dataset = ProductDefectDataset(data_dir=str(test_dir), is_train=False, oversample_defect=1)
+        loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        logger.info("Loaded test set from subdirectory: %s (%d samples)", test_dir, len(test_dataset))
+    elif (path / "defect").exists():
+        _, loader = get_dataloaders(
+            data_dir=data_path,
+            batch_size=batch_size,
+            val_split=val_split,
+        )
+        logger.info("Loaded validation split from %s (%d samples)", data_path, len(loader.dataset))
+    else:
+        test_dataset = ProductDefectDataset(data_dir=data_path, is_train=False, oversample_defect=1)
+        loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        logger.info("Loaded directly from: %s (%d samples)", data_path, len(test_dataset))
 
     # Load checkpoint
     logger.info("Loading checkpoint from: %s", model_path)
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
-    model = get_resnet50_model(num_classes=2)
+    model = get_resnet50_model(num_classes=2, pretrained=False)
     model.load_state_dict(checkpoint["model_state_dict"])
     model = model.to(device)
     model.eval()
+
+    threshold = checkpoint.get("threshold", 0.5)
+    logger.info("Using decision threshold from checkpoint: %.3f", threshold)
 
     all_preds: List[int] = []
     all_labels: List[int] = []
     all_proba: List[np.ndarray] = []
 
     with torch.no_grad():
-        for images, labels in val_loader:
+        for images, labels in loader:
             images = images.to(device)
             outputs = model(images)
             proba = F.softmax(outputs, dim=1).cpu().numpy()
-            preds = np.argmax(proba, axis=1)
+            
+            # Apply tuned threshold for binary classification
+            preds = (proba[:, 1] >= threshold).astype(int)
 
             all_preds.extend(preds.tolist())
             all_labels.extend(labels.numpy().tolist())
             all_proba.append(proba)
 
-    y_true = np.array(all_labels)
-    y_pred = np.array(all_preds)
+    class_labels = ["no-defect", "defect"]
+    y_true = np.array([class_labels[y] for y in all_labels])
+    y_pred = np.array([class_labels[y] for y in all_preds])
     y_proba = np.vstack(all_proba)
-
-    class_labels = ["no-defect", "defect"]   # index 0 and 1 per dataset mapping
 
     return print_full_report(
         model_name="ResNet50 (Defect Detection)",

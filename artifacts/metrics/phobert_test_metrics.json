@@ -1,0 +1,13 @@
+{
+  "test_loss": 0.15462791919708252,
+  "test_accuracy": 0.878492356352135,
+  "test_f1_macro": 0.7537435510898381,
+  "test_precision_macro": 0.7455727648115752,
+  "test_recall_macro": 0.7654686032650136,
+  "test_f1_tích cực": 0.9525179856115108,
+  "test_f1_tiêu cực": 0.8309178743961353,
+  "test_f1_trung lập": 0.4777947932618683,
+  "test_runtime": 14.8761,
+  "test_samples_per_second": 255.04,
+  "test_steps_per_second": 7.999
+}

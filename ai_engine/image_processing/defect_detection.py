@@ -3,7 +3,7 @@ defect_detection.py
 -------------------
 Nhận diện hàng móp méo / lỗi bằng Transfer Learning:
   - ResNet50 (backbone mạnh hơn, chính xác hơn) — v2 với MLP head + FocalLoss
-  - MobileNet (nhẹ hơn, phù hợp inference nhanh)
+  - MobileNetV3-Large (nhẹ hơn, phù hợp inference nhanh, ~50ms/ảnh)
 
 Training pipeline v2:
   - Oversampling lớp defect (15x) để cân bằng dữ liệu 1:37 → 1:2.5
@@ -13,8 +13,11 @@ Training pipeline v2:
   - Early stopping theo Defect F1 (patience=5)
 
 Inference:
-  - detect_defect_resnet(): Inference với model đã train, hỗ trợ threshold tuning
+  - detect_defect_resnet(): ResNet50 — binary (defect/no-defect), threshold tuning
+  - detect_defect_mobilenet(): MobileNetV3 — 4 class (intact/damaged/wrong_item/irrelevant)
+  - detect_defect_mobilenet_batch(): MobileNetV3 batch inference
 """
+
 
 import logging
 import os
@@ -41,16 +44,13 @@ _logger = logging.getLogger(__name__)
 # Đường dẫn mặc định tới model checkpoint (v2)
 _DEFAULT_RESNET_WEIGHTS = os.getenv(
     "RESNET_WEIGHTS_PATH",
-    "ai_engine/models/resnet50_defect.pth",
+    "ai_engine/models/resnet50_defect_gpu_best.pth",
 )
 
 # Threshold mac dinh de can bang Recall vs Precision.
 # Tuning result (tune_threshold.py, val set):
-#   threshold=0.45 -> F1=0.619, Recall=0.684, Precision=0.565, FP=10
-#   threshold=0.50 -> F1=0.615, Recall=0.632, Precision=0.600, FP=8   (original)
-#   threshold=0.20 -> F1=0.431, Recall=0.737, Precision=0.304, FP=32  (high recall)
-# Default 0.45 = best F1 while keeping recall >= 0.68.
-_DEFAULT_THRESHOLD = float(os.getenv("DEFECT_THRESHOLD", "0.45"))
+#   threshold=0.525 -> F1=0.8042, Recall=0.8042, Precision=0.8042
+_DEFAULT_THRESHOLD = float(os.getenv("DEFECT_THRESHOLD", "0.525"))
 
 # Cache model để tránh load lại mỗi lần inference
 _resnet_model_cache = None
@@ -66,14 +66,15 @@ class ProductDefectDataset(Dataset):
     def __init__(self, data_dir: str, is_train: bool = True, oversample_defect: int = 1):
         """
         Args:
-            data_dir (str): Đường dẫn đến thư mục chứa 2 thư mục con 'defect' và 'no-defect'.
+            data_dir (str): Đường dẫn đến các thư mục chứa dữ liệu, phân tách bằng dấu chấm phẩy (;).
+                            Ví dụ: 'image_labeling/data/labeled;image_labeling/new_data/labeled'
             is_train (bool): Nếu True, áp dụng augmentation cho lớp defect.
                              Nếu False (Validation/Test), chỉ áp dụng resize và normalize.
             oversample_defect (int): Số lần lặp lại mỗi ảnh defect trong dataset.
                                      Ví dụ: oversample_defect=10 sẽ biến 81 ảnh thành 810 ảnh.
                                      Chỉ áp dụng khi is_train=True. Mặc định = 1 (không oversample).
         """
-        self.data_dir = Path(data_dir)
+        self.data_dir = data_dir
         self.is_train = is_train
 
         self.image_paths = []
@@ -83,19 +84,26 @@ class ProductDefectDataset(Dataset):
         self.defect_transform = get_defect_transforms()
         self.normal_transform = get_normal_transforms()
 
-        # Mapping labels: no-defect = 0, defect = 1
-        class_mapping = {"no-defect": 0, "defect": 1}
+        # Mapping labels: no-defect/intact = 0, defect/damaged = 1
+        class_mapping = {
+            "no-defect": 0, "defect": 1,
+            "intact": 0, "damaged": 1
+        }
+
+        # Hỗ trợ truyền nhiều đường dẫn phân tách bằng dấu chấm phẩy
+        data_dirs = [Path(d.strip()) for d in data_dir.split(";") if d.strip()]
 
         for class_name, label in class_mapping.items():
-            class_dir = self.data_dir / class_name
-            if class_dir.exists():
-                for ext in ["*.jpg", "*.jpeg", "*.png"]:
-                    for img_path in class_dir.glob(ext):
-                        # Oversample: Lặp lại ảnh defect nhiều lần (mỗi lần augment sẽ cho ảnh khác nhau)
-                        repeat = oversample_defect if (is_train and label == 1) else 1
-                        for _ in range(repeat):
-                            self.image_paths.append(img_path)
-                            self.labels.append(label)
+            for d_dir in data_dirs:
+                class_dir = d_dir / class_name
+                if class_dir.exists():
+                    for ext in ["*.jpg", "*.jpeg", "*.png"]:
+                        for img_path in class_dir.glob(ext):
+                            # Oversample: Lặp lại ảnh defect nhiều lần (mỗi lần augment sẽ cho ảnh khác nhau)
+                            repeat = oversample_defect if (is_train and label == 1) else 1
+                            for _ in range(repeat):
+                                self.image_paths.append(img_path)
+                                self.labels.append(label)
 
     def __len__(self):
         return len(self.image_paths)
@@ -152,16 +160,32 @@ class FocalLoss(nn.Module):
 
 
 def get_dataloaders(data_dir: str, batch_size: int = 32, val_split: float = 0.2,
-                    seed: int = 42, oversample_defect: int = 1):
+                    seed: int = 42, oversample_defect: int = 1,
+                    train_dir: str = None, val_dir: str = None):
     """
     Tao DataLoaders cho Training va Validation.
 
     Dung Stratified Split de dam bao ty le defect/no-defect dong deu
-    giua train va val — tranh truong hop val set co qua it anh defect.
+    giua train va val — tranh truong hop val set co qua item defect.
 
-    - train_dataset (is_train=True): ap dung augmentation + oversampling cho defect
-    - val_dataset (is_train=False): chi resize + normalize, KHONG oversample
+    Neu data_dir chua cac subfolder 'train' va 'val', hoac train_dir va val_dir duoc cung cap,
+    se load truc tiep tu cac thu muc do ma khong can split.
     """
+    path = Path(data_dir)
+    has_sub_splits = (path / "train").exists() and (path / "val").exists()
+
+    if has_sub_splits or (train_dir and val_dir):
+        t_dir = train_dir or str(path / "train")
+        v_dir = val_dir or str(path / "val")
+
+        train_dataset = ProductDefectDataset(data_dir=t_dir, is_train=True, oversample_defect=oversample_defect)
+        val_dataset = ProductDefectDataset(data_dir=v_dir, is_train=False, oversample_defect=1)
+
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+
+        return train_loader, val_loader
+
     # Tao base dataset (khong oversample) de lay labels goc cho stratified split
     base_dataset = ProductDefectDataset(data_dir=data_dir, is_train=False, oversample_defect=1)
     base_size = len(base_dataset)
@@ -199,9 +223,9 @@ def get_dataloaders(data_dir: str, batch_size: int = 32, val_split: float = 0.2,
 
 
 def get_resnet50_model(num_classes: int = 2, freeze_backbone: bool = False,
-                       dropout_rate: float = 0.5) -> nn.Module:
+                       dropout_rate: float = 0.5, pretrained: bool = True) -> nn.Module:
     """
-    Tao mo hinh ResNet50 pretrained tren ImageNet va doi layer cuoi cho binary classification.
+    Tao mo hinh ResNet50 va doi layer cuoi cho binary classification.
 
     Args:
         num_classes (int): So luong class dau ra.
@@ -209,8 +233,10 @@ def get_resnet50_model(num_classes: int = 2, freeze_backbone: bool = False,
                                 Giup chong overfitting khi du lieu it (vi du: 81 anh defect).
         dropout_rate (float): Dropout rate trong classification head (default 0.5).
                               Dung de chong overfitting khi chi train head.
+        pretrained (bool): Neu True, tai trong so ImageNet. Neu False, khoi tao voi trong so ngau nhien.
     """
-    model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+    weights = models.ResNet50_Weights.IMAGENET1K_V1 if pretrained else None
+    model = models.resnet50(weights=weights)
 
     if freeze_backbone:
         # Buoc 1: Dong bang TOAN BO backbone
@@ -266,7 +292,8 @@ def _load_resnet_model(model_path: str = None, device: torch.device = None) -> n
         )
 
     # Khởi tạo kiến trúc (phải khớp với lúc train: freeze=True, dropout=0.5, num_classes=2)
-    model = get_resnet50_model(num_classes=2, freeze_backbone=True, dropout_rate=0.5)
+    # Đặt pretrained=False để tránh tải lại trọng số ImageNet từ internet
+    model = get_resnet50_model(num_classes=2, freeze_backbone=True, dropout_rate=0.5, pretrained=False)
 
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -341,7 +368,9 @@ def detect_defect_resnet(
 
     # --- Tiền xử lý ảnh ---
     # Dùng normal_transform (chỉ resize + normalize, không augment)
+    # pyrefly: ignore [missing-import]
     import albumentations as A
+    # pyrefly: ignore [missing-import]
     from albumentations.pytorch import ToTensorV2
 
     preprocess = A.Compose([
@@ -378,40 +407,121 @@ def detect_defect_resnet(
     }
 
 
-def detect_defect_mobilenet(image_path: str) -> dict:
-    """Nhận diện hàng lỗi bằng MobileNet. Returns dict với label và confidence."""
-    raise NotImplementedError("TODO: Implement MobileNet inference here")
-
-
 # =============================================================================
-# DEMO ONLY — Xóa section này khi tích hợp vào production pipeline chính
-# Dùng bởi: demo_server.py
+# MobileNetV3 — Production Inference
 # =============================================================================
-_MOBILENET_WEIGHTS = os.getenv(
+
+_DEFAULT_MOBILENET_WEIGHTS = os.getenv(
     "MOBILENET_WEIGHTS_PATH",
     "ai_engine/models/weights/mobilenet_v3_defect.pt",
 )
 
-_mobilenet_model = None
+# Singleton cache — model chỉ load 1 lần duy nhất
+_mobilenet_model_cache = None
+_mobilenet_model_path_cache = None
 
 
-def _load_mobilenet_demo():
-    global _mobilenet_model
-    if _mobilenet_model is None:
-        from ai_engine.models.image_baseline import ImageBaselineModel
-        _mobilenet_model = ImageBaselineModel.load(_MOBILENET_WEIGHTS)
-        _logger.info("MobileNetV3 defect model loaded.")
-    return _mobilenet_model
+def _load_mobilenet_model(model_path: str = None):
+    """Load MobileNetV3 model với singleton cache.
 
+    Model chỉ load lại khi model_path thay đổi so với lần trước.
+    """
+    global _mobilenet_model_cache, _mobilenet_model_path_cache
 
-def detect_defect_mobilenet_demo(image_path: str) -> dict:
-    """[DEMO] Inference voi MobileNetV3 da train. Dung trong demo_server.py."""
-    if not os.path.exists(_MOBILENET_WEIGHTS):
-        raise RuntimeError(
-            f"Weights not found at '{_MOBILENET_WEIGHTS}'. "
-            "Run: python ai_engine/scripts/train_image_baseline.py"
+    if model_path is None:
+        model_path = _DEFAULT_MOBILENET_WEIGHTS
+
+    # Trả về cache nếu đã load cùng path
+    if _mobilenet_model_cache is not None and _mobilenet_model_path_cache == model_path:
+        return _mobilenet_model_cache
+
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(
+            f"Model checkpoint không tìm thấy tại '{model_path}'. "
+            "Chạy: python scripts/train_image_baseline.py --backbone mobilenet_v3"
         )
-    return _load_mobilenet_demo().predict(image_path)
-# =============================================================================
-# END DEMO
-# =============================================================================
+
+    from ai_engine.models.image_baseline import ImageBaselineModel
+
+    model = ImageBaselineModel.load(model_path)
+    _logger.info(
+        "Loaded MobileNetV3 defect model from '%s' (classes=%s)",
+        model_path, model.class_names,
+    )
+
+    # Cache lại
+    _mobilenet_model_cache = model
+    _mobilenet_model_path_cache = model_path
+
+    return model
+
+
+def detect_defect_mobilenet(
+    image_path: str,
+    model_path: str = None,
+) -> dict:
+    """Nhận diện tình trạng sản phẩm bằng MobileNetV3.
+
+    Sử dụng Transfer Learning (MobileNetV3-Large pretrained ImageNet)
+    đã fine-tune trên tập ảnh review sản phẩm TMĐT.
+
+    Args:
+        image_path (str): Đường dẫn tới ảnh cần phân loại.
+        model_path (str): Đường dẫn tới file weights (.pt).
+                          Mặc định: ai_engine/models/weights/mobilenet_v3_defect.pt.
+
+    Returns:
+        dict: {
+            "label": "intact" | "damaged" | "wrong_item" | "irrelevant",
+            "confidence": float (0.0 – 1.0),
+            "probabilities": {"intact": float, "damaged": float, ...},
+            "inference_ms": float,
+            "model_path": str,
+        }
+
+    Raises:
+        FileNotFoundError: Nếu model_path hoặc image_path không tồn tại.
+        ValueError: Nếu ảnh không thể đọc được.
+    """
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Ảnh không tồn tại: '{image_path}'")
+
+    model = _load_mobilenet_model(model_path=model_path)
+    result = model.predict(image_path)
+
+    # Thêm model_path vào output để traceability
+    result["model_path"] = model_path or _DEFAULT_MOBILENET_WEIGHTS
+    return result
+
+
+def detect_defect_mobilenet_batch(
+    image_paths: list,
+    model_path: str = None,
+    batch_size: int = 32,
+) -> list:
+    """Nhận diện tình trạng sản phẩm cho nhiều ảnh (batch inference).
+
+    Hiệu quả hơn gọi detect_defect_mobilenet() từng ảnh vì
+    gom nhiều ảnh vào 1 forward pass trên GPU/CPU.
+
+    Args:
+        image_paths (list[str]): Danh sách đường dẫn ảnh.
+        model_path (str): Đường dẫn tới file weights (.pt).
+        batch_size (int): Số ảnh xử lý mỗi lần forward pass.
+
+    Returns:
+        list[dict]: Danh sách kết quả, cùng thứ tự với image_paths.
+    """
+    model = _load_mobilenet_model(model_path=model_path)
+    results = model.predict_batch(image_paths, batch_size=batch_size)
+
+    # Thêm model_path vào mỗi result
+    used_path = model_path or _DEFAULT_MOBILENET_WEIGHTS
+    for r in results:
+        r["model_path"] = used_path
+    return results
+
+
+# Alias cho demo_server.py (backward compatible)
+detect_defect_mobilenet_demo = detect_defect_mobilenet
+

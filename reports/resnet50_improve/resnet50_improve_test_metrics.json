@@ -1,0 +1,22 @@
+{
+    "best_epoch": 9,
+    "selected_threshold": 0.55,
+    "test_accuracy": 0.8831568158524086,
+    "test_precision_no_defect": 0.9481964696853415,
+    "test_recall_no_defect": 0.9227035100821509,
+    "test_f1_no_defect": 0.9352763058289174,
+    "test_precision_defect": 0.35514018691588783,
+    "test_recall_defect": 0.4578313253012048,
+    "test_f1_defect": 0.4,
+    "macro_precision": 0.6516683283006147,
+    "macro_recall": 0.6902674176916779,
+    "macro_f1": 0.6676381529144588,
+    "weighted_f1": 0.889740330375757,
+    "roc_auc": 0.8273617247181406,
+    "confusion_matrix": {
+        "TN": 2471,
+        "FP": 207,
+        "FN": 135,
+        "TP": 114
+    }
+}
