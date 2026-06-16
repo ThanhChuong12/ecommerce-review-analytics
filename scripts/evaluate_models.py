@@ -538,7 +538,7 @@ def evaluate_spam_model(
     Returns:
         dict chua cac chi so danh gia.
     """
-    from scripts.train_spam_model import (
+    from ai_engine.text_processing.spam_model import (
         SpamHybridModel,
         build_feature_matrix,
     )

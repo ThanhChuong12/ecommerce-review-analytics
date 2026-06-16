@@ -15,7 +15,7 @@ const Review = sequelize.define('Review', {
     },
     review_text: { type: DataTypes.TEXT },
     rating: { type: DataTypes.INTEGER },
-    image_path: { type: DataTypes.STRING },
+    image_path: { type: DataTypes.TEXT },
     label: { type: DataTypes.ENUM('intact', 'damaged', 'wrong_item', 'irrelevant') },
     sentiment: { type: DataTypes.STRING }
 }, { tableName: 'reviews', timestamps: true });

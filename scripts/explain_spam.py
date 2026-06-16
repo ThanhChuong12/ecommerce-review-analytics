@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from ai_engine.text_processing.spam_filter import detect_spam
-from scripts.train_spam_model import (
+from ai_engine.text_processing.spam_model import (
     RULE_FLAG_COLS,
     SpamHybridModel,
     build_feature_matrix,

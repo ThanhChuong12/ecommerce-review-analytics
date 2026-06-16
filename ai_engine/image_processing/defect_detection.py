@@ -407,6 +407,76 @@ def detect_defect_resnet(
     }
 
 
+def detect_defect_resnet_batch(
+    image_paths: list,
+    model_path: str = None,
+    threshold: float = None,
+    batch_size: int = 32,
+    device: torch.device = None,
+) -> list:
+    if not _CV2_AVAILABLE:
+        raise ImportError("cv2 (opencv-python) không được cài.")
+
+    if threshold is None:
+        threshold = _DEFAULT_THRESHOLD
+
+    if model_path is None:
+        model_path = _DEFAULT_RESNET_WEIGHTS
+
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model = _load_resnet_model(model_path=model_path, device=device)
+
+    import albumentations as A
+    from albumentations.pytorch import ToTensorV2
+
+    preprocess = A.Compose([
+        A.Resize(224, 224),
+        A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ToTensorV2(),
+    ])
+
+    results = []
+    for i in range(0, len(image_paths), batch_size):
+        batch_paths = image_paths[i: i + batch_size]
+        tensors = []
+        valid_paths = []
+        for p in batch_paths:
+            if not os.path.exists(p):
+                continue
+            image_bgr = cv2.imread(p)
+            if image_bgr is None:
+                continue
+            image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+            transformed = preprocess(image=image_rgb)
+            tensors.append(transformed["image"])
+            valid_paths.append(p)
+
+        if not tensors:
+            continue
+
+        batch_tensor = torch.stack(tensors).to(device)
+        with torch.no_grad():
+            logits = model(batch_tensor)
+            probs = torch.softmax(logits, dim=1)
+
+        for j, p in enumerate(valid_paths):
+            defect_prob = probs[j][1].item()
+            is_defect = defect_prob >= threshold
+            label = "defect" if is_defect else "no-defect"
+            confidence = defect_prob if is_defect else (1.0 - defect_prob)
+            results.append({
+                "image_path": p,
+                "label": label,
+                "confidence": round(confidence, 4),
+                "defect_probability": round(defect_prob, 4),
+                "threshold_used": threshold,
+                "model_path": model_path,
+            })
+
+    return results
+
 # =============================================================================
 # MobileNetV3 — Production Inference
 # =============================================================================
@@ -444,8 +514,13 @@ def _load_mobilenet_model(model_path: str = None):
     from ai_engine.models.image_baseline import ImageBaselineModel
 
     model = ImageBaselineModel.load(model_path)
+    
+    # Ép ngưỡng threshold lên 0.85 (mặc định 0.5) để giảm False Positives
+    # Tránh việc model gán nhãn 'defect' quá dễ dãi cho các ảnh sản phẩm bình thường
+    model.threshold = 0.85
+    
     _logger.info(
-        "Loaded MobileNetV3 defect model from '%s' (classes=%s)",
+        "Loaded MobileNetV3 defect model from '%s' (classes=%s, forced_threshold=0.85)",
         model_path, model.class_names,
     )
 
