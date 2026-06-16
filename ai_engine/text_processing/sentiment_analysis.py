@@ -394,7 +394,7 @@ class NextGenReviewAnalyzer:
 
     def predict_sentiment(
         self, text: str, rating: Optional[int] = None
-    ) -> str:
+    ) -> tuple[str, Optional[Dict[str, float]]]:
         """Predict sentiment using zero-shot classification with budget-aware fallbacks.
 
         Decision flow (ordered by cost — cheapest first):
@@ -417,16 +417,18 @@ class NextGenReviewAnalyzer:
             rating: Optional star rating (1–5) to use as a tiebreaker signal.
 
         Returns:
-            One of ``"tích cực"``, ``"tiêu cực"``, or ``"trung lập"``.
+            Tuple containing:
+            - One of ``"tích cực"``, ``"tiêu cực"``, or ``"trung lập"``.
+            - Dict of probabilities if zero-shot was used, else None.
         """
         if not text:
-            return "trung lập"
+            return "trung lập", None
 
         prior = self._rating_to_prior(rating)
 
         # Short-circuit: budget exhausted → rating prior or neutral
         if LLMBudget.is_exhausted():
-            return prior if prior is not None else "trung lập"
+            return (prior if prior is not None else "trung lập"), None
 
         candidate_labels = ["tích cực", "tiêu cực", "trung lập"]
         try:
@@ -434,16 +436,16 @@ class NextGenReviewAnalyzer:
         except Exception:
             # Model error → use rating prior before touching LLM
             if prior is not None:
-                return prior
-            return self._fallback_sentiment(text, rating)
+                return prior, None
+            return self._fallback_sentiment(text, rating), None
 
         result_labels: List[str] = result.get("labels", [])
         result_scores: List[float] = result.get("scores", [])
 
         if not result_labels or not result_scores:
             if prior is not None:
-                return prior
-            return self._fallback_sentiment(text, rating)
+                return prior, None
+            return self._fallback_sentiment(text, rating), None
 
         top_label: str = result_labels[0]
         top_score: float = float(result_scores[0])
@@ -453,17 +455,16 @@ class NextGenReviewAnalyzer:
             else 1.0
         )
 
-        # High confidence zero-shot result — accept without LLM
         if top_score >= 0.35 and score_gap >= 0.08:
-            return top_label
+            return top_label, dict(zip(result_labels, result_scores))
 
         # Moderate confidence but near-tie OR low confidence:
         # prefer rating prior to avoid LLM call
         if prior is not None:
-            return prior
+            return prior, None
 
         # No prior available — LLM is the only remaining option
-        return self._fallback_sentiment(text, rating)
+        return self._fallback_sentiment(text, rating), None
 
     # ------------------------------------------------------------------
     # Public API
@@ -494,6 +495,7 @@ class NextGenReviewAnalyzer:
             * ``"sentiment"`` – ``str`` sentiment label.
             * ``"method"``   – ``"heuristic"`` or ``"model"`` indicating which
               layer produced the final label.
+            * ``"probabilities"`` - Dictionary of raw probabilities if available.
         """
         # Build a row dict so assign_heuristic_label can read both fields.
         row: Dict[str, Any] = {"cleaned_text": text, "rating": rating or 0}
@@ -501,17 +503,32 @@ class NextGenReviewAnalyzer:
 
         if heuristic != "ambiguous":
             aspects = self.extract_aspects(text)
+            
+            # Map heuristic to definitive probabilities
+            probs = {"tích cực": 0.0, "tiêu cực": 0.0, "trung lập": 0.0}
+            if heuristic in probs:
+                probs[heuristic] = 1.0
+                
             return {
-                "aspects":   aspects,
-                "sentiment": heuristic,
-                "method":    "heuristic",
+                "aspects":       aspects,
+                "sentiment":     heuristic,
+                "method":        "heuristic",
+                "probabilities": probs,
             }
 
         # Ambiguous → full model pipeline
         aspects = self.extract_aspects(text)
-        sentiment = self.predict_sentiment(text, rating=rating)
+        sentiment, probs = self.predict_sentiment(text, rating=rating)
+        
+        # If no probs returned (e.g. LLM fallback), build pseudo-probs
+        if probs is None:
+            probs = {"tích cực": 0.0, "tiêu cực": 0.0, "trung lập": 0.0}
+            if sentiment in probs:
+                probs[sentiment] = 1.0
+                
         return {
-            "aspects":   aspects,
-            "sentiment": sentiment,
-            "method":    "model",
+            "aspects":       aspects,
+            "sentiment":     sentiment,
+            "method":        "model",
+            "probabilities": probs,
         }

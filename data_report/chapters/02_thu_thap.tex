@@ -1,0 +1,262 @@
+\section{Phương pháp và nguồn thu thập dữ liệu}
+
+\subsection{Nguồn dữ liệu}
+
+Dự án sử dụng hai nguồn dữ liệu độc lập, phục vụ song song cho hai nhánh xử lý của hệ thống: nhánh phân tích văn bản và nhánh phân tích hình ảnh.
+
+\subsubsection{Nguồn 1 --- Dữ liệu thu thập thời gian thực}
+
+Đây là nguồn dữ liệu cốt lõi, được thu thập tự động theo thời gian thực từ các sàn thương mại điện tử thông qua scraping agent do nhóm thiết kế và xây dựng. Người dùng chỉ cần cung cấp URL sản phẩm; agent tự động định tuyến và trích xuất các thành phần sau:
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Nội dung văn bản: nội dung bình luận, điểm đánh giá (1 -- 5 sao), ngày đăng đánh giá.
+    \item Hình ảnh đính kèm: danh sách URL ảnh do người dùng đăng tải trong đánh giá (ảnh sản phẩm thực tế, ảnh đóng gói, ảnh vận chuyển). URL thumbnail được nâng cấp tự động lên ảnh gốc độ phân giải đầy đủ thông qua bước hậu xử lý URL.
+    \item Metadata: tên sản phẩm, URL sản phẩm gốc (\texttt{product\_url}), thời điểm cào dữ liệu (\texttt{scraped\_at} theo chuẩn ISO~8601).
+\end{itemize}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{|l|c|l|X|}
+\hline
+\rowcolor[HTML]{E8E8E8}
+\multicolumn{1}{|c|}{\textbf{Nền tảng}} &
+\multicolumn{1}{c|}{\textbf{Số đánh giá}} &
+\multicolumn{1}{c|}{\textbf{Phương thức}} &
+\multicolumn{1}{c|}{\textbf{Danh mục sản phẩm}} \\
+\hline
+Tiki & $\sim$3.000 & Direct API & Điện thoại, sách, gia dụng, điện tử \\
+\hline
+Thế Giới Di Động & $\sim$2.000 & Direct API & Điện thoại, tablet, phụ kiện \\
+\hline
+Lazada Vietnam & $\sim$2.000 & Playwright Interception & Thời trang, gia dụng, điện tử \\
+\hline
+Shopee Vietnam & $\sim$3.000 & LLM Browser Agent & Điện thoại, phụ kiện, thời trang \\
+\hline
+Tổng & $\sim$10.000 & --- & --- \\
+\hline
+\end{tabularx}
+\captionof{table}{\centering Thống kê sơ bộ số lượng đánh giá thu thập theo nền tảng và phương thức}
+\end{center}
+
+Quyết định lựa chọn bốn nền tảng này dựa trên ba tiêu chí: (1) độ phủ thị trường thương mại điện tử Việt Nam, (2) tính đa dạng danh mục sản phẩm và (3) khả năng thu thập kỹ thuật có thể triển khai trong phạm vi dự án. Đây đồng thời là bốn nền tảng chiếm thị phần lớn nhất tại Việt Nam tính đến thời điểm thực hiện dự án.
+
+\subsubsection{Nguồn 2 --- Dataset Kaggle bổ sung cho nhánh hình ảnh}
+
+Để huấn luyện mô hình nhận diện hộp hàng hư hỏng, nhóm bổ sung tập dữ liệu ảnh sản phẩm bị móp méo/nứt vỡ được trích xuất từ nền tảng Kaggle. Dataset này kết hợp với ảnh thu thập từ scraping nhằm tăng tính đa dạng và cân bằng phân phối nhãn giữa hai lớp \texttt{intact} (nguyên vẹn) và \texttt{damaged} (hư hỏng).
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+\rowcolor[HTML]{E8E8E8}
+\multicolumn{1}{|c|}{\textbf{Thuộc tính}} & 
+\multicolumn{1}{|c|}{\textbf{Chi tiết}} \\
+\hline
+Tên dataset & Damaged Packaging Detection Dataset \\
+\hline
+Số lượng ảnh & $\sim$2.000 ảnh (60\% hộp nguyên vẹn, 40\% hộp hư hỏng) \\
+\hline
+Định dạng & PNG/JPG, kích thước từ $224 \times 224$ đến $1024 \times 1024$ pixels \\
+\hline
+Nhãn & \texttt{intact} (nguyên vẹn) và \texttt{damaged} (hư hỏng) \\
+\hline
+Giấy phép & Creative Commons CC BY 4.0 --- chỉ phục vụ nghiên cứu phi thương mại \\
+\hline
+\end{tabularx}
+\captionof{table}{\centering Thông tin dataset Kaggle bổ sung cho nhánh hình ảnh}
+\end{center}
+
+\begin{warningbox}{Lưu ý về bản quyền dữ liệu}
+Toàn bộ dữ liệu từ Kaggle được sử dụng theo giấy phép Creative Commons (CC BY 4.0), chỉ phục vụ mục đích nghiên cứu học thuật phi thương mại. Dữ liệu scraping từ các sàn thương mại điện tử được thu thập theo phương thức ẩn danh, không lưu trữ thông tin định danh cá nhân (PII) của người dùng.
+\end{warningbox}
+
+\subsection{Phương pháp thu thập}
+
+\subsubsection{Kiến trúc dispatcher --- Cơ chế định tuyến động}
+
+Thay vì áp dụng một giải pháp scraping đồng nhất cho tất cả nền tảng, nhóm thiết kế cơ chế dispatcher định tuyến động URL sản phẩm đến engine thu thập phù hợp nhất dựa vào domain. Nguyên tắc thiết kế là ưu tiên phương thức nhanh, ổn định và không cần LLM trước; chỉ kích hoạt LLM agent khi không có phương thức trực tiếp nào khả dụng. Chiến lược này vừa tối ưu chi phí token, vừa giảm thiểu rủi ro bị phát hiện là bot.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{|l|l|X|}
+\hline
+\rowcolor[HTML]{E8E8E8}
+\multicolumn{1}{|c|}{\textbf{Domain nhận dạng}} &
+\multicolumn{1}{c|}{\textbf{Engine}} &
+\multicolumn{1}{c|}{\textbf{Mô tả kỹ thuật}} \\
+\hline
+\texttt{tiki.vn} & Direct API & Gọi trực tiếp \texttt{tiki.vn/api/v2/reviews} qua \texttt{httpx}, xác thực bằng \texttt{x-guest-token} ngẫu nhiên --- không yêu cầu đăng nhập. \\
+\hline
+\texttt{thegioididong.com} & Direct API & 
+POST tới \texttt{webapi.thegioididong.com/\allowbreak comment/\allowbreak allrating}, parse HTML fragment trả về để trích xuất đánh giá. \\
+\hline
+\texttt{lazada.vn} & Playwright Interception & Mở trình duyệt Chromium, đăng ký \texttt{page.on(`response')} để chặn bắt response API review mà không cần tái tạo token bảo mật động phía client. \\
+\hline
+Bất kỳ URL khác & LLM Browser Agent & Dùng thư viện \texttt{browser-use} điều khiển Playwright thông qua LLM (Gemini/GPT/Groq) theo prompt có cấu trúc. \\
+\hline
+\end{tabularx}
+\captionof{table}{\centering Cơ chế định tuyến của dispatcher theo domain}
+\end{center}
+
+\subsubsection{Quy trình thu thập theo từng approach}
+
+\paragraph{Approach 1 --- Direct API (Tiki và Thế Giới Di Động)}
+
+Đây là approach hiệu quả nhất, không cần mô phỏng trình duyệt và không tiêu tốn token LLM. So sánh với các giải pháp truyền thống như Selenium hay Scrapy, phương thức này ưu việt hơn vì gọi thẳng vào endpoint JSON nội bộ của sàn --- bỏ qua hoàn toàn việc render HTML và tránh overhead của trình duyệt đầy đủ.
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Parse product ID từ URL bằng biểu thức chính quy (ví dụ: pattern \texttt{-p277596856.html} $\to$ ID \texttt{277596856} cho Tiki; trích \texttt{data-objectid} từ HTML trang sản phẩm cho Thế Giới Di Động).
+    \item Gọi API nội bộ của từng sàn qua \texttt{httpx} bất đồng bộ với chiến lược retry tự động theo backoff lũy thừa: thời gian chờ $2^n$ giây ($n = 0, 1, 2$), tối đa 3 lần thử lại; sau đó bỏ qua trang lỗi và tiếp tục trang kế. Khoảng trễ giữa các request liên tiếp là 0,4 giây (Tiki) nhằm tránh bị chặn IP.
+    \item Lặp qua từng trang (pagination) với kích thước 20 đánh giá/trang, ghi dữ liệu tăng dần sau mỗi trang --- đảm bảo không mất dữ liệu khi agent crash giữa chừng.
+    \item Loại trùng lặp bằng \texttt{review\_id} gốc của sàn; fallback sang MD5(\texttt{text[:120] + date + rating}) nếu sàn không cung cấp ID.
+\end{itemize}
+
+\paragraph{Approach 1b --- Playwright network interception (Lazada)}
+
+Lazada sử dụng token bảo mật động (\texttt{\_m\_h5\_tk}, \texttt{sign}, \texttt{t}) được sinh phía client bởi JavaScript --- không thể tái tạo từ bên ngoài mà không thực thi toàn bộ JS context của trang. Giải pháp interception bỏ qua hoàn toàn vấn đề này:
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Đăng ký listener \texttt{page.on(`response')} để chặn bắt tất cả response từ endpoint \texttt{mtop.lazada.review.item.getpcreviewlist}; trình duyệt tự xử lý token, scraper chỉ cần parse JSON response.
+    \item Click phân trang qua JavaScript (\texttt{page.evaluate()}) ưu tiên trước Playwright locator nhằm bỏ qua vấn đề viewport và scroll.
+    \item Xử lý captcha: tự động chờ 90 giây; nếu vẫn bị block, tương tác với người dùng qua terminal (nhập Enter để tiếp tục hoặc \texttt{n} để dừng và lưu dữ liệu đã có).
+    \item Lưu trạng thái phiên trình duyệt (\texttt{storage\_state}) sau mỗi lần scraping thành công để tái sử dụng, giảm xác suất bị nhận diện là bot trong các phiên tiếp theo.
+\end{itemize}
+
+\paragraph{Approach 2 --- LLM Browser Agent (Shopee và các nền tảng khác)}
+
+Approach này áp dụng cho các nền tảng không có Direct API và có cơ chế chống bot mạnh. Lý do lựa chọn \texttt{browser-use} thay vì Selenium hay BeautifulSoup thuần là vì LLM có khả năng tự thích nghi với giao diện thay đổi mà không cần viết lại selector --- đây là lợi thế quyết định khi scraping Shopee vốn cập nhật giao diện liên tục. LLM đóng vai trò bộ não điều phối, Playwright đóng vai trò cánh tay thực thi.
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Sử dụng thư viện \texttt{browser-use} với custom action \texttt{extract\_and\_save\_reviews} --- LLM điều phối điều hướng, cuộn trang và phân trang; action lưu dữ liệu trực tiếp vào file sau mỗi lần trích xuất thành công.
+    \item Hỗ trợ nhiều LLM provider: Gemini 2.0 Flash (khuyến nghị vì chi phí thấp nhất), GPT-4.1-mini, Groq Llama-4 Scout. Cơ chế fallback tự động chuyển sang provider dự phòng khi gặp rate-limit.
+    \item Prompt được thiết kế theo cấu trúc 5 bước cứng: (1)~điều hướng tới URL sản phẩm và đóng popup; (2)~dùng JavaScript nhảy thẳng đến khu vực đánh giá thay vì cuộn tuần tự; (3)~click tab ``Tất Cả'' để hiện toàn bộ đánh giá, tuyệt đối không click bộ lọc sao; (4)~gọi \texttt{extract\_and\_save\_reviews} một lần duy nhất cho toàn bộ trang; (5)~click trang tiếp theo trong phân trang, chờ 2 giây rồi lặp lại bước 4. Cấu trúc cứng này ngăn LLM tự ý lọc sao, tránh sai lệch dữ liệu đầu vào.
+    \item Mỗi bước có giới hạn tối đa: \texttt{max\_steps=200}, \texttt{max\_actions\_per\_step=4}, \texttt{max\_failures=5}. Lịch sử hội thoại giới hạn ở 15 bước gần nhất để kiểm soát chi phí token khi chạy trên luồng dài.
+    \item URL thumbnail ảnh được hậu xử lý tự động: xóa hậu tố \texttt{\_tn.} và tham số \texttt{@100w\_100h} (Shopee), xóa thông số kích thước dạng \texttt{\_\{w\}x\{h\}.jpg} bằng regex (Lazada/AliCDN) để lấy ảnh gốc độ phân giải cao.
+\end{itemize}
+
+\subsubsection{Cơ chế đảm bảo tính toàn vẹn dữ liệu}
+
+Hai cơ chế sau được áp dụng xuyên suốt ở mọi approach nhằm đảm bảo dữ liệu thu thập không bị mất mát hoặc trùng lặp:
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Ghi tăng dần: dữ liệu được ghi xuống file sau mỗi trang thay vì chờ đến khi hoàn tất toàn bộ sản phẩm. Cơ chế này đảm bảo dữ liệu đã thu thập không bị mất khi xảy ra lỗi mạng, hết bộ nhớ hoặc người dùng dừng chương trình bằng \texttt{Ctrl + C}.
+    \item Loại trùng lặp hai tầng: tầng 1 ưu tiên dùng \texttt{review\_id} gốc của sàn --- chính xác và ổn định nhất. Tầng 2 fallback sang hàm băm MD5 trên nội dung (\texttt{text[:120]}, \texttt{date}, \texttt{rating}) khi \texttt{review\_id} không có. Chiến lược hai tầng ngăn chặn hiệu quả việc ghi lặp khi agent bị restart giữa chừng.
+\end{itemize}
+
+\subsubsection{Công cụ và thư viện sử dụng}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{|l|c|X|}
+\hline
+\rowcolor[HTML]{E8E8E8}
+\multicolumn{1}{|c|}{\textbf{Công cụ}} &
+\multicolumn{1}{c|}{\textbf{Phiên bản}} &
+\multicolumn{1}{c|}{\textbf{Mục đích}} \\
+\hline
+\texttt{browser-use} & $\geq$0.12.0 & Framework điều khiển Playwright bằng LLM cho Approach 2 (Shopee và các sàn chưa hỗ trợ Direct API) \\
+\hline
+Playwright & $\geq$1.40.0 & Điều hướng trình duyệt Chromium, thực hiện network interception cho Lazada \\
+\hline
+\texttt{httpx} & $\geq$0.27.0 & HTTP client bất đồng bộ cho Approach 1 (Tiki, Thế Giới Di Động) \\
+\hline
+Pydantic & $\geq$2.0.0 & Validation và serialization schema \texttt{Review} --- đảm bảo mọi bản ghi đầu ra đúng kiểu dữ liệu trước khi ghi vào file \\
+\hline
+\texttt{python-dotenv} & $\geq$1.0.0 & Quản lý API key và biến môi trường qua file \texttt{.env} \\
+\hline
+\end{tabularx}
+\captionof{table}{\centering Danh sách công cụ sử dụng trong giai đoạn thu thập dữ liệu}
+\end{center}
+
+\subsubsection{Định dạng lưu trữ và schema dữ liệu đầu ra}
+
+Dữ liệu thô sau khi thu thập được lưu theo hai định dạng song song để phục vụ các giai đoạn xử lý khác nhau:
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item CSV (mặc định): xuất dạng bảng phẳng, mã hóa \texttt{UTF-8 BOM} để mở đúng trên Excel/LibreOffice. Trường \texttt{image\_urls} lưu nhiều URL phân cách bằng ký tự \texttt{|} trong một ô. Ghi theo chế độ append (\texttt{mode=`a'}) sau mỗi trang, không chờ đến khi hoàn tất.
+    \item JSON: lưu toàn bộ thông tin theo cấu trúc đối tượng lồng nhau, phù hợp cho các tác vụ xử lý pipeline và debug. Do cần đọc-ghi lại toàn bộ mảng mỗi lần append, định dạng này chỉ khuyến nghị khi tập dữ liệu nhỏ.
+\end{itemize}
+
+Mỗi bản ghi đánh giá tuân theo schema thống nhất được định nghĩa bởi Pydantic~v2 model \texttt{Review}, gồm đúng 8 trường. Việc ràng buộc schema chặt chẽ ngay từ bước thu thập giúp phát hiện sớm các bản ghi bị lỗi định dạng trước khi chúng lan truyền vào pipeline tiền xử lý:
+
+\begin{infobox}{Schema một bản ghi đánh giá (Review) --- 8 trường}
+\begin{verbatim}
+{
+  "review_id":    "123456789",
+  "product_name": "Samsung Galaxy A55 5G 8GB/256GB",
+  "text":         "Máy dùng ổn, pin trâu, camera đẹp hơn mong đợi...",
+  "rating":       4,
+  "date":         "2024-11-15",
+  "image_urls":   "https://cf.shopee.vn/img/abc.jpg|...",
+  "product_url":  "https://shopee.vn/product/123456",
+  "scraped_at":   "2025-04-28T14:32:05.123456"
+}
+\end{verbatim}
+\end{infobox}
+
+Trường \texttt{review\_id} là ID gốc do sàn cấp (chuỗi số), được dùng làm khóa dedup chính xác ở tầng 1. Trường \texttt{scraped\_at} được tự động điền theo chuẩn ISO~8601 tại thời điểm tạo đối tượng \texttt{Review} nếu không truyền vào. Pydantic validator đảm bảo \texttt{rating} luôn nằm trong khoảng $[1, 5]$ và \texttt{image\_urls} luôn là danh sách chuỗi hợp lệ.
+
+\subsubsection{Thống kê chất lượng dữ liệu thu thập}
+
+Sau khi hoàn tất quá trình thu thập và loại trùng lặp, tập dữ liệu thô có các đặc trưng thống kê sau:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+
+\begin{tabular}{|p{2.2cm}|p{2.2cm}|p{2.2cm}|p{2.6cm}|p{2.2cm}|}
+\hline
+
+\rowcolor[HTML]{E8E8E8}
+\multicolumn{1}{|c|}{\textbf{Nền tảng}} &
+\multicolumn{1}{c|}{\textbf{Số đánh giá}} &
+\multicolumn{1}{c|}{\textbf{Có ảnh (\%)}} &
+\multicolumn{1}{c|}{\textbf{Bị loại trùng (\%)}} &
+\multicolumn{1}{c|}{\textbf{Rating trung bình}} \\
+\hline
+
+Tiki & $\sim$3.000 & $\sim$18\% & $<$2\% & 4,2 \\
+\hline
+Thế Giới Di Động & $\sim$2.000 & $\sim$12\% & $<$1\% & 4,5 \\
+\hline
+Lazada Vietnam & $\sim$2.000 & $\sim$25\% & $\sim$3\% & 3,8 \\
+\hline
+Shopee Vietnam & $\sim$3.000 & $\sim$30\% & $\sim$5\% & 4,1 \\
+\hline
+
+\textbf{Tổng} & $\boldsymbol{\sim}$\textbf{10.000} &
+$\boldsymbol{\sim}$\textbf{22\%} &
+$\boldsymbol{\sim}$\textbf{3\%} &
+\textbf{4,2} \\
+\hline
+
+\end{tabular}
+\captionof{table}{\centering Thống kê chất lượng dữ liệu thu thập sau bước deduplication}
+\end{center}
+
+Tỷ lệ đánh giá có ảnh đính kèm ($\sim$22\%) cung cấp đủ mẫu cho nhánh phân tích hình ảnh. Phân phối rating lệch dương rõ rệt (chiều hướng 4 -- 5 sao chiếm đa số) --- hiện tượng phổ biến trên các sàn thương mại điện tử Việt Nam do người dùng thường chỉ viết bình luận khi hài lòng hoặc rất không hài lòng. Vấn đề mất cân bằng nhãn này được xử lý chi tiết trong chương tiền xử lý.
+
+\subsubsection{Môi trường và cài đặt hệ thống}
+
+Để đảm bảo tính tái lập, scraping agent được đóng gói với môi trường thực thi xác định:
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Ngôn ngữ: Python~3.9 trở lên (image Docker: \texttt{python:3.9-slim}).
+    \item Cài đặt phụ thuộc: \texttt{pip install -r requirements.txt} bao gồm đủ 5 thư viện cốt lõi.
+    \item Cài đặt trình duyệt Chromium: \texttt{playwright install --with-deps chromium} (bắt buộc cho Approach 1b và Approach 2).
+    \item Cấu hình API key: tạo file \texttt{.env} ở thư mục gốc dự án với ít nhất một trong các khóa \texttt{GOOGLE\_API\_KEY}, \texttt{OPENAI\_API\_KEY} hoặc \texttt{GROQ\_API\_KEY} (chỉ cần thiết cho Approach 2 --- Shopee).
+    \item Cách chạy đơn lẻ: \texttt{python main.py "<URL>" --max-reviews 3000}.
+    \item Cách chạy hàng loạt: điền danh sách URL vào \texttt{URLS\_TO\_CRAWL} trong \texttt{crawl.py} rồi chạy \texttt{python crawl.py}; kết quả được gộp tự động vào file \texttt{data/all\_reviews.csv}.
+\end{itemize}
+
+\subsubsection{Hạn chế và rủi ro của phương pháp thu thập}
+
+Scraping dữ liệu từ các nền tảng thương mại điện tử tồn tại một số rủi ro kỹ thuật và đạo đức:
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Phụ thuộc vào cấu trúc trang web: khi các sàn thương mại điện tử cập nhật giao diện hoặc thay đổi endpoint API, các parser cần được cập nhật tương ứng. Approach LLM Agent có khả năng tự thích nghi tốt hơn nhưng cũng không miễn nhiễm hoàn toàn. Đây là chi phí bảo trì dài hạn không thể tránh khỏi với mọi hệ thống scraping.
+    \item Rủi ro bị chặn IP: Shopee và Lazada có cơ chế phát hiện bot. Nhóm giảm thiểu rủi ro bằng ba biện pháp: (1)~cuộn trang mô phỏng hành vi người dùng (300 -- 400~px mỗi bước, nghỉ 1~giây); (2)~chờ ngẫu nhiên 1 -- 3 giây giữa các trang; (3)~lưu \texttt{browser\_data/} (cookie, localStorage) sau mỗi phiên thành công để tái sử dụng, tránh xác thực lại.
+    \item Sự chênh lệch dữ liệu theo sàn: mỗi nền tảng có hành vi người dùng và chính sách đánh giá khác nhau, dẫn đến phân phối nhãn không đồng đều giữa các nguồn. Điều này được xử lý trong giai đoạn tiền xử lý và cân bằng dữ liệu.
+    \item Phạm vi địa lý và thời gian: toàn bộ dữ liệu thu thập phản ánh hành vi người dùng Việt Nam trong giai đoạn thực hiện dự án --- kết quả mô hình có thể không tổng quát hóa sang các thị trường khác và các giai đoạn thời gian khác.
+\end{itemize}
+
+\clearpage

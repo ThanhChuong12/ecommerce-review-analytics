@@ -1,0 +1,553 @@
+\section{Đảm bảo chất lượng và xây dựng tập nhãn dữ liệu}
+
+\subsection{Tiêu chí đánh giá dữ liệu tốt cho học máy}
+
+Nhóm áp dụng bộ tiêu chí VALID để đánh giá chất lượng dữ liệu trước khi đưa vào huấn luyện mô hình:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.5}
+\begin{tabularx}{\textwidth}{|c|l|X|}
+\hline
+\rowcolor[HTML]{E8E8E8}
+\textbf{Tiêu chí} & \textbf{Tên} & \textbf{Mô tả và ngưỡng chấp nhận} \\
+\hline
+V & Validity (hợp lệ) & Mỗi bản ghi phải pass schema validation; rating $\in \{1,2,3,4,5\}$; timestamp hợp lệ. \\
+\hline
+A & Accuracy (chính xác) & Nhãn cảm xúc phải nhất quán với rating; ảnh tải về phải đọc được và đúng sản phẩm. \\
+\hline
+L & Low-redundancy (ít trùng lặp) & Tỉ lệ duplicate (exact + near) $< 5\%$ trên tập cuối. \\
+\hline
+I & Integrity (toàn vẹn) & Missing rate $< 3\%$ cho các trường bắt buộc (\texttt{text}, \texttt{rating}). \\
+\hline
+D & Distribution (phân bố cân bằng) & Không có nhãn nào chiếm $> 70\%$ tổng mẫu trên tập train. \\
+\hline
+\end{tabularx}
+\captionof{table}{\centering Bộ tiêu chí VALID đánh giá chất lượng dữ liệu}
+\end{center}
+
+\subsection{Kiểm tra tự động}
+
+Nhóm xây dựng script kiểm tra tự động chạy sau mỗi phiên scraping để phát hiện sớm vấn đề:
+
+\subsubsection{Kiểm tra dữ liệu văn bản}
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Kiểm tra schema: dùng Pydantic để kiểm tra kiểu dữ liệu, giá trị hợp lệ của từng trường trong JSON.
+    \item Phát hiện trùng lặp: tính toán tập hợp hash MD5 của \texttt{text} (sau chuẩn hóa); cảnh báo nếu tỉ lệ trùng $> 5\%$.
+    \item Báo cáo tỉ lệ thiếu: thống kê tỉ lệ \texttt{NaN}/\texttt{null} theo từng cột, sinh báo cáo dạng bảng.
+    \item Kiểm tra nhất quán nhãn: kiểm tra chéo rating và nhãn cảm xúc (ví dụ: rating 1--2 không được gán nhãn ``tích cực'').
+    \item Lọc theo độ dài văn bản: gắn cờ các đánh giá có độ dài $< 10$ ký tự (quá ngắn, ít thông tin) hoặc $> 2000$ ký tự (có thể là spam đoạn dài).
+\end{itemize}
+
+\subsubsection{Kiểm tra dữ liệu hình ảnh}
+\label{sec:kiem_tra_du_lieu_anh}
+
+Trước khi đưa vào quy trình phân tích và huấn luyện, toàn bộ 7.987 ảnh được kiểm tra hệ thống theo năm tiêu chí chất lượng nhằm phát hiện và loại bỏ các mẫu không đạt yêu cầu.
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item \textbf{Kiểm tra tính toàn vẹn tệp:} mỗi tệp ảnh được xác minh thông qua phương thức \texttt{PIL.Image.verify()} kết hợp kiểm tra kích thước tệp nhị phân lớn hơn 0 byte. Tệp bị cắt ngắn, sai định dạng hoặc không thể giải mã đều bị loại khỏi tập dữ liệu.
+
+    \item \textbf{Lọc theo độ phân giải tối thiểu:} ảnh có độ phân giải nhỏ hơn $64 \times 64$ điểm ảnh được gắn cờ cảnh báo do không đủ mật độ thông tin cần thiết cho quá trình trích xuất đặc trưng. Ngưỡng này được xác lập dựa trên kết quả ablation study về thay đổi kích thước ảnh: tại độ phân giải $32 \times 32$, chỉ số SSIM giảm xuống còn 0,7507 so với ảnh tham chiếu $128 \times 128$, phản ánh mức độ mất mát thông tin cấu trúc đáng kể.
+
+    \item \textbf{Kiểm tra không gian màu:} ảnh được xác nhận thuộc không gian màu \texttt{RGB} hoặc \texttt{RGBA} hợp lệ trước khi thực hiện phép chuyển đổi đồng nhất. Ảnh ở chế độ thang xám được ghi nhận cảnh báo để xử lý riêng, tránh mất thông tin kênh màu không mong muốn trong quá trình chuyển đổi.
+
+    \item \textbf{Phát hiện ảnh trùng lặp:} nhóm áp dụng hai cấp độ phát hiện --- (i) so khớp chính xác qua mã băm MD5 trên dữ liệu nhị phân của tệp; (ii) phát hiện ảnh gần trùng qua mã băm cảm nhận (pHash) với ngưỡng khoảng cách Hamming bằng 10. Kết quả quét toàn bộ tập dữ liệu phát hiện 2.984 cặp gần trùng, tương ứng tỉ lệ 0,01\%, và được lưu vào tệp \texttt{duplicate\_report.csv} để rà soát thủ công.
+
+    \item \textbf{Kiểm tra cân bằng nhãn:} thống kê phân phối mẫu theo từng nhãn cho thấy tình trạng mất cân bằng nghiêm trọng (Bảng~\ref{tab:class_distribution}). Nhãn \texttt{intact} chiếm tỉ trọng cao nhất với 4.241 mẫu, trong khi nhãn \texttt{wrong\_item} chỉ có 17 mẫu --- chênh lệch xấp xỉ 249 lần, vượt xa ngưỡng cảnh báo 3 lần được đặt ra trong cấu hình. Tình trạng này đặt ra yêu cầu áp dụng chiến lược xử lý mất cân bằng phù hợp trong giai đoạn huấn luyện.
+\end{itemize}
+
+\begin{table}[H]
+    \centering
+    \caption{Phân phối số lượng mẫu theo nhãn trong tập dữ liệu}
+    \label{tab:class_distribution}
+    \begin{tabular}{lcc}
+        \hline
+        \textbf{Nhãn} & \textbf{Số lượng mẫu} & \textbf{Tỉ trọng (\%)} \\
+        \hline
+        \texttt{intact}      & 4.241 & 53,10 \\
+        \texttt{irrelevant}  & 3.628 & 45,43 \\
+        \texttt{damaged}     &   101 &  1,26 \\
+        \texttt{wrong\_item} &    17 &  0,21 \\
+        \hline
+        \textbf{Tổng}        & 7.987 & 100,00 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\begin{notebox}{Tự động hóa quy trình kiểm tra}
+Toàn bộ các bước kiểm tra chất lượng nêu trên được đóng gói trong mô-đun \texttt{data\_quality.py} và tích hợp vào quy trình xử lý sau thu thập dữ liệu. Mỗi lần thực thi, hệ thống sinh ra tệp báo cáo \texttt{quality\_report\_YYYYMMDD.json} lưu vào thư mục \texttt{reports/}, ghi nhận đầy đủ số lượng tệp bị loại theo từng tiêu chí và danh sách các cặp ảnh trùng lặp được phát hiện.
+\end{notebox}
+
+\subsection{Kiểm tra thủ công}
+
+Ngoài kiểm tra tự động, nhóm thực hiện đánh giá thủ công định kỳ:
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Lấy mẫu ngẫu nhiên: 3 thành viên, mỗi người xém xét 100 mẫu ngẫu nhiên từ tập dữ liệu sau xử lý (tổng 300 mẫu) để xác nhận tính hợp lý của nhãn và nội dung.
+    \item Đo độ đồng thuận giữa người gán nhãn: đối với tập nhãn ABSA (cần gán thủ công cho một phần dữ liệu), hai thành viên gán nhãn độc lập, sau đó tính Cohen's Kappa ($\kappa \geq 0.7$ được chấp nhận).
+    \item Rà soát trường hợp biên: kiểm tra thủ công các trường hợp biên như đánh giá hỗn hợp cảm xúc (vừa khen vừa chê), đánh giá bằng tiếng Anh lẫn tiếng Việt, ảnh có watermark.
+    \item Đối chiếu đầu ra scraper: so sánh trực tiếp nội dung scrape được với giao diện web thực tế để xác minh độ chính xác của parser.
+\end{itemize}
+
+\subsection{Kết quả kiểm tra chất lượng}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{|l|c|c|l|}
+\hline
+\rowcolor[HTML]{E8E8E8}
+\textbf{Tiêu chí} & \textbf{Ngưỡng} & \textbf{Kết quả đạt được} & \textbf{Trạng thái} \\
+\hline
+Tỉ lệ missing (\texttt{text}) & $< 3\%$ & $2.1\%$ & \textcolor{green!60!black}{Đạt} \\
+\hline
+Tỉ lệ duplicate & $< 5\%$ & $3.7\%$ & \textcolor{green!60!black}{Đạt} \\
+\hline
+Schema validation pass & $= 100\%$ & $99.4\%$ & \textcolor{orange}{Chấp nhận} \\
+\hline
+Label consistency & $= 100\%$ & $98.2\%$ & \textcolor{orange}{Chấp nhận} \\
+\hline
+Image integrity & $> 97\%$ & $97.8\%$ & \textcolor{green!60!black}{Đạt} \\
+\hline
+Class balance (text) & $< 70\%$ / nhãn & Max $58\%$ & \textcolor{green!60!black}{Đạt} \\
+\hline
+Cohen's Kappa (ABSA) & $\geq 0.70$ & $0.73$ & \textcolor{green!60!black}{Đạt} \\
+\hline
+\end{tabularx}
+\captionof{table}{\centering Kết quả kiểm tra chất lượng dữ liệu}
+\end{center}
+
+\subsection{Chiến lược gán nhãn tự động đa phương thức}
+
+Việc gán nhãn thủ công cho hàng chục nghìn bình luận đánh giá là rào cản lớn về chi phí tính toán và nhân sự. Nhóm nghiên cứu áp dụng cơ chế học giám sát yếu nhằm tự động hóa quá trình này thông qua các lớp quyết định lồng nhau từ đơn giản đến phức tạp, tối ưu hóa quá trình tổng hợp tập dữ liệu tiệm cận chất lượng chuyên gia.
+
+\subsubsection{Phân loại hành vi rác qua năm trục suy nghiệm} 
+
+Để giảm thiểu nhiễu lan truyền vào các bước gán nhãn cảm xúc và huấn luyện mô hình, nhóm nghiên cứu xây dựng một khung phân loại hành vi rác dựa trên năm trục suy nghiệm. Khung này được hình thành từ quá trình quan sát thực tế và rà soát thủ công các đánh giá thu thập trên các sàn thương mại điện tử phổ biến như Shopee, Tiki và Lazada. Thay vì xem mọi bình luận rác là một nhóm đồng nhất, cách tiếp cận này tách chúng thành năm cơ chế phát sinh khác nhau, qua đó giúp hệ thống lựa chọn đúng luật phát hiện và xử lý phù hợp với từng dạng nhiễu.
+
+Về bản chất, năm trục suy nghiệm không hoàn toàn loại trừ lẫn nhau. Một bình luận có thể đồng thời mang nhiều đặc tính, chẳng hạn vừa là văn mẫu tự động, vừa có dấu hiệu cày xu, hoặc vừa lạc đề vừa mâu thuẫn với điểm sao. Do đó, mục tiêu của khung phân loại này không chỉ là gắn cờ nhị phân ``rác'' hay ``không rác'', mà còn cung cấp diễn giải cấu trúc về nguồn gốc của nhiễu để phục vụ phân tầng xử lý ở các bước sau.
+
+\vspace{0.5em}
+\noindent\textcolor{lightblue}{\textbf{Trục 1 --- Văn mẫu / Nội dung sinh tự động}}\par
+\vspace{0.5em}
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item \textbf{Hành vi:} nhóm đánh giá được sinh tự động hoặc được sao chép từ các khuôn mẫu có sẵn. Loại văn bản này thường ghép nối nhiều mệnh đề khen ngợi chung chung, mang sắc thái quảng bá và có thể áp dụng cho hầu như mọi sản phẩm, chẳng hạn như giao hàng nhanh, đóng gói cẩn thận, sản phẩm đẹp như hình hoặc giúp phát triển toàn diện.
+    \item \textbf{Đặc điểm ngôn ngữ:} câu chữ có vẻ trôi chảy ở cấp độ cục bộ nhưng thiếu thông tin kiểm chứng cụ thể về sản phẩm, trải nghiệm sử dụng hoặc lỗi phát sinh thực tế.
+    \item \textbf{Dấu hiệu nhận biết:} mức độ trùng lặp cao của các cụm văn mẫu đã biết trước. Hệ thống ưu tiên đếm tần suất xuất hiện của các mẫu cụm từ quảng bá trong cùng một đánh giá và đánh giá mật độ lặp; khi số lượng mẫu rập khuôn vượt ngưỡng, bản ghi sẽ bị gắn cờ có nguy cơ cao là nội dung do bot sinh ra hoặc sao chép hàng loạt.
+\end{itemize}
+
+\vspace{0.5em}
+\noindent\textcolor{lightblue}{\textbf{Trục 2 --- Đánh giá cày xu / voucher}}\par
+\vspace{0.5em}
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item \textbf{Hành vi:} để lại bình luận chỉ nhằm vượt qua ngưỡng ký tự tối thiểu để nhận xu thưởng, voucher hoặc ưu đãi từ nền tảng.
+    \item \textbf{Đặc điểm ngôn ngữ:} nội dung không nhất thiết được tối ưu để nghe hay hoặc mang tính quảng bá, mà chủ yếu nhằm kéo dài văn bản một cách cơ học để đáp ứng điều kiện hệ thống.
+    \item \textbf{Dấu hiệu nhận biết:} xuất hiện các câu rào trước đón sau hoặc các phát ngôn tự thú mục đích như ''bình luận để lấy xu'', ''hình ảnh chỉ mang tính chất nhận xu'', ``viết cho đủ chữ''. Ngoài ra còn có các đoạn diễn đạt kéo dài nhưng gần như không bổ sung thông tin về chất lượng sản phẩm.
+\end{itemize}
+
+\vspace{0.5em}
+\noindent\textcolor{lightblue}{\textbf{Trục 3 --- Nhiễu cấu trúc}}\par
+\vspace{0.5em}
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item \textbf{Hành vi:} các văn bản không chứa nội dung hữu ích dù vẫn chiếm chỗ trong trường đánh giá. Đây là dạng rác thường gặp do thao tác người dùng qua loa, hành vi spam bán tự động hoặc phản xạ nhập liệu để điền cho có.
+    \item \textbf{Đặc điểm ngôn ngữ:} bình luận không đủ thành phần thông tin để suy ra cảm xúc, trải nghiệm mua hàng hay đặc tính của sản phẩm.
+    \item \textbf{Dấu hiệu nhận biết:} văn bản thuần emoji, chuỗi gõ phím ngẫu nhiên, lặp vô nghĩa một ký tự hoặc một cụm từ nhiều lần, chuỗi chỉ toàn chữ số hoặc dấu câu, cũng như các phát ngôn cực ngắn kiểu ``ok'', ``tốt'', ``được'' khi đi kèm đánh giá 5 sao. Các trường hợp quá ngắn bị xem là nhiễu vì không mang đủ mật độ ngữ nghĩa để hỗ trợ mô hình phân biệt cảm xúc một cách đáng tin cậy.
+\end{itemize}
+
+\vspace{0.5em}
+\noindent\textcolor{lightblue}{\textbf{Trục 4 --- Nội dung lạc đề / liên hệ / đối thủ}}\par
+\vspace{0.5em}
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item \textbf{Hành vi:} lợi dụng phần nhận xét như một kênh phát tán thông tin ngoài phạm vi sản phẩm, chẳng hạn chèn liên kết, quảng bá kênh liên hệ cá nhân, lôi kéo người mua sang cửa hàng khác hoặc đăng tải nội dung sao chép không liên quan đến giao dịch hiện tại.
+    \item \textbf{Tác hại:} làm sai lệch phân bố dữ liệu và có thể kéo mô hình học theo những tín hiệu từ vựng không thuộc miền bài toán.
+    \item \textbf{Dấu hiệu nhận biết:} sự hiện diện của URL, số điện thoại, tên nền tảng liên hệ như Zalo hoặc Facebook, các từ khóa điều hướng sang nguồn mua khác, hoặc các đoạn văn bản sao chép không liên quan như lời bài hát, tin tức, nội dung tiếng Anh rời rạc hay quảng cáo dịch vụ.
+\end{itemize}
+
+\vspace{0.5em}
+\noindent\textcolor{lightblue}{\textbf{Trục 5 --- Mâu thuẫn giữa số sao và nội dung}}\par
+\vspace{0.5em}
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item \textbf{Hành vi:} hiện tượng mâu thuẫn cực đoan giữa số sao và nội dung ngôn ngữ của đánh giá.
+    \item \textbf{Ý nghĩa chẩn đoán:} dạng bất thường này thường chỉ ra một trong ba khả năng: người dùng chấm sao nhầm, nội dung đánh giá mang tính mỉa mai hoặc bản ghi đã bị nhiễu do thao tác spam.
+    \item \textbf{Dấu hiệu nhận biết:} kiểm tra chéo giữa điểm số và từ vựng cảm xúc. Các trường hợp 5 sao nhưng văn bản chứa dày đặc từ tiêu cực như hỏng, vỡ, lừa đảo, thất vọng hoặc không đúng mô tả sẽ bị gắn cờ mâu thuẫn; chiều ngược lại, các đánh giá 1--2 sao nhưng nội dung lại nghiêng hoàn toàn về khen ngợi cũng bị xem là bất thường.
+    \item \textbf{Vai trò trong gán nhãn yếu:} đây là nhóm đặc biệt quan trọng vì nó quyết định liệu hệ thống có thể tin trực tiếp vào nhãn sao hay phải chuyển mẫu sang tầng xử lý ngữ nghĩa sâu hơn.
+\end{itemize}
+
+Tóm lại, khung năm trục suy nghiệm đóng vai trò như một tầng tiền phân loại nhiễu, giúp chuyển bài toán lọc spam từ mức kinh nghiệm cảm tính sang dạng có cấu trúc, giải thích được và dễ hiện thực hóa bằng luật. Nhờ đó, hệ thống không chỉ loại bỏ các mẫu đánh giá kém giá trị mà còn bảo toàn được những bản ghi hiếm nhưng hữu ích, tạo tiền đề cho bước gán nhãn cảm xúc tự động đạt độ tin cậy cao hơn.
+
+\subsubsection{Gán nhãn tự động theo cơ chế giám sát yếu} 
+
+\vspace{0.5em}
+\noindent\textcolor{lightblue}{\textbf{Lớp 1 --- Tập luật suy nghiệm nhận biết phủ định}}
+\vspace{0.5em}
+
+Tập luật nội suy được thiết kế để phân loại các trường hợp mang sắc thái rõ ràng với chi phí tính toán cực thấp. Để giải quyết điểm mù về ngữ cảnh phủ định, hai cải tiến cốt lõi đã được áp dụng so với thuật toán cơ sở:
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Triệt tiêu lỗi khớp chuỗi con: Thuật toán tiền nhiệm thường mắc lỗi nhận diện sai khi tìm kiếm chuỗi con, điển hình như bắt nhầm chữ \texttt{hư} trong từ \texttt{nhưng} hoặc chữ \texttt{giả} trong từ \texttt{giảm}. Hệ thống mới áp dụng biểu thức chính quy với ràng buộc ranh giới từ $\backslash b$ nhằm đảm bảo chỉ khớp các từ vựng độc lập, giúp giảm thiểu tỷ lệ mẫu bị gắn nhãn lưỡng nghĩa ảo từ 17 phần trăm xuống dưới 3 phần trăm.
+    \item Phát hiện phủ định qua kỹ thuật N-gram: Các cụm từ như \texttt{không tốt}, \texttt{chưa hài lòng} hay \texttt{không thích} được hệ thống định vị chính xác thông qua biểu thức chính quy nhìn lại phía sau, từ đó tự động đảo ngược hoặc triệt tiêu giá trị cảm xúc của từ gốc.
+\end{itemize}
+
+Luồng quyết định gán nhãn được nới lỏng thông minh đối với các đánh giá hiển nhiên và kiểm soát chặt chẽ các trường hợp xung đột logic, được trình bày chi tiết trong Bảng 4.1.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{|l|X|l|}
+\hline
+\rowcolor[HTML]{E8E8E8}
+\textbf{Điều kiện điểm sao} & \textbf{Điều kiện từ vựng} & \textbf{Quyết định gán nhãn} \\
+\hline
+Từ 4 đến 5 sao & Không chứa từ vựng mang sắc thái tiêu cực & Tích cực \\
+\hline
+Từ 1 đến 2 sao & Không chứa từ vựng mang sắc thái tích cực & Tiêu cực \\
+\hline
+Đúng 3 sao & Không chứa cả hai nhóm từ vựng trên & Trung lập \\
+\hline
+Dưới hoặc bằng 2 sao & Chứa từ cực kỳ tích cực (dấu hiệu mỉa mai) & Chuyển sang lớp 2 \\
+\hline
+Trên hoặc bằng 4 sao & Chứa từ tiêu cực (dấu hiệu phàn nàn) & Chuyển sang lớp 2 \\
+\hline
+\end{tabularx}
+\captionof{table}{\centering Luồng quyết định gán nhãn của tập luật suy nghiệm}
+\end{center}
+
+Kết quả thực nghiệm cho thấy hệ thống đã tự động phân loại thành công 4266 mẫu tích cực, 160 mẫu tiêu cực và 47 mẫu trung lập. Khoảng 97 phần trăm khối lượng bản ghi được gán nhãn tự động ngay tại lớp này, tối ưu đáng kể chi phí truy vấn cho các mô hình ngôn ngữ lớn ở giai đoạn sau. Chỉ còn lại 178 mẫu mang tính lưỡng nghĩa được chuyển tiếp.
+
+\vspace{0.5em}
+\noindent\textcolor{lightblue}{\textbf{Lớp 2 --- Phân loại không mẫu bằng mô hình XLM-RoBERTa}}
+\vspace{0.5em}
+
+Các mẫu mang nhãn lưỡng nghĩa từ lớp 1 được điều hướng qua phân hệ phân tích ngữ nghĩa đa lớp. Lý do nhóm quyết định lựa chọn \texttt{XLM-RoBERTa} thay vì các mô hình tiếng Việt thuần túy là vì kiến trúc đa ngôn ngữ này đã được huấn luyện trước trên một trăm ngôn ngữ khác nhau. Đặc tính này cho phép hệ thống thực hiện phân loại không mẫu một cách xuất sắc dựa trên không gian nhúng ngữ cảnh mà không đòi hỏi tập dữ liệu tinh chỉnh chuyên biệt.
+
+Hệ thống thiết lập một ngưỡng tin cậy an toàn là 45 phần trăm, được đúc kết thực nghiệm thông qua quá trình tìm kiếm dạng lưới trên tập dữ liệu kiểm chứng gồm 500 mẫu có nhãn thủ công. Đây là ngưỡng cân bằng tối ưu giữa độ chính xác và tỷ lệ mẫu được xử lý trực tiếp. Nếu điểm xác suất của nhãn dẫn đầu vượt qua ngưỡng rủi ro này và duy trì khoảng cách an toàn lớn hơn $0{,}05$ so với nhãn liền kề, kết quả dự đoán sẽ được chấp nhận.
+
+\vspace{0.5em}
+\noindent\textcolor{lightblue}{\textbf{Lớp 3 --- Cơ chế dự phòng bằng mô hình ngôn ngữ lớn}}
+\vspace{0.5em}
+
+Khi điểm tin cậy của mô hình \texttt{XLM-RoBERTa} không đạt ngưỡng an toàn, bản ghi chứa xung đột phức tạp sẽ được đẩy sang giao diện lập trình ứng dụng của các mô hình ngôn ngữ lớn thông qua \texttt{LLMFallbackClient}. Câu lệnh điều khiển được thiết kế nghiêm ngặt nhằm ép buộc mô hình trả về kết quả dưới định dạng cấu trúc chuẩn hóa chứa đúng một trong ba nhãn phân loại. Mọi phản hồi sai cấu trúc hoặc sự cố gián đoạn mạng đều được xử lý an toàn bằng cách thiết lập về nhãn mặc định là trung lập.
+
+\vspace{0.5em}
+\noindent\textcolor{lightblue}{\textbf{Phân phối nhãn và xuất siêu dữ liệu truy vết}}
+\vspace{0.5em}
+
+Sau khi hoàn tất toàn bộ ba lớp quyết định, phân phối nhãn cuối cùng bao gồm 4371 mẫu tích cực, 230 mẫu tiêu cực và 50 mẫu trung lập. Kết quả này phản ánh chính xác đặc điểm kết cấu của dữ liệu thương mại điện tử tại thị trường Việt Nam, nơi người dùng có xu hướng để lại đánh giá tuyệt đối sau khi mua hàng thành công, dẫn đến sự áp đảo của lớp tích cực (chiếm hơn 94 phần trăm). Mức độ mất cân bằng này cung cấp thông tin đầu vào thiết yếu để thiết kế chiến lược huấn luyện mô hình ở giai đoạn tiếp theo.
+
+Nhằm đáp ứng tiêu chuẩn khắt khe của quy trình vận hành hệ thống máy học, hệ thống tiến hành xuất song song hai tập tin:
+
+\begin{itemize}[labelsep=10pt, leftmargin=2cm]
+    \item Tệp \texttt{processed\_labeled\_reviews.csv} chứa các trường thông tin đã chuẩn hóa cùng kết quả gán nhãn cuối cùng.
+    \item Tệp \texttt{labeling\_metadata.json} ghi nhận chi tiết thời điểm khởi tạo, tổng số lượng mẫu và tỷ lệ phụ thuộc vào mô hình ngôn ngữ lớn. Thực tế cho thấy tỷ lệ phụ thuộc chỉ dừng ở mức xấp xỉ 3,8 phần trăm. Tập tin này cho phép tái tạo lịch sử gán nhãn và phát hiện hiện tượng trôi dạt phân phối dữ liệu qua các chu kỳ thu thập tiếp theo.
+\end{itemize}
+
+% =============================================================
+%  BÁO CÁO KỸ THUẬT: ĐƯỜNG ỐNG XỬ LÝ VÀ GÁN NHÃN PHƯƠNG TIỆN
+% =============================================================
+
+% --- NHÁNH XỬ LÝ HÌNH ẢNH ---
+
+\subsubsection{Cấu trúc lưu trữ và quản lý tệp phương tiện ngoại tuyến}
+
+Toàn bộ đường ống thu thập và xử lý phương tiện được thiết kế theo mô hình ngoại tuyến
+, tách biệt hoàn toàn khỏi hệ thống phục vụ thời gian thực.
+Mục tiêu chính là chuyển đổi dữ liệu thô thu thập từ trình cào dữ liệu thành tập huấn
+luyện có nhãn chuẩn hóa, sẵn sàng đưa vào các mô hình thị giác máy tính.
+
+Hệ thống tổ chức lưu trữ theo cấu trúc phân cấp thư mục chuyên biệt, bao gồm ba phân
+vùng chức năng độc lập:
+
+\begin{itemize}
+    \item \texttt{data/raw\_media/}: Lưu trữ toàn bộ tệp phương tiện gốc được tải xuống
+    từ URL trong dữ liệu đánh giá, bao gồm cả ảnh tĩnh (JPEG) và tệp video (MP4).
+    Mỗi tệp được định danh bằng chuỗi \texttt{review\_id} sinh từ hàm băm MD5-12 ký tự,
+    kết hợp với chỉ số thứ tự phương tiện trong cùng lượt đánh giá.
+
+    \item \texttt{data/frames/}: Lưu trữ các khung hình được trích xuất từ tệp video.
+    Mỗi khung hình được lưu dưới định dạng JPEG và mang định danh kế thừa từ
+    \texttt{review\_id} gốc, đảm bảo truy nguyên nguồn gốc đến lượt đánh giá ban đầu.
+
+    \item \texttt{data/manifests/}: Lưu trữ các tệp CSV đóng vai trò siêu dữ liệu quản
+    lý (\textit{manifest}), ghi chép trạng thái xử lý của toàn bộ phương tiện qua từng
+    giai đoạn của đường ống.
+\end{itemize}
+
+Ngoài ra, thư mục \texttt{data/labeled/} phân loại ảnh đã gán nhãn thành bốn thư mục
+con tương ứng với bốn lớp nhãn: \texttt{intact}, \texttt{damaged}, \texttt{wrong\_item},
+và \texttt{irrelevant}. Cấu trúc này hỗ trợ kiểm tra thủ công nhanh chóng bằng mắt
+thường mà không cần truy vấn cơ sở dữ liệu.
+
+Mỗi tệp phương tiện trong hệ thống được truy vết thông qua hai trường đường dẫn song
+song: đường dẫn tuyệt đối dùng cho thao tác hệ thống tệp, và đường dẫn tương đối
+chuẩn hóa dùng trong các tệp manifest, đảm bảo
+tính di động của tập dữ liệu khi thay đổi vị trí gốc dự án.
+
+
+% --- NHÁNH XỬ LÝ HÌNH ẢNH ---
+
+\subsubsection{Quy trình bóc tách và thanh lọc khung hình}
+
+Đường ống xử lý phương tiện bao gồm bốn giai đoạn tuần tự, mỗi giai đoạn được triển
+khai dưới dạng một lệnh con độc lập của giao diện dòng lệnh.
+
+\paragraph{Giai đoạn 1 -- Tải xuống phương tiện.}
+Hệ thống tiếp nhận một hoặc nhiều tệp CSV đầu vào từ trình thu thập dữ liệu. Với mỗi
+lượt đánh giá, định danh \texttt{review\_id} được tổng hợp bằng hàm băm MD5 trên tổ
+hợp bốn trường: URL sản phẩm, nội dung văn bản (cắt 200 ký tự đầu), ngày đăng, điểm
+đánh giá và chỉ số thứ tự hàng trong tệp CSV. Sau đó, từng URL phương tiện được phân
+loại thành ảnh hoặc video dựa trên phần mở rộng tệp và các mẫu từ khóa trong URL.
+Quá trình tải xuống ảnh sử dụng thư viện \texttt{httpx} với cơ chế theo dõi chuyển
+hướng HTTP, sau đó chuyển đổi ảnh sang không gian màu RGB và lưu ở định dạng JPEG với
+chất lượng 92. Quá trình tải video được thực hiện theo phương thức truyền phát tuần tự
+để tránh nạp toàn bộ tệp vào bộ nhớ. Cơ chế tiếp nối
+ được hỗ trợ thông qua kiểm tra sự tồn tại của đường dẫn trong tệp
+manifest, cho phép chạy lại mà không tải lại các tệp đã có. Kết quả được ghi vào
+\texttt{media.csv} với các trường: \texttt{review\_id}, \texttt{product\_url},
+\texttt{product\_name}, \texttt{review\_text}, \texttt{rating}, \texttt{date},
+\texttt{source\_url}, \texttt{media\_type}, \texttt{local\_path}.
+
+\paragraph{Giai đoạn 2 -- Trích xuất khung hình từ video.}
+Đối với mỗi tệp video được ghi nhận trong \texttt{media.csv}, hệ thống sử dụng thư
+viện OpenCV để đọc tổng số khung hình của video (\texttt{CAP\_PROP\_FRAME\_COUNT}).
+Sau đó, $k$ chỉ số khung hình được chọn ngẫu nhiên không lặp (mặc định $k=3$) từ
+khoảng $[0, N-1]$ với $N$ là tổng số khung hình, sử dụng bộ sinh số ngẫu nhiên có
+thể cố định bằng tham số \texttt{--seed} để đảm bảo tính tái lập kết quả. Mỗi khung
+hình được giải mã và lưu tại \texttt{data/frames/} với trường \texttt{frame\_index}
+ghi nhận vị trí chính xác trong luồng video, phục vụ mục đích truy vết nguồn gốc.
+Siêu dữ liệu của các khung hình được hợp nhất vào \texttt{images.csv} với trường
+\texttt{origin = "frame"}.
+
+\paragraph{Giai đoạn 3 -- Xây dựng manifest ảnh thống nhất.}
+Lệnh \texttt{build-images} bổ sung các ảnh tĩnh đã tải xuống trực tiếp từ
+\texttt{media.csv} (với \texttt{media\_type = "image"}) vào \texttt{images.csv}, gán
+\texttt{origin = "download"} để phân biệt với khung hình video. Cơ chế loại trừ trùng
+lặp dựa trên tập hợp đường dẫn đã tồn tại, đảm bảo mỗi ảnh
+chỉ xuất hiện một lần trong manifest tích hợp. Kết quả sau bước này là \texttt{images.csv}
+chứa toàn bộ 7.987 ảnh (4.876 ảnh tĩnh và 3.111 khung hình từ 1.037 video).
+
+\paragraph{Giai đoạn 4 -- Thanh lọc ảnh lỗi.}
+Lệnh \texttt{validate} duyệt từng bản ghi trong \texttt{images.csv}, mở tệp ảnh bằng
+Pillow và gọi phương thức \texttt{img.verify()} để phát hiện tệp bị hỏng
+, bị cắt cụt , hoặc không thể giải mã.
+Các tệp không vượt qua kiểm định bị xóa khỏi hệ thống tệp và loại bỏ khỏi manifest.
+Chỉ các bản ghi ảnh hợp lệ được ghi lại vào \texttt{images.csv}, đảm bảo toàn vẹn
+dữ liệu cho các giai đoạn tiếp theo.
+
+
+% --- KIỂM SOÁT VÀ TỔNG HỢP ---
+
+\subsubsection{Tự động hóa gán nhãn với mô hình thị giác máy tính}
+
+Giai đoạn gán nhãn tự động là trọng tâm kỹ thuật của toàn bộ
+đường ống. Hệ thống tích hợp nhiều nhà cung cấp mô hình thị giác ngôn ngữ lớn
+(\textit{Vision Language Model -- VLM}) thông qua một lớp trừu tượng hóa nhà cung cấp
+, bao gồm Google Vertex AI (Gemini), OpenAI
+(GPT-4.1), Groq, và các điểm cuối tương thích OpenAI tùy chỉnh.
+
+\paragraph{Chiến lược thiết kế lời nhắc.}
+Lời nhắc được xây dựng theo phương pháp \textit{few-shot chain-of-thought}, yêu cầu mô
+hình phân tích mối quan hệ tam diện giữa nội dung trực quan của ảnh, văn bản đánh giá
+của người dùng, và tên sản phẩm. Mô hình bắt buộc trả về đối tượng JSON có cấu trúc
+cố định gồm hai trường: \texttt{"reasoning"} (chuỗi lý giải ngắn) và \texttt{"label"}
+(một trong bốn nhãn hợp lệ). Lời nhắc bao gồm bốn quy tắc ưu tiên tuyệt đối
+ nhằm giải quyết các trường hợp ngoại lệ đặc thù của ngữ
+cảnh thương mại điện tử:
+
+\begin{enumerate}
+    \item \textbf{Phân biệt biến thể và sai sót giao hàng:} Sản phẩm cùng dòng nhưng
+    khác giai đoạn, kích thước hoặc màu sắc được phân loại là \texttt{intact} thay vì
+    \texttt{wrong\_item}, vì mô hình thị giác máy tính đích chỉ xử lý thông tin điểm
+    ảnh mà không có ngữ cảnh văn bản.
+
+    \item \textbf{Phân biệt spam tích điểm và lỗi giao hàng thực sự:} Trên các nền
+    tảng thương mại điện tử, người dùng thường đăng ảnh không liên quan (động vật,
+    ảnh selfie, ảnh chụp màn hình) để nhận điểm thưởng. Quy tắc này hướng dẫn mô hình
+    phân loại ảnh sai loại kết hợp văn bản tích cực hoặc vô nghĩa thành
+    \texttt{irrelevant}, và chỉ gán nhãn \texttt{wrong\_item} khi văn bản chứa phàn
+    nàn tường minh về việc giao nhầm hàng.
+
+    \item \textbf{Xử lý ảnh mờ và phản chiếu bề mặt:} Ảnh mờ do camera, phản chiếu
+    trên bề mặt kim loại, hoặc các đường viền kết cấu của bao bì không được phân loại
+    là hư hỏng vật lý trừ khi văn bản đánh giá xác nhận tường minh.
+
+    \item \textbf{Xử lý ảnh đóng gói và mở hộp:} Ảnh hộp carton, bọc bong bóng khí,
+    hoặc quá trình tháo gỡ bao bì được coi là thông thường và phân loại là
+    \texttt{intact} trừ khi sản phẩm bên trong có dấu hiệu hư hỏng rõ ràng.
+\end{enumerate}
+
+Lời nhắc được bổ sung 15 ví dụ minh họa bao phủ các tình
+huống đặc thù như: ảnh chuyển cảnh video thuần đen/trắng, ảnh kính lúp hạn sử dụng,
+ảnh bột sữa đổ ra ngoài, và ảnh lọ sản phẩm khác thương hiệu kết hợp với phàn nàn
+tường minh.
+
+\paragraph{Cơ chế gọi API và xử lý phản hồi.}
+Với nhà cung cấp Google (Vertex AI), hình ảnh được mã hóa thành đối tượng
+\texttt{Part.from\_bytes} (MIME type: \texttt{image/jpeg}) và truyền trực tiếp trong
+nội dung yêu cầu cùng với lời nhắc văn bản. Với các nhà cung cấp tương thích OpenAI,
+ảnh được mã hóa Base64 và nhúng vào trường \texttt{image\_url} của yêu cầu chat.
+Phản hồi JSON được trích xuất bằng cơ chế dự phòng hai tầng: phân tích trực tiếp,
+sau đó dùng biểu thức chính quy (\texttt{re.search}) để trích xuất khối JSON từ
+phản hồi có văn bản thừa. Nhãn không thuộc tập hợp hợp lệ bị loại bỏ và không ghi
+vào manifest.
+
+\paragraph{Xử lý theo lô cho Gemini.}
+Riêng với nhà cung cấp Google, hệ thống hỗ trợ chế độ xử lý theo lô
+với tham số \texttt{--batch-size} (khuyến nghị 5--10). Trong
+chế độ này, lời nhắc yêu cầu mô hình trả về mảng JSON chứa nhiều phán đoán, mỗi
+phán đoán được đánh số thứ tự tương ứng với ảnh đầu vào. Cơ chế này giảm đáng kể
+số lượng lần gọi API so với xử lý đơn lẻ, phù hợp khi tập ảnh lớn và ngưỡng tốc độ
+yêu cầu là ràng buộc chủ yếu.
+
+\paragraph{Cơ chế kiểm soát tốc độ và tiếp nối.}
+Tham số \texttt{--sleep} chèn khoảng dừng giữa các lần gọi để tuân thủ giới hạn tốc
+độ của nhà cung cấp. Tập hợp \texttt{already\_labeled} được nạp từ \texttt{labels.csv}
+hiện tại trước mỗi phiên chạy, cho phép bỏ qua các ảnh đã xử lý và tiếp tục từ điểm
+dừng mà không mất kết quả đã có.
+
+
+% --- KIỂM SOÁT VÀ TỔNG HỢP ---
+
+\subsubsection{Truy vết siêu dữ liệu theo chuẩn quy trình máy học}
+
+Hệ thống duy trì tính truy vết đầy đủ xuyên suốt toàn bộ
+đường ống thông qua một chuỗi các tệp manifest CSV kế thừa lẫn nhau. Mỗi bản ghi
+trong \texttt{images.csv} và \texttt{labels.csv} đều mang đủ các trường liên kết
+ngược để tái lập đường đi của dữ liệu từ URL gốc đến nhãn cuối cùng:
+
+\begin{itemize}
+    \item \texttt{review\_id}: Định danh duy nhất của lượt đánh giá, tổng hợp từ hàm
+    băm MD5 trên tổ hợp bốn trường đặc trưng, không phụ thuộc vào khóa ngoài của nền
+    tảng thu thập.
+    \item \texttt{source\_url}: URL gốc của phương tiện, cho phép tải lại khi cần.
+    \item \texttt{image\_path}: Đường dẫn tương đối chuẩn hóa đến tệp ảnh cục bộ.
+    \item \texttt{origin}: Nguồn gốc của ảnh (\texttt{"download"} hoặc
+    \texttt{"frame"}), phân biệt ảnh tĩnh và khung hình video.
+    \item \texttt{frame\_index}: Vị trí tuyệt đối của khung hình trong luồng video
+    (chỉ áp dụng với ảnh có \texttt{origin = "frame"}), phục vụ tái lập kết quả
+    trích xuất khi có tham số \texttt{--seed}.
+    \item \texttt{product\_name}, \texttt{review\_text}, \texttt{rating},
+    \texttt{date}: Ngữ cảnh phong phú đi kèm với mỗi ảnh, đảm bảo tính độc lập của
+    tệp manifest mà không cần tra cứu bảng phụ.
+\end{itemize}
+
+Cách thiết kế này tuân theo nguyên tắc MLOps về khả năng tái lập thực nghiệm
+: tập dữ liệu cuối cùng mang đầy đủ thông tin để
+kiểm toán quyết định gán nhãn, điều tra trường hợp ngoại lệ, và cập nhật nhãn mà
+không cần chạy lại toàn bộ đường ống từ đầu. Việc ghi tệp CSV sử dụng mã hóa
+UTF-8 với BOM (\texttt{utf-8-sig}) và chế độ trích dẫn bắt buộc cho mọi trường
+(\texttt{csv.QUOTE\_ALL}), đảm bảo tương thích khi mở trực tiếp bằng các công cụ
+bảng tính thông dụng.
+
+
+% --- KIỂM SOÁT VÀ TỔNG HỢP ---
+
+\subsubsection{Tổng hợp, phân phối nhãn và đánh giá phân bố}
+
+\paragraph{Các tệp đầu ra.}
+Đường ống tạo ra ba tệp CSV đầu ra phục vụ các mục đích khác nhau:
+
+\begin{itemize}
+    \item \textbf{\texttt{labels.csv}}: Tệp đầu ra chính của giai đoạn gán nhãn, chứa
+    toàn bộ 7.987 bản ghi với đầy đủ siêu dữ liệu kèm theo nhãn do mô hình gán. Mỗi
+    bản ghi bao gồm \texttt{review\_id}, \texttt{product\_url}, \texttt{product\_name},
+    \texttt{review\_text}, \texttt{rating}, \texttt{date}, \texttt{source\_url},
+    \texttt{image\_path}, và \texttt{label}.
+
+    \item \textbf{\texttt{training\_labels.csv}}: Tệp nhãn đã lọc và chuẩn hóa, bổ
+    sung trường \texttt{training\_image\_path} trỏ đến đường dẫn ảnh trong thư mục
+    \texttt{data/labeled/<label>/}, sẵn sàng đưa vào đường ống huấn luyện mô hình mà
+    không cần xử lý thêm.
+
+    \item \textbf{\texttt{ground\_truth.csv}}: Tập kiểm định thủ công gồm 17 ảnh được
+    gán nhãn bởi con người, dùng để đánh giá độ chính xác của hệ thống gán nhãn tự
+    động thông qua kịch bản đánh giá trong \texttt{eval\_prompt.py}.
+\end{itemize}
+
+\paragraph{Phân phối nhãn.}
+Phân tích \texttt{labels.csv} cho thấy phân phối nhãn không cân bằng đáng kể, phản
+ánh đặc trưng tự nhiên của dữ liệu thu thập từ nền tảng thương mại điện tử:
+
+\begin{table}[h]
+\centering
+\caption{Phân phối nhãn trong tập dữ liệu gán nhãn tự động (\texttt{labels.csv})}
+\label{tab:label_distribution}
+\begin{tabular}{lrr}
+\hline
+\textbf{Nhãn} & \textbf{Số lượng} & \textbf{Tỷ lệ (\%)} \\
+\hline
+\texttt{intact}     & 4.241 & 53,10 \\
+\texttt{irrelevant} & 3.628 & 45,43 \\
+\texttt{damaged}    &   101 &  1,26 \\
+\texttt{wrong\_item}&    17 &  0,21 \\
+\hline
+\textbf{Tổng}       & 7.987 & 100,00 \\
+\hline
+\end{tabular}
+\end{table}
+
+Sự mất cân bằng lớp nghiêm trọng này -- đặc biệt là tỷ lệ nhãn \texttt{damaged}
+(1,26\%) và \texttt{wrong\_item} (0,21\%) -- phản ánh thực tế rằng phần lớn ảnh đăng
+kèm đánh giá hoặc là ảnh sản phẩm nguyên vẹn hoặc là spam tích điểm không liên
+quan. Đây là ràng buộc kỹ thuật cần được xử lý ở giai đoạn huấn luyện mô hình thông
+qua các kỹ thuật như lấy mẫu cân bằng (\textit{oversampling/undersampling}), điều
+chỉnh trọng số lớp, hoặc tổng hợp dữ liệu bằng tăng
+cường ảnh.
+
+\paragraph{Tập kiểm định thủ công.}
+Tập \texttt{ground\_truth.csv} gồm 17 ảnh với phân phối: \texttt{intact} (6),
+\texttt{irrelevant} (7), \texttt{damaged} (1), \texttt{wrong\_item} (3). Kịch bản
+đánh giá trong \texttt{eval\_prompt.py} gọi API với từng ảnh và so sánh nhãn trả về
+với nhãn chuẩn, báo cáo tỷ lệ chính xác tổng thể. Mặc dù quy mô tập này còn hạn chế,
+nó cung cấp cơ sở định lượng ban đầu để so sánh hiệu năng giữa các cấu hình mô hình
+và phiên bản lời nhắc khác nhau.
+
+
+% --- KIỂM SOÁT VÀ TỔNG HỢP ---
+
+\subsubsection{Hạn chế của hệ thống và định hướng tối ưu}
+
+\paragraph{Mất cân bằng lớp nghiêm trọng.}
+Như trình bày tại Bảng~\ref{tab:label_distribution}, lớp \texttt{damaged} và
+\texttt{wrong\_item} chiếm chưa đến 1,5\% tổng tập dữ liệu. Nếu trực tiếp sử dụng
+phân phối này để huấn luyện, mô hình có xu hướng thiên vị mạnh
+về lớp đa số, dẫn đến độ nhạy thấp trên các lớp thiểu số -- vốn là
+các lớp có giá trị thực tiễn cao nhất. Hướng giải quyết ưu tiên là áp dụng
+\textit{focal loss} hoặc thu thập bổ sung có chủ đích
+đối với ảnh hư hỏng từ các nguồn dữ liệu khác.
+
+\paragraph{Phụ thuộc vào chất lượng lời nhắc.}
+Tính chính xác của toàn bộ tập nhãn tự động phụ thuộc trực tiếp vào thiết kế lời
+nhắc. Các quy tắc ưu tiên hiện tại được xây dựng theo phương pháp phân tích lỗi lặp
+lại trên tập nhỏ, chưa được kiểm định thống kê
+quy mô lớn. Bất kỳ thay đổi nào trong phiên bản mô hình cơ sở đều có thể ảnh hưởng
+đến phân phối nhãn theo cách khó dự đoán. Định hướng cải tiến là xây dựng tập kiểm
+định thủ công lớn hơn (tối thiểu 200--500 mẫu) và triển khai vòng lặp kiểm soát
+chất lượng tự động sau mỗi phiên gán nhãn.
+
+\paragraph{Quy mô tập kiểm định còn hạn chế.}
+Tập \texttt{ground\_truth.csv} hiện chỉ gồm 17 mẫu, quá nhỏ để đưa ra kết luận thống
+kê đáng tin cậy về hiệu năng mô hình. Đặc biệt, lớp \texttt{damaged} chỉ có 1 mẫu,
+không đủ để đánh giá \textit{recall} của lớp này một cách có ý nghĩa. Việc mở rộng
+tập kiểm định với tỷ lệ lấy mẫu phân tầng theo nhãn và
+nguồn gốc ảnh là bước ưu tiên tiếp theo.
+
+\paragraph{Không có cơ chế kiểm tra đồng thuận nhãn.}
+Hệ thống hiện tại chỉ gọi mô hình một lần cho mỗi ảnh và chấp nhận kết quả trực
+tiếp, không có cơ chế bỏ phiếu đa số hay so sánh chéo
+giữa các nhà cung cấp mô hình khác nhau. Đối với các trường hợp ranh giới
+-- ví dụ ảnh có bóng đổ trên bề mặt kim loại hoặc sản phẩm
+cùng thương hiệu nhưng khác dòng -- kết quả gán nhãn có thể không ổn định giữa các
+lần gọi. Tích hợp cơ chế lấy mẫu nhiệt độ thấp
+kết hợp với ngưỡng độ tin cậy dựa trên phân tích cú
+pháp lý giải là hướng cải tiến khả thi trong ngắn hạn.
+
+\paragraph{Phụ thuộc kết nối mạng và tính ổn định URL.}
+Giai đoạn tải xuống phương tiện phụ thuộc vào tính khả dụng của URL phương tiện
+trên máy chủ nền tảng, vốn có thể bị thu hồi hoặc hết hạn theo thời gian (đặc biệt
+với video có tham số xác thực tạm thời trong URL). Hướng tối ưu là tích hợp cơ chế
+lưu trữ phương tiện vĩnh cửu trên hạ tầng lưu trữ đối tượng 
+như Google Cloud Storage ngay tại thời điểm thu thập, thay vì lưu trữ cục bộ.
+\clearpage

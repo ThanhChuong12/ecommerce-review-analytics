@@ -60,8 +60,8 @@ from sklearn.preprocessing import StandardScaler
 
 from ai_engine.text_processing.spam_filter import detect_spam
 
-# ── Import feature builder from train_spam_model ─────────────────────────────
-from scripts.train_spam_model import (
+# ── Import feature builder from spam_model ─────────────────────────────
+from ai_engine.text_processing.spam_model import (
     build_feature_matrix,
     extract_structural_features,
     SpamHybridModel,

@@ -280,9 +280,7 @@ function AnalyzeContent() {
       ],
       labelData: [
         { name: 'Nguyên vẹn', value: labels.intact },
-        { name: 'Móp méo', value: labels.damaged },
-        { name: 'Sai hàng', value: labels.wrong_item },
-        { name: 'Không liên quan', value: labels.irrelevant }
+        { name: 'Móp méo', value: labels.damaged }
       ]
     };
   }, [result]);
@@ -624,8 +622,6 @@ function AnalyzeContent() {
                           <option value="all">Mọi tình trạng ảnh</option>
                           <option value="intact">Nguyên vẹn</option>
                           <option value="damaged">Móp méo</option>
-                          <option value="wrong_item">Sai hàng</option>
-                          <option value="irrelevant">Không liên quan</option>
                         </select>
                         <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterRating} onChange={e => setFilterRating(e.target.value)}>
                           <option value="all">Mọi rating</option>
@@ -670,8 +666,18 @@ function AnalyzeContent() {
                                     </span>
                                   </td>
                                   <td className="px-4 py-4">
-                                    <span className={`px-2 py-1 rounded font-semibold ${r.label === 'intact' ? 'text-emerald-700 dark:text-emerald-400' : r.label === 'damaged' ? 'text-rose-700 dark:text-rose-400' : r.label === 'wrong_item' ? 'text-amber-700 dark:text-amber-400' : 'text-slate-700 dark:text-slate-300'}`}>
-                                      {r.label === 'intact' ? 'Nguyên vẹn' : r.label === 'damaged' ? 'Móp méo' : r.label === 'wrong_item' ? 'Sai hàng' : 'Không liên quan'}
+                                    <span className={`px-2 py-1 rounded font-semibold ${
+                                      !r.image_path ? 'text-slate-400 dark:text-slate-500' :
+                                      r.label === 'intact' ? 'text-emerald-700 dark:text-emerald-400' : 
+                                      r.label === 'damaged' ? 'text-rose-700 dark:text-rose-400' : 
+                                      r.label === 'wrong_item' ? 'text-amber-700 dark:text-amber-400' : 
+                                      'text-slate-700 dark:text-slate-300'
+                                    }`}>
+                                      {!r.image_path ? 'Không có ảnh' : 
+                                       r.label === 'intact' ? 'Nguyên vẹn' : 
+                                       r.label === 'damaged' ? 'Móp méo' : 
+                                       r.label === 'wrong_item' ? 'Sai hàng' : 
+                                       'Không liên quan'}
                                     </span>
                                   </td>
                                 </tr>
@@ -689,8 +695,18 @@ function AnalyzeContent() {
                         <div key={idx} className="relative aspect-square rounded-xl overflow-hidden cursor-pointer group border-2 border-transparent hover:border-blue-500 transition-all" onClick={() => setSelectedImage(r)}>
                           <img src={r.image_path} alt="review" className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-80 transition-opacity flex items-center justify-center">
-                            <span className={`px-2 py-1 rounded text-xs font-bold ${r.label === 'intact' ? 'bg-emerald-500 text-white' : r.label === 'damaged' ? 'bg-rose-500 text-white' : r.label === 'wrong_item' ? 'bg-amber-500 text-white' : 'bg-slate-500 text-white'}`}>
-                              {r.label === 'intact' ? 'OK' : r.label === 'damaged' ? 'Hỏng' : r.label === 'wrong_item' ? 'Sai' : 'Không liên quan'}
+                            <span className={`px-2 py-1 rounded text-xs font-bold ${
+                              !r.image_path ? 'bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400' :
+                              r.label === 'intact' ? 'bg-emerald-500 text-white' : 
+                              r.label === 'damaged' ? 'bg-rose-500 text-white' : 
+                              r.label === 'wrong_item' ? 'bg-amber-500 text-white' : 
+                              'bg-slate-500 text-white'
+                            }`}>
+                              {!r.image_path ? 'Không có ảnh' : 
+                               r.label === 'intact' ? 'OK' : 
+                               r.label === 'damaged' ? 'Hỏng' : 
+                               r.label === 'wrong_item' ? 'Sai' : 
+                               'Không liên quan'}
                             </span>
                           </div>
                         </div>
@@ -758,12 +774,6 @@ function AnalyzeContent() {
             >
               <div className="md:w-2/3 bg-black relative flex items-center justify-center min-h-[300px]">
                 <img src={selectedImage.image_path} alt="Review full" className="max-w-full max-h-[70vh] object-contain" />
-                {/* Mock bounding box if damaged */}
-                {selectedImage.label === 'damaged' && (
-                  <div className="absolute border-2 border-rose-500 bg-rose-500/20" style={{ top: '30%', left: '30%', width: '40%', height: '40%' }}>
-                    <div className="absolute -top-6 left-0 bg-rose-500 text-white text-xs px-2 py-1 font-bold">Damaged 98%</div>
-                  </div>
-                )}
               </div>
               <div className="md:w-1/3 p-6 flex flex-col font-quicksand">
                 <div className="flex justify-between items-start mb-4">

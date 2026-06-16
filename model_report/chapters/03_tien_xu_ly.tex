@@ -1,0 +1,31 @@
+\section{Lựa chọn Mô hình \& Kiến trúc}
+% Lưu ý chung: Phần này phải đảm bảo trình bày ít nhất 3 mô hình.
+
+\subsection{Mô hình Cơ sở (Baseline) - Ensemble Machine Learning}
+% Ghi chú:
+% - Nêu tên thuật toán: Soft-Voting Ensemble kết hợp Logistic Regression, SVM, và Random Forest.
+% - Lý do lựa chọn: Tạo điểm chuẩn (benchmark) nhanh, nhẹ, bù trừ khuyết điểm của nhau trên không gian vector thưa TF-IDF.
+
+\subsection{Mô hình Học sâu Văn bản - PhoBERT}
+% Ghi chú:
+% - Lý do lựa chọn: Khả năng xử lý ngữ cảnh sâu (Contextual Embeddings) và hiểu từ lóng tiếng Việt vượt trội.
+% - Kiến trúc chi tiết: Vẽ sơ đồ kiến trúc Transformer.
+% - Mô tả: Nêu số lượng tham số của bản PhoBERT-base (135M parameters) và hàm kích hoạt Softmax ở lớp Output cuối cùng. (Lưu ý phải trích dẫn bài báo gốc của PhoBERT).
+
+\subsection{Mô hình Phát hiện Spam/Seeding - Hybrid Isolation Forest}
+% Ghi chú (MỚI THÊM):
+% - Trình bày kiến trúc Lai (Hybrid): Kết hợp Rule-based Score (dựa trên 21 rules như ai_template, xu_farming) và Thuật toán học không giám sát Isolation Forest.
+% - Nêu lý do chọn Isolation Forest: Khả năng phát hiện các điểm bất thường (anomalies) từ 9 đặc trưng cấu trúc văn bản (word_count, emoji_ratio, TTR...) mà các quy tắc Rule-based cứng nhắc có thể bỏ sót đối với các hành vi seeding tinh vi.
+% - Phương pháp quyết định: Final Label = Rule-based Spam OR Isolation Forest Anomaly.
+
+\subsection{Mô hình Thị giác Máy tính - ResNet50 / CLIP}
+% Ghi chú:
+% - Lý do lựa chọn: ResNet50 mạnh mẽ trong phân loại hỏng hóc vật lý (Transfer Learning), CLIP phù hợp cho Zero-shot phát hiện ảnh không liên quan (ảnh rác).
+% - Kiến trúc: Sơ đồ trích xuất đặc trưng của CNN.
+
+\subsection{Kiến trúc Khớp nối Đa phương thức (Cross-Modal Fusion)}
+% Ghi chú:
+% - Trình bày luồng thuật toán Late Fusion (Dung hợp xác suất).
+% - Cung cấp công thức hoặc sơ đồ luồng tính toán Trust Score từ Text (PhoBERT) và Image (ResNet).
+
+\clearpage

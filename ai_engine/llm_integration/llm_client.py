@@ -140,11 +140,11 @@ class BaseLLMClient:
         provider_chain: Optional[List[str]] = None,
         timeout: float = 15.0,
     ) -> None:
-        self.provider_chain = provider_chain or ["gemini", "groq", "openai"]
+        self.provider_chain = provider_chain or ["groq", "gemini", "openai"]
         self.timeout = timeout
         self.system_prompt = ""
         self.temperature = 0.0
-        self.max_tokens = 30
+        self.max_tokens = 1500
         self.response_format: Optional[str] = None
 
     def _call_provider(self, provider: str, user_prompt: str) -> str:
@@ -169,11 +169,9 @@ class BaseLLMClient:
 
         genai.configure(api_key=api_key)
 
-        generation_config: Dict[str, Any] = {"temperature": self.temperature}
+        generation_config: Dict[str, Any] = {"temperature": self.temperature, "max_output_tokens": self.max_tokens}
         if self.response_format == "json_object":
             generation_config["response_mime_type"] = "application/json"
-        else:
-            generation_config["max_output_tokens"] = self.max_tokens
 
         model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
         model = genai.GenerativeModel(
@@ -208,8 +206,7 @@ class BaseLLMClient:
 
         if self.response_format == "json_object":
             kwargs["response_format"] = {"type": "json_object"}
-        else:
-            kwargs["max_tokens"] = self.max_tokens
+        kwargs["max_tokens"] = self.max_tokens
 
         response = client.chat.completions.create(**kwargs)
         return response.choices[0].message.content or ""
@@ -237,8 +234,7 @@ class BaseLLMClient:
 
         if self.response_format == "json_object":
             kwargs["response_format"] = {"type": "json_object"}
-        else:
-            kwargs["max_tokens"] = self.max_tokens
+        kwargs["max_tokens"] = self.max_tokens
 
         response = client.chat.completions.create(**kwargs)
         return response.choices[0].message.content or ""
