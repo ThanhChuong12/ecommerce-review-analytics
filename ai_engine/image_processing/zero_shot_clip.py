@@ -1,30 +1,29 @@
 """
 zero_shot_clip.py
 -----------------
-Pipeline Zero-shot Classification bằng CLIP (OpenAI) để nhận diện
-và lọc ảnh rác/ảnh không liên quan từ reviews sản phẩm TMĐT.
+Pipeline Zero-shot Classification bằng CLIP (OpenAI) để phân loại
+ảnh review sản phẩm TMĐT thành 2 nhóm:
 
-CLIP (Contrastive Language-Image Pretraining) so sánh ảnh với mô tả văn bản
-để phân loại mà KHÔNG cần training — chỉ dùng pretrained model.
+  1. product    → Ảnh sản phẩm / hộp hàng → đưa vào ResNet50
+  2. irrelevant → Ảnh không liên quan       → loại bỏ
 
-Chức năng:
-  - detect_irrelevant_image(): Phân loại 1 ảnh (relevant / irrelevant)
-  - filter_irrelevant_batch(): Lọc batch ảnh, trả về danh sách ảnh relevant
-  - classify_image_detail(): Phân loại chi tiết với confidence scores
+Pipeline tổng thể:
+    Ảnh review → CLIP (binary) → [product] → ResNet50 → defect / no-defect
+                                → [irrelevant] → loại bỏ
 
-Model: openai/clip-vit-base-patch32 (~350MB, auto-download từ HuggingFace)
+Model: openai/clip-vit-base-patch32 (ViT-B/32)
+  - Benchmark: thắng ViT-B/16 trên dataset thực tế (68% vs 60.5%)
+  - Nhẹ nhất (350MB), nhanh nhất (~100-180ms/img CPU)
+  - ~82 phút cho toàn bộ 27K ảnh
 
-Usage:
-    >>> from ai_engine.image_processing.zero_shot_clip import detect_irrelevant_image
-    >>> is_spam = detect_irrelevant_image("review_photo.jpg")  # True = ảnh rác
-
-    >>> from ai_engine.image_processing.zero_shot_clip import filter_irrelevant_batch
-    >>> relevant_paths = filter_irrelevant_batch(["img1.jpg", "img2.jpg", ...])
+Prompt Design v3 (HYBRID):
+  - PRODUCT: prompts RỘNG (cover mọi loại sản phẩm) → tối ưu product recall
+  - IRRELEVANT: prompts CỤ THỂ (dựa trên phân tích 35 ảnh bị lọt) → tối ưu irrelevant recall
 """
 
 import logging
 import os
-from typing import Optional
+from typing import Optional, List
 
 import torch
 from PIL import Image
@@ -35,32 +34,77 @@ _logger = logging.getLogger(__name__)
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
-# Model CLIP pretrained — nhẹ nhất, phù hợp zero-shot pre-filter
-_CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
+_CLIP_MODEL_NAME = os.getenv(
+    "CLIP_MODEL_NAME",
+    "openai/clip-vit-base-patch32"   # Thắng B/16 trên dataset thực tế
+)
 
-# Ngưỡng mặc định: ảnh có P(irrelevant) > threshold → coi là rác
-# 0.55 = hơi thiên về "giữ lại" — tránh false positive (loại nhầm ảnh tốt)
-# Có thể tuỳ chỉnh qua biến môi trường CLIP_IRRELEVANT_THRESHOLD
-_DEFAULT_THRESHOLD = float(os.getenv("CLIP_IRRELEVANT_THRESHOLD", "0.55"))
+# ── Prompt Sets v3 — HYBRID (broad product + specific irrelevant) ──────────
+#
+# Design rationale:
+#
+# v1 (old):  product=broad, irrelevant=basic
+#            → Product Recall 95% ✅, Irrelevant Recall 30% ❌
+#
+# v2 (new):  product=shipping-only, irrelevant=targeted
+#            → Product Recall 71% ❌ (quá hẹp!), Irrelevant Recall 60% ✅
+#
+# v3 (hybrid): product=broad (giữ v1), irrelevant=targeted (giữ v2)
+#              → Mục tiêu: Product Recall ≥90% VÀ Irrelevant Recall ≥50%
+#
+# CÂN BẰNG: 8 prompts mỗi nhóm (quan trọng vì dùng mean logit)
 
-# ── Prompt Sets ─────────────────────────────────────────────────────────────
-# Nhiều prompts → CLIP tính trung bình similarity → phân loại chính xác hơn
-
-RELEVANT_PROMPTS = [
-    "a photo of a product package or box",
-    "a product review image showing an item",
-    "a photo showing product condition or damage",
-    "an unboxing photo of a delivered product",
-    "a close-up photo of a physical product",
+# ── Nhóm 1: PRODUCT — Rộng, cover mọi loại sản phẩm ──
+# Giữ nguyên tinh thần v1 (đã đạt 95% product recall)
+# Mô tả: bất kỳ vật thể sản phẩm, hộp hàng, đóng gói nào
+PRODUCT_PROMPTS = [
+    # Hộp hàng & đóng gói (quan trọng nhất — đây là input cho ResNet50)
+    "a photo of a product package or cardboard shipping box",
+    "an unboxing photo showing a delivered parcel or package",
+    "a close-up photo of product packaging condition or damage",
+    # Sản phẩm thực tế (quần áo, điện tử, mỹ phẩm...)
+    "a sealed or wrapped product ready for delivery",
+    "a consumer product sitting on a table for inspection",
+    "a product photographed for an online shopping review",
+    # Phụ kiện đi kèm & bao bì
+    "a photo of a shipping container with labels or barcodes",
+    "a product being examined or held up for quality check",
 ]
 
+# ── Nhóm 2: IRRELEVANT — Cụ thể theo pattern dataset TMĐT Việt Nam ──
+# Dựa trên phân tích trực tiếp 35/50 ảnh irrelevant bị lọt:
+#   - Quần áo / tag quần áo → "person wearing/holding everyday item"
+#   - Chai nước sốt / đồ ăn → "food, drinks, cooked meal"
+#   - Sách / sticker / hình vẽ → "books, stickers, artwork"
+#   - Hoa / trang trí Tết → "flowers, festive decorations"
+#   - Thiệp / hóa đơn → "thank you card, receipt"
+#   - Xe máy / nội thất → "vehicle, furniture, room"
+#   - Selfie / đám đông → "selfie, group photo"
+#   - Screenshot / video frame → "screenshot, phone app"
 IRRELEVANT_PROMPTS = [
-    "a screenshot of a phone or computer screen",
-    "a selfie, pet photo, or random personal photo",
-    "a receipt, invoice, or document scan",
-    "a blank screen, black image, or solid color image",
-    "a food photo, scenery, or image unrelated to shopping",
+    # Người (selfie, đám đông, tay cầm đồ random)
+    "a selfie, portrait, or group photo of people without any product",
+    # Người đang dùng đồ (không phải review sản phẩm)
+    "a person wearing, holding, or using an everyday household item",
+    # Thực phẩm & đồ uống (chai nước sốt, đồ ăn, hoa quả)
+    "a photo of food, drinks, fruits, a cooked meal, or sauce bottle",
+    # Screenshot / giao diện / video frame
+    "a screenshot of a phone app, chat message, or video thumbnail",
+    # Hoa / quà tặng / trang trí / lễ hội Tết
+    "flowers, bouquets, gift baskets, festive decorations, or ornaments",
+    # Sách vở / sticker / hình vẽ / đồ học tập
+    "books, notebooks, stickers, drawings, or school supplies",
+    # Thiệp cảm ơn / hóa đơn / tờ rơi
+    "a thank you card, printed receipt, invoice, or promotional flyer",
+    # Xe / nội thất / cảnh ngoài trời / phòng ốc
+    "a room interior, furniture, vehicle, motorcycle, or outdoor scene",
 ]
+
+_N_PRODUCT = len(PRODUCT_PROMPTS)
+_N_IRRELEVANT = len(IRRELEVANT_PROMPTS)
+_ALL_PROMPTS = PRODUCT_PROMPTS + IRRELEVANT_PROMPTS
+
+_GROUP_LABELS = ["product", "irrelevant"]
 
 # ── Singleton Cache ─────────────────────────────────────────────────────────
 
@@ -85,74 +129,42 @@ def _load_clip_model() -> tuple:
     _clip_processor = CLIPProcessor.from_pretrained(_CLIP_MODEL_NAME)
     _clip_model.eval()
 
-    _logger.info("CLIP model loaded successfully.")
+    _logger.info("CLIP model loaded successfully (%d params).",
+                 sum(p.numel() for p in _clip_model.parameters()))
     return _clip_model, _clip_processor, _clip_device
 
 
-# ── Public API ──────────────────────────────────────────────────────────────
-
-def detect_irrelevant_image(
-    image_path: str,
-    threshold: float = None,
-) -> bool:
-    """Trả về True nếu ảnh KHÔNG liên quan đến sản phẩm.
-
-    Sử dụng CLIP zero-shot: so sánh ảnh với 2 nhóm text prompts
-    (relevant vs irrelevant) rồi tính xác suất trung bình.
+def reload_model(model_name: str = None) -> None:
+    """Force reload CLIP model (dùng khi muốn đổi model variant).
 
     Args:
-        image_path (str): Đường dẫn tới file ảnh.
-        threshold (float): Ngưỡng P(irrelevant) để phân loại.
-                           Mặc định: 0.55 (từ env CLIP_IRRELEVANT_THRESHOLD).
-
-    Returns:
-        bool: True nếu ảnh là rác/không liên quan, False nếu ảnh hợp lệ.
+        model_name: Tên model trên HuggingFace. Nếu None, reload model hiện tại.
     """
-    if threshold is None:
-        threshold = _DEFAULT_THRESHOLD
+    global _clip_model, _clip_processor, _clip_device, _CLIP_MODEL_NAME
+    _clip_model = None
+    _clip_processor = None
+    _clip_device = None
+    if model_name:
+        _CLIP_MODEL_NAME = model_name
+    _load_clip_model()
 
-    result = classify_image_detail(image_path)
-    if result is None:
-        return False  # Lỗi → giữ lại ảnh (safe default)
 
-    return result["irrelevant_score"] >= threshold
+# ── Core Classification ────────────────────────────────────────────────────
 
-
-def classify_image_detail(image_path: str) -> Optional[dict]:
-    """Phân loại chi tiết 1 ảnh bằng CLIP — trả về confidence scores.
-
-    Args:
-        image_path (str): Đường dẫn tới file ảnh.
-
-    Returns:
-        dict: {
-            "image_path": str,
-            "relevant_score": float (0.0 – 1.0),
-            "irrelevant_score": float (0.0 – 1.0),
-            "is_irrelevant": bool,
-            "top_relevant_prompt": str,
-            "top_irrelevant_prompt": str,
-        }
-        None nếu ảnh không đọc được.
+def _classify_single(image: Image.Image) -> dict:
     """
-    if not os.path.exists(image_path):
-        _logger.warning("Ảnh không tồn tại: %s", image_path)
-        return None
+    Core classification logic cho 1 ảnh PIL đã mở sẵn.
 
+    Thuật toán:
+    1. Tính CLIP similarity giữa ảnh và tất cả 16 prompts
+    2. Lấy MEAN LOGIT của mỗi nhóm (2 scalar)
+    3. Softmax trên 2 nhóm → xác suất binary thực sự
+    4. Chọn nhóm có xác suất cao nhất
+    """
     model, processor, device = _load_clip_model()
 
-    try:
-        image = Image.open(image_path).convert("RGB")
-    except Exception as exc:
-        _logger.warning("Không thể đọc ảnh '%s': %s", image_path, exc)
-        return None
-
-    # Kết hợp cả 2 nhóm prompts
-    all_prompts = RELEVANT_PROMPTS + IRRELEVANT_PROMPTS
-    n_relevant = len(RELEVANT_PROMPTS)
-
     inputs = processor(
-        text=all_prompts,
+        text=_ALL_PROMPTS,
         images=image,
         return_tensors="pt",
         padding=True,
@@ -160,28 +172,171 @@ def classify_image_detail(image_path: str) -> Optional[dict]:
 
     with torch.no_grad():
         outputs = model(**inputs)
-        # logits_per_image: [1, n_prompts] — similarity score ảnh vs mỗi prompt
-        logits = outputs.logits_per_image[0]  # [n_prompts]
-        probs = logits.softmax(dim=0)         # normalize thành xác suất
+        logits = outputs.logits_per_image[0]  # [16]
 
-    # Tính trung bình xác suất cho mỗi nhóm
-    relevant_probs = probs[:n_relevant]
-    irrelevant_probs = probs[n_relevant:]
+    # ── Mean logit cho mỗi nhóm → Softmax binary ──
+    product_logit    = logits[:_N_PRODUCT].mean()
+    irrelevant_logit = logits[_N_PRODUCT:].mean()
 
-    relevant_score = relevant_probs.sum().item()
-    irrelevant_score = irrelevant_probs.sum().item()
+    group_logits = torch.stack([product_logit, irrelevant_logit])
+    group_probs = torch.softmax(group_logits, dim=0)  # [2], tổng = 1.0
 
-    # Tìm prompt có similarity cao nhất mỗi nhóm (để debug/explain)
-    top_rel_idx = relevant_probs.argmax().item()
-    top_irr_idx = irrelevant_probs.argmax().item()
+    probs = {
+        "product":    round(group_probs[0].item(), 4),
+        "irrelevant": round(group_probs[1].item(), 4),
+    }
+
+    best_idx = group_probs.argmax().item()
+    label = _GROUP_LABELS[best_idx]
+    confidence = group_probs[best_idx].item()
+
+    # Debug: prompt khớp nhất mỗi nhóm
+    product_top = PRODUCT_PROMPTS[logits[:_N_PRODUCT].argmax().item()]
+    irrelevant_top = IRRELEVANT_PROMPTS[
+        logits[_N_PRODUCT:].argmax().item()
+    ]
+
+    return {
+        "label": label,
+        "confidence": round(confidence, 4),
+        "probs": probs,
+        "top_prompts": {
+            "product": product_top,
+            "irrelevant": irrelevant_top,
+        },
+    }
+
+
+# ── Public API ──────────────────────────────────────────────────────────────
+
+def classify_image(image_path: str) -> Optional[dict]:
+    """Phân loại 1 ảnh thành product / irrelevant.
+
+    Args:
+        image_path (str): Đường dẫn tới file ảnh.
+
+    Returns:
+        dict: {
+            "image_path": str,
+            "label": "product" | "irrelevant",
+            "confidence": float (0.0 – 1.0),
+            "probs": {"product": float, "irrelevant": float},
+            "top_prompts": {"product": str, "irrelevant": str},
+        }
+        None nếu ảnh không đọc được.
+    """
+    if not os.path.exists(image_path):
+        _logger.warning("Ảnh không tồn tại: %s", image_path)
+        return None
+
+    try:
+        image = Image.open(image_path).convert("RGB")
+    except Exception as exc:
+        _logger.warning("Không thể đọc ảnh '%s': %s", image_path, exc)
+        return None
+
+    result = _classify_single(image)
+    result["image_path"] = image_path
+    return result
+
+
+def classify_batch(
+    image_paths: List[str],
+    return_details: bool = False,
+) -> dict:
+    """Phân loại batch ảnh và nhóm theo label.
+
+    Args:
+        image_paths (list[str]): Danh sách đường dẫn ảnh.
+        return_details (bool): Nếu True, trả thêm chi tiết mỗi ảnh.
+
+    Returns:
+        dict: {
+            "product":    list[str],  — ảnh sản phẩm (đưa vào ResNet50)
+            "irrelevant": list[str],  — ảnh rác (loại bỏ)
+            "counts": {"product": int, "irrelevant": int},
+            "total": int,
+            "details": list[dict],    — chỉ có khi return_details=True
+        }
+    """
+    _load_clip_model()
+
+    groups = {"product": [], "irrelevant": []}
+    details = []
+
+    for path in image_paths:
+        result = classify_image(path)
+        if result is None:
+            # Ảnh lỗi → giữ lại cho ResNet50 (safe default)
+            groups["product"].append(path)
+            continue
+
+        groups[result["label"]].append(path)
+
+        if return_details:
+            details.append(result)
+
+    counts = {k: len(v) for k, v in groups.items()}
+    total = sum(counts.values())
+
+    _logger.info(
+        "CLIP binary filter: %d product, %d irrelevant (total=%d)",
+        counts["product"], counts["irrelevant"], total,
+    )
+
+    output = {
+        "product": groups["product"],
+        "irrelevant": groups["irrelevant"],
+        "counts": counts,
+        "total": total,
+    }
+    if return_details:
+        output["details"] = details
+
+    return output
+
+
+def filter_for_resnet(image_paths: List[str]) -> dict:
+    """Lọc batch ảnh, chỉ giữ product images cho ResNet50.
+
+    Returns:
+        dict: {
+            "product":    list[str],  — paths cho ResNet50
+            "irrelevant": list[str],  — paths bị loại
+            "counts": dict,
+            "total": int,
+        }
+    """
+    return classify_batch(image_paths, return_details=False)
+
+
+# ── Backward Compatibility ─────────────────────────────────────────────────
+
+def detect_irrelevant_image(image_path: str, threshold: float = None) -> bool:
+    """[DEPRECATED] Dùng classify_image() thay thế.
+    Trả về True nếu ảnh KHÔNG liên quan đến sản phẩm.
+    """
+    result = classify_image(image_path)
+    if result is None:
+        return False
+    return result["label"] == "irrelevant"
+
+
+def classify_image_detail(image_path: str) -> Optional[dict]:
+    """[DEPRECATED] Dùng classify_image() thay thế."""
+    result = classify_image(image_path)
+    if result is None:
+        return None
 
     return {
         "image_path": image_path,
-        "relevant_score": round(relevant_score, 4),
-        "irrelevant_score": round(irrelevant_score, 4),
-        "is_irrelevant": irrelevant_score >= _DEFAULT_THRESHOLD,
-        "top_relevant_prompt": RELEVANT_PROMPTS[top_rel_idx],
-        "top_irrelevant_prompt": IRRELEVANT_PROMPTS[top_irr_idx],
+        "relevant_score": result["probs"]["product"],
+        "irrelevant_score": result["probs"]["irrelevant"],
+        "is_irrelevant": result["label"] == "irrelevant",
+        "top_relevant_prompt": result["top_prompts"]["product"],
+        "top_irrelevant_prompt": result["top_prompts"]["irrelevant"],
+        "label": result["label"],
+        "probs": result["probs"],
     }
 
 
@@ -190,64 +345,16 @@ def filter_irrelevant_batch(
     threshold: float = None,
     return_details: bool = False,
 ) -> dict:
-    """Lọc batch ảnh: tách relevant và irrelevant.
-
-    Hiệu quả hơn gọi detect_irrelevant_image() từng ảnh vì
-    chỉ load model 1 lần cho toàn bộ batch.
-
-    Args:
-        image_paths (list[str]): Danh sách đường dẫn ảnh.
-        threshold (float): Ngưỡng P(irrelevant). Mặc định: 0.55.
-        return_details (bool): Nếu True, trả thêm chi tiết classify cho mỗi ảnh.
-
-    Returns:
-        dict: {
-            "relevant": list[str],       — đường dẫn ảnh hợp lệ
-            "irrelevant": list[str],     — đường dẫn ảnh rác
-            "total": int,
-            "relevant_count": int,
-            "irrelevant_count": int,
-            "details": list[dict],       — chỉ có khi return_details=True
-        }
-    """
-    if threshold is None:
-        threshold = _DEFAULT_THRESHOLD
-
-    # Load model trước (singleton — chỉ load lần đầu)
-    _load_clip_model()
-
-    relevant = []
-    irrelevant = []
-    details = []
-
-    for path in image_paths:
-        result = classify_image_detail(path)
-        if result is None:
-            # Ảnh lỗi → giữ lại (safe default)
-            relevant.append(path)
-            continue
-
-        if result["irrelevant_score"] >= threshold:
-            irrelevant.append(path)
-        else:
-            relevant.append(path)
-
-        if return_details:
-            details.append(result)
-
-    _logger.info(
-        "CLIP filter: %d/%d relevant, %d irrelevant (threshold=%.2f)",
-        len(relevant), len(image_paths), len(irrelevant), threshold,
-    )
+    """[DEPRECATED] Dùng classify_batch() thay thế."""
+    batch_result = classify_batch(image_paths, return_details=return_details)
 
     output = {
-        "relevant": relevant,
-        "irrelevant": irrelevant,
-        "total": len(image_paths),
-        "relevant_count": len(relevant),
-        "irrelevant_count": len(irrelevant),
+        "relevant": batch_result["product"],
+        "irrelevant": batch_result["irrelevant"],
+        "total": batch_result["total"],
+        "relevant_count": len(batch_result["product"]),
+        "irrelevant_count": len(batch_result["irrelevant"]),
     }
-    if return_details:
-        output["details"] = details
-
+    if return_details and "details" in batch_result:
+        output["details"] = batch_result["details"]
     return output
