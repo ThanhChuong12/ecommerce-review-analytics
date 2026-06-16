@@ -185,15 +185,16 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     """
     Pipeline AI chạy nền. Thứ tự gọi đúng các module đã train:
 
-    Step 1  (10%): Scraping          → scraping_agent
-    Step 2  (25%): Spam Detection    → spam_filter.detect_spam (rule-based, tất cả reviews)
-    Step 3  (42%): Sentiment+Aspects → NextGenReviewAnalyzer (heuristic→zero-shot→LLM)
-    Step 4  (55%): Download images   → urllib (parallel by URL list)
-    Step 5  (72%): Image Defect      → detect_defect_mobilenet_batch (MobileNetV3 trained weights)
-    Step 6  (82%): Fusion            → TrustScoreCalculator (dùng xác suất thực từ model)
-    Step 7  (90%): LLM Summary       → LLMRecommendationClient CoT
-    Step 8  (95%): Similar products  → scrape_similar_products
-    Step 9  (99%): Webhook           → finishedWebhook → DB → Socket.IO
+    Step 1    (10%): Scraping          → scraping_agent
+    Step 2    (25%): Spam Detection    → spam_filter.detect_spam (rule-based, tất cả reviews)
+    Step 3    (42%): Sentiment+Aspects → NextGenReviewAnalyzer (heuristic→zero-shot→LLM)
+    Step 4    (55%): Download images   → urllib (parallel by URL list)
+    Step 4.5  (63%): CLIP Filter       → zero-shot binary (lọc ảnh irrelevant)
+    Step 5    (72%): Image Defect      → ResNet50 (chỉ ảnh product từ CLIP)
+    Step 6    (82%): Fusion            → TrustScoreCalculator (dùng xác suất thực từ model)
+    Step 7    (90%): LLM Summary       → LLMRecommendationClient CoT
+    Step 8    (95%): Similar products  → scrape_similar_products
+    Step 9    (99%): Webhook           → finishedWebhook → DB → Socket.IO
     """
     print(f"\n[AI Engine] ===== START | productId={product_id} | url={url} =====")
 
@@ -444,20 +445,45 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     valid_count = sum(1 for p in image_local_paths if p and os.path.exists(str(p)))
     print(f"[Images] Tải thành công {valid_count}/{len(download_targets)} ảnh")
 
+    # ── STEP 4.5: CLIP Filter (lọc ảnh không liên quan) ───────────────────
+    _report_progress(product_id, 63, "Đang lọc ảnh không liên quan (CLIP)...")
+
+    clip_irrelevant_indices: set = set()  # indices bị CLIP loại
+
+    try:
+        from ai_engine.image_processing.zero_shot_clip import classify_image as clip_classify
+
+        for i, path in enumerate(image_local_paths):
+            if path and os.path.exists(str(path)):
+                clip_result = clip_classify(str(path))
+                if clip_result and clip_result["label"] == "irrelevant":
+                    clip_irrelevant_indices.add(i)
+
+        clip_product_count = valid_count - len(clip_irrelevant_indices)
+        print(f"[CLIP] {clip_product_count} product, {len(clip_irrelevant_indices)} irrelevant (tổng {valid_count})")
+
+    except Exception as e:
+        print(f"[CLIP] Filter thất bại (bỏ qua, giữ tất cả ảnh): {e}")
+
     # ── STEP 5: ResNet50 Defect Detection ─────────────────────────────────
-    _report_progress(product_id, 70, "Đang nhận diện tình trạng hộp (ResNet50)...")
+    _report_progress(product_id, 72, "Đang nhận diện tình trạng hộp (ResNet50)...")
 
     image_labels:     List[str]           = ["intact"] * len(scraped_rows)
     image_probs_dict: List[Optional[dict]] = [None]    * len(scraped_rows)
+
+    # Gán nhãn "irrelevant" cho ảnh bị CLIP loại (không cần qua ResNet50)
+    for i in clip_irrelevant_indices:
+        image_labels[i] = "irrelevant"
 
     if os.path.exists(RESNET_WEIGHTS):
         try:
             from ai_engine.image_processing.defect_detection import detect_defect_resnet_batch
 
-            # Lấy indices có ảnh local hợp lệ
+            # Chỉ lấy ảnh PRODUCT (bỏ qua ảnh CLIP đã loại)
             valid_indices = [
                 i for i, p in enumerate(image_local_paths)
                 if p and os.path.exists(str(p))
+                and i not in clip_irrelevant_indices
             ]
             valid_paths = [image_local_paths[i] for i in valid_indices]
 
