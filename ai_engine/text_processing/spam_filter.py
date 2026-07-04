@@ -866,8 +866,8 @@ def detect_spam(df: pd.DataFrame, dup_threshold: float = 0.85) -> pd.DataFrame:
         flag_too_long, flag_emoji_only,
         flag_keyboard, flag_word_repeat,
         flag_special, flag_uppercase, flag_only_digits,
-        flag_random_keyboard, flag_non_informative,
-        flag_short_generic, flag_off_topic, flag_competitor,
+        flag_random_keyboard,
+        flag_off_topic, flag_competitor,
         flag_link, flag_contact,
         flag_mismatch, flag_duplicate,
     ))

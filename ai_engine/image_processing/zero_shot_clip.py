@@ -16,9 +16,10 @@ Model: openai/clip-vit-base-patch32 (ViT-B/32)
   - Nhẹ nhất (350MB), nhanh nhất (~100-180ms/img CPU)
   - ~82 phút cho toàn bộ 27K ảnh
 
-Prompt Design v3 (HYBRID):
+Prompt Design v4 (HYBRID + Book-fix):
   - PRODUCT: prompts RỘNG (cover mọi loại sản phẩm) → tối ưu product recall
-  - IRRELEVANT: prompts CỤ THỂ (dựa trên phân tích 35 ảnh bị lọt) → tối ưu irrelevant recall
+  - IRRELEVANT: prompts CỤ THỂ (dựa trên phân tích 35 ảnh bỏ lọt) → tối ưu irrelevant recall
+  - Sửa: Xóa “sach/sach/notebooks” khỏi irrelevant (sách là sản phẩm TMĐT hợp lệ)
 """
 
 import logging
@@ -50,13 +51,6 @@ _CLIP_MODEL_NAME = os.getenv(
 #            → Product Recall 71% ❌ (quá hẹp!), Irrelevant Recall 60% ✅
 #
 # v3 (hybrid): product=broad (giữ v1), irrelevant=targeted (giữ v2)
-#              → Mục tiêu: Product Recall ≥90% VÀ Irrelevant Recall ≥50%
-#
-# CÂN BẰNG: 8 prompts mỗi nhóm (quan trọng vì dùng mean logit)
-
-# ── Nhóm 1: PRODUCT — Rộng, cover mọi loại sản phẩm ──
-# Giữ nguyên tinh thần v1 (đã đạt 95% product recall)
-# Mô tả: bất kỳ vật thể sản phẩm, hộp hàng, đóng gói nào
 PRODUCT_PROMPTS = [
     # Hộp hàng & đóng gói (quan trọng nhất — đây là input cho ResNet50)
     "a photo of a product package or cardboard shipping box",
@@ -69,35 +63,37 @@ PRODUCT_PROMPTS = [
     # Phụ kiện đi kèm & bao bì
     "a photo of a shipping container with labels or barcodes",
     "a product being examined or held up for quality check",
+    # Sách và văn phòng phẩm là sản phẩm TMĐT hợp lệ (không phải irrelevant)
+    "a book, notebook, or stationery product for sale or review",
 ]
 
 # ── Nhóm 2: IRRELEVANT — Cụ thể theo pattern dataset TMĐT Việt Nam ──
 # Dựa trên phân tích trực tiếp 35/50 ảnh irrelevant bị lọt:
 #   - Quần áo / tag quần áo → "person wearing/holding everyday item"
-#   - Chai nước sốt / đồ ăn → "food, drinks, cooked meal"
-#   - Sách / sticker / hình vẽ → "books, stickers, artwork"
+#   - Thực phẩm / đồ uống không có bao bì sản phẩm → "cooked food, drinks in glass"
 #   - Hoa / trang trí Tết → "flowers, festive decorations"
-#   - Thiệp / hóa đơn → "thank you card, receipt"
+#   - Thiếp / hóa đơn → "thank you card, receipt"
 #   - Xe máy / nội thất → "vehicle, furniture, room"
 #   - Selfie / đám đông → "selfie, group photo"
 #   - Screenshot / video frame → "screenshot, phone app"
+# GHI CHÚ: Xóa “sach/notebooks” khỏi irrelevant vì sách là sản phẩm TMDT hợp lệ
 IRRELEVANT_PROMPTS = [
     # Người (selfie, đám đông, tay cầm đồ random)
     "a selfie, portrait, or group photo of people without any product",
-    # Người đang dùng đồ (không phải review sản phẩm)
-    "a person wearing, holding, or using an everyday household item",
-    # Thực phẩm & đồ uống (chai nước sốt, đồ ăn, hoa quả)
-    "a photo of food, drinks, fruits, a cooked meal, or sauce bottle",
+    # Người đang dùng đồ (đồ gia dụng random, không phải review)
+    "a person wearing, holding, or using an everyday household item not for sale",
+    # Thực phẩm & đồ uống đã được phục vụ (không có bao bì sản phẩm)
+    "cooked food, a meal plated on a dish, drinks in a glass or cup without packaging",
     # Screenshot / giao diện / video frame
     "a screenshot of a phone app, chat message, or video thumbnail",
     # Hoa / quà tặng / trang trí / lễ hội Tết
     "flowers, bouquets, gift baskets, festive decorations, or ornaments",
-    # Sách vở / sticker / hình vẽ / đồ học tập
-    "books, notebooks, stickers, drawings, or school supplies",
-    # Thiệp cảm ơn / hóa đơn / tờ rơi
+    # Thiếp cảm ơn / hóa đơn / tờ rơi
     "a thank you card, printed receipt, invoice, or promotional flyer",
     # Xe / nội thất / cảnh ngoài trời / phòng ốc
     "a room interior, furniture, vehicle, motorcycle, or outdoor scene",
+    # Cảnh sinh hoạt thường ngày không liên quan sản phẩm
+    "an everyday lifestyle photo unrelated to any product for sale",
 ]
 
 _N_PRODUCT = len(PRODUCT_PROMPTS)

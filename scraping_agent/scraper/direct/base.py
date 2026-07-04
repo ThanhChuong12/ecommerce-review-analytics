@@ -105,7 +105,7 @@ class BaseScraper(ABC):
 					+ f' — Total: {total_saved:,}/{max_reviews:,}'
 				)
 
-				if total_saved >= max_reviews:
+				if max_reviews > 0 and total_saved >= max_reviews:
 					print(f'  Target {max_reviews:,} reached.')
 					break
 

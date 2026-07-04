@@ -9,14 +9,18 @@ const worker = new Worker('Queue', async (job) => {
     const { productId, url } = job.data;
 
     try {
-        await Product.update({ status: 'PROCESSING' }, { where: { id: productId } });
+        if (!String(productId).startsWith('temp-')) {
+            await Product.update({ status: 'PROCESSING' }, { where: { id: productId } });
+        }
 
         await axios.post(`${PYTHON_API_URL}/process-job`, {
             productId: productId,
             url: url
         });
     } catch (error) {
-        await Product.update({ status: 'FAILED' }, { where: { id: productId } });
+        if (!String(productId).startsWith('temp-')) {
+            await Product.update({ status: 'FAILED' }, { where: { id: productId } });
+        }
         throw error;
     }
 }, { connection: redisConnection });

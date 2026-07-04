@@ -6,20 +6,26 @@ export const analyzeUrl = async (req, res) => {
         const { url, userId } = req.body;
         if (!url) return res.status(400).json({ error: 'Thiếu URL sản phẩm' });
 
-        const product = await Product.create({
-            url,
-            status: 'PENDING',
-            userId: userId || null
-        });
+        let productId;
+        if (userId) {
+            const product = await Product.create({
+                url,
+                status: 'PENDING',
+                userId: userId
+            });
+            productId = product.id;
+        } else {
+            productId = `temp-${Date.now()}`;
+        }
 
         const job = await analysisQueue.add('multimodal-task', {
-            productId: product.id,
+            productId: productId,
             url: url
         });
 
         return res.status(200).json({
             success: true,
-            productId: product.id,
+            productId: productId,
             jobId: job.id,
             message: 'Đã nhận URL, đang chuẩn bị cào dữ liệu.'
         });
