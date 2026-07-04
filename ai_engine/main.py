@@ -164,13 +164,13 @@ def _build_smart_advice(trust_score: float, spam_pct: float, reviews: List[dict]
 
     parts = []
     if spam_pct > 30:
-        parts.append(f"⚠️ {spam_pct:.0f}% đánh giá bị nghi ngờ spam/seeding.")
+        parts.append(f"{spam_pct:.0f}% đánh giá bị nghi ngờ spam/seeding.")
     if damaged_pct > 20:
-        parts.append(f"📦 {damaged_pct:.0f}% ảnh có dấu hiệu hộp bị móp méo/lỗi hàng.")
+        parts.append(f"{damaged_pct:.0f}% ảnh có dấu hiệu hộp bị móp méo/lỗi hàng.")
     if neg_pct > 40:
-        parts.append(f"😞 Tỷ lệ đánh giá tiêu cực cao ({neg_pct:.0f}%).")
+        parts.append(f"Tỷ lệ đánh giá tiêu cực cao ({neg_pct:.0f}%).")
     if trust_score < 50:
-        parts.append("🛡️ Trust Score thấp — xem xét sản phẩm thay thế bên dưới.")
+        parts.append("Trust Score thấp — xem xét sản phẩm thay thế bên dưới.")
     if not parts:
         if trust_score >= 80:
             parts.append("✅ Sản phẩm đáng tin cậy, đa số đánh giá tích cực.")
@@ -211,7 +211,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                     "spamPercentage": 0, "trustScore": 0,
                     "aspectSentiment": {}, "sentimentTimeSeries": [],
                     "keywords": {"positive": [], "negative": []},
-                    "smartAdvice": f"⚠️ Không thể phân tích URL này: {reason}",
+                    "smartAdvice": f"Không thể phân tích URL này: {reason}",
                     "alternativeProducts": [],
                 }
             }, timeout=30)
@@ -303,19 +303,19 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         df_result = detect_spam(df_spam)
         rule_is_spam = df_result["is_spam"].values.astype(int)
 
-        # 2. IForest Hybrid
-        if os.path.exists(SPAM_WEIGHTS):
-            import __main__
-            __main__.SpamHybridModel = SpamHybridModel
-            spam_model = SpamHybridModel.load(SPAM_WEIGHTS)
-            texts = df_result["text"].tolist()
-            ratings = df_result["rating"].tolist()
-            X = build_feature_matrix(df_result, texts, ratings)
-            final_spam = spam_model.predict_final_spam(X, rule_is_spam)
-            is_spam_flags = final_spam.tolist()
-        else:
-            print(f"[SpamFilter] Warning: {SPAM_WEIGHTS} not found. Using rule-based only.")
-            is_spam_flags = rule_is_spam.tolist()
+        # 2. IForest Hybrid (Tạm tắt do nhận diện nhầm nhiều comment ngắn bình thường)
+        # if os.path.exists(SPAM_WEIGHTS):
+        #     import __main__
+        #     __main__.SpamHybridModel = SpamHybridModel
+        #     spam_model = SpamHybridModel.load(SPAM_WEIGHTS)
+        #     texts = df_result["text"].tolist()
+        #     ratings = df_result["rating"].tolist()
+        #     X = build_feature_matrix(df_result, texts, ratings)
+        #     final_spam = spam_model.predict_final_spam(X, rule_is_spam)
+        #     is_spam_flags = final_spam.tolist()
+        # else:
+        #     print(f"[SpamFilter] Warning: {SPAM_WEIGHTS} not found. Using rule-based only.")
+        is_spam_flags = rule_is_spam.tolist()
 
         spam_count = int(sum(is_spam_flags))
         spam_pct   = round(spam_count / max(len(is_spam_flags), 1) * 100, 1)
@@ -474,6 +474,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     # Gán nhãn "irrelevant" cho ảnh bị CLIP loại (không cần qua ResNet50)
     for i in clip_irrelevant_indices:
         image_labels[i] = "irrelevant"
+        image_probs_dict[i] = {"irrelevant": 1.0, "intact": 0.0, "damaged": 0.0, "wrong_item": 0.0}
 
     if os.path.exists(RESNET_WEIGHTS):
         try:
@@ -681,14 +682,14 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         display_name = _aspect_map.get(asp_key, asp_key.title())
         aspect_sentiment_result[display_name] = round(sum(asp_scores) / len(asp_scores), 1)
 
-    # Ensure mặc định nếu không detect được aspect nào
-    if not aspect_sentiment_result:
-        avg_rating = sum(r["rating"] for r in scraped_rows) / max(len(scraped_rows), 1)
-        aspect_sentiment_result = {
-            "Product":   round(avg_rating, 1),
-            "Packaging": round(avg_rating - 0.3, 1),
-            "Shipping":  round(avg_rating - 0.2, 1),
-        }
+    # Ensure mặc định cho từng aspect nếu không detect được
+    avg_rating = sum(r["rating"] for r in scraped_rows) / max(len(scraped_rows), 1)
+    if "Product" not in aspect_sentiment_result:
+        aspect_sentiment_result["Product"] = round(avg_rating, 1)
+    if "Packaging" not in aspect_sentiment_result:
+        aspect_sentiment_result["Packaging"] = round(avg_rating - 0.3, 1)
+    if "Shipping" not in aspect_sentiment_result:
+        aspect_sentiment_result["Shipping"] = round(avg_rating - 0.2, 1)
 
     # ── Keyword extraction từ lexicon thực trong sentiment_analysis.py ────────
     try:

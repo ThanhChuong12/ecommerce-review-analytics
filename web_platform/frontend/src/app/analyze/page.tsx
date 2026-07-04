@@ -39,8 +39,8 @@ function placeWords(words: Kw[], W: number, H: number, colors: string[]): Placed
     const fill = colors[cIdx];
     const vertical = idx === 2 || idx === 6 || idx === 10;
 
-    const charW = fontSize * 0.56;
-    const charH = fontSize * 1.25;
+    const charW = fontSize * 0.65;
+    const charH = fontSize * 1.35;
     const ww = vertical ? charH * 1.05 : word.text.length * charW;
     const wh = vertical ? word.text.length * charW : charH;
 
@@ -280,7 +280,8 @@ function AnalyzeContent() {
       ],
       labelData: [
         { name: 'Nguyên vẹn', value: labels.intact },
-        { name: 'Móp méo', value: labels.damaged }
+        { name: 'Móp méo', value: labels.damaged },
+        { name: 'Không L.Quan', value: labels.irrelevant }
       ]
     };
   }, [result]);
@@ -396,7 +397,7 @@ function AnalyzeContent() {
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
                 {/* Smart Alerts Row */}
                 {(crossModalAlerts > 0 || metadata.smartAdvice) && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className={`grid grid-cols-1 ${crossModalAlerts > 0 && metadata.smartAdvice ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-6`}>
                     {crossModalAlerts > 0 && (
                       <div className="bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded-2xl p-5 flex items-center gap-4 text-rose-700 dark:text-rose-400 shadow-sm animate-pulse">
                         <AlertOctagon className="w-8 h-8 flex-shrink-0" />
@@ -421,7 +422,7 @@ function AnalyzeContent() {
                   {/* Product Info */}
                   <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-6 flex flex-col justify-center items-center text-center lg:col-span-1 relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-100 dark:bg-cyan-500/10 rounded-full blur-3xl"></div>
-                    <img src={result.productData?.thumbnail} alt="Product" className="w-32 h-32 object-cover rounded-2xl shadow-md border border-slate-100 dark:border-white/10 mb-4 z-10 bg-white" />
+                    <img src={result.productData?.thumbnail} onError={(e) => { e.currentTarget.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>'; }} alt="Product" className="w-32 h-32 object-cover rounded-2xl shadow-md border border-slate-100 dark:border-white/10 mb-4 z-10 bg-white" />
                     <h3 className="font-bold text-xl line-clamp-2 z-10 text-slate-800 dark:text-slate-100">{result.productData?.name}</h3>
                     <div className="mt-4 flex gap-4 w-full justify-center z-10">
                       {/* UC2.2 Trust Score & Spam */}
@@ -441,7 +442,7 @@ function AnalyzeContent() {
                     <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-purple-200 dark:bg-purple-600/20 rounded-full blur-3xl"></div>
                     <Bot className="absolute top-6 right-6 w-24 h-24 text-purple-200 dark:text-purple-800/30 -rotate-12" />
                     <h3 className="flex items-center gap-3 text-xl font-bold mb-6 text-purple-700 dark:text-purple-300 z-10 relative font-quicksand">
-                      <Sparkles className="w-6 h-6 text-purple-500 dark:text-purple-400 self-start" /> Tổng Quan Cảm Xúc (AI Summary)
+                      <Sparkles className="w-6 h-6 text-purple-500 dark:text-purple-400 self-start" /> AI Summary
                     </h3>
                     <div className="relative z-10">
                       <MessageSquare className="w-8 h-8 text-purple-300 dark:text-purple-600 absolute -top-2 -left-3 opacity-50" />
@@ -622,6 +623,7 @@ function AnalyzeContent() {
                           <option value="all">Mọi tình trạng ảnh</option>
                           <option value="intact">Nguyên vẹn</option>
                           <option value="damaged">Móp méo</option>
+                          <option value="irrelevant">Không liên quan</option>
                         </select>
                         <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterRating} onChange={e => setFilterRating(e.target.value)}>
                           <option value="all">Mọi rating</option>
@@ -657,7 +659,7 @@ function AnalyzeContent() {
                                   </td>
                                   <td className="px-4 py-4">
                                     {r.image_path ? (
-                                      <img src={r.image_path} alt="review" className="w-10 h-10 object-cover rounded border border-slate-200 dark:border-slate-700 cursor-pointer hover:opacity-80" onClick={() => setSelectedImage(r)} />
+                                      <img src={r.image_path} onError={(e) => { e.currentTarget.style.display = 'none'; }} alt="review" className="w-10 h-10 object-cover rounded border border-slate-200 dark:border-slate-700 cursor-pointer hover:opacity-80" onClick={() => setSelectedImage(r)} />
                                     ) : <span className="text-slate-400 italic text-xs">Không có</span>}
                                   </td>
                                   <td className="px-4 py-4">
@@ -666,18 +668,15 @@ function AnalyzeContent() {
                                     </span>
                                   </td>
                                   <td className="px-4 py-4">
-                                    <span className={`px-2 py-1 rounded font-semibold ${
-                                      !r.image_path ? 'text-slate-400 dark:text-slate-500' :
-                                      r.label === 'intact' ? 'text-emerald-700 dark:text-emerald-400' : 
-                                      r.label === 'damaged' ? 'text-rose-700 dark:text-rose-400' : 
-                                      r.label === 'wrong_item' ? 'text-amber-700 dark:text-amber-400' : 
-                                      'text-slate-700 dark:text-slate-300'
-                                    }`}>
-                                      {!r.image_path ? 'Không có ảnh' : 
-                                       r.label === 'intact' ? 'Nguyên vẹn' : 
-                                       r.label === 'damaged' ? 'Móp méo' : 
-                                       r.label === 'wrong_item' ? 'Sai hàng' : 
-                                       'Không liên quan'}
+                                    <span className={`px-2 py-1 rounded font-semibold ${!r.image_path ? 'text-slate-400 dark:text-slate-500' :
+                                        r.label === 'intact' ? 'text-emerald-700 dark:text-emerald-400' :
+                                          r.label === 'damaged' ? 'text-rose-700 dark:text-rose-400' :
+                                            'text-slate-700 dark:text-slate-300'
+                                      }`}>
+                                      {!r.image_path ? 'Không có ảnh' :
+                                        r.label === 'intact' ? 'Nguyên vẹn' :
+                                          r.label === 'damaged' ? 'Móp méo' :
+                                            'Không liên quan'}
                                     </span>
                                   </td>
                                 </tr>
@@ -693,20 +692,17 @@ function AnalyzeContent() {
                     <div className="p-6 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
                       {result.reviews?.filter((r: any) => r.image_path).map((r: any, idx: number) => (
                         <div key={idx} className="relative aspect-square rounded-xl overflow-hidden cursor-pointer group border-2 border-transparent hover:border-blue-500 transition-all" onClick={() => setSelectedImage(r)}>
-                          <img src={r.image_path} alt="review" className="w-full h-full object-cover" />
+                          <img src={r.image_path} onError={(e) => { e.currentTarget.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>'; }} alt="review" className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-80 transition-opacity flex items-center justify-center">
-                            <span className={`px-2 py-1 rounded text-xs font-bold ${
-                              !r.image_path ? 'bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400' :
-                              r.label === 'intact' ? 'bg-emerald-500 text-white' : 
-                              r.label === 'damaged' ? 'bg-rose-500 text-white' : 
-                              r.label === 'wrong_item' ? 'bg-amber-500 text-white' : 
-                              'bg-slate-500 text-white'
-                            }`}>
-                              {!r.image_path ? 'Không có ảnh' : 
-                               r.label === 'intact' ? 'OK' : 
-                               r.label === 'damaged' ? 'Hỏng' : 
-                               r.label === 'wrong_item' ? 'Sai' : 
-                               'Không liên quan'}
+                            <span className={`px-2 py-1 rounded text-xs font-bold ${!r.image_path ? 'bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400' :
+                                r.label === 'intact' ? 'bg-emerald-500 text-white' :
+                                  r.label === 'damaged' ? 'bg-rose-500 text-white' :
+                                    'bg-slate-500 text-white'
+                              }`}>
+                              {!r.image_path ? 'Không có ảnh' :
+                                r.label === 'intact' ? 'OK' :
+                                  r.label === 'damaged' ? 'Hỏng' :
+                                    'Không liên quan'}
                             </span>
                           </div>
                         </div>
@@ -784,8 +780,8 @@ function AnalyzeContent() {
                 <div className="space-y-4 flex-1">
                   <div>
                     <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">Nhãn hình ảnh</div>
-                    <span className={`px-3 py-1.5 rounded-lg text-sm font-bold inline-flex items-center gap-2 ${selectedImage.label === 'intact' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' : selectedImage.label === 'damaged' ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400' : selectedImage.label === 'wrong_item' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}>
-                      {selectedImage.label === 'intact' ? 'Nguyên vẹn' : selectedImage.label === 'damaged' ? 'Móp méo / Hư hỏng' : selectedImage.label === 'wrong_item' ? 'Sai sản phẩm' : 'Không liên quan'}
+                    <span className={`px-3 py-1.5 rounded-lg text-sm font-bold inline-flex items-center gap-2 ${selectedImage.label === 'intact' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' : selectedImage.label === 'damaged' ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}>
+                      {selectedImage.label === 'intact' ? 'Nguyên vẹn' : selectedImage.label === 'damaged' ? 'Móp méo / Hư hỏng' : 'Không liên quan'}
                     </span>
                   </div>
 
