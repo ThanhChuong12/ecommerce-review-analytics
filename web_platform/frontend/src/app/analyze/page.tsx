@@ -133,6 +133,7 @@ function AnalyzeContent() {
   const [filterSentiment, setFilterSentiment] = useState('all');
   const [filterLabel, setFilterLabel] = useState('all');
   const [filterRating, setFilterRating] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [isExporting, setIsExporting] = useState(false);
 
@@ -152,7 +153,11 @@ function AnalyzeContent() {
       if (analyzedUrlRef.current === `url-${url}`) return;
       analyzedUrlRef.current = `url-${url}`;
       handleAnalyze(url);
-    } else {
+      
+      // Xoá query param để tránh chạy lại khi người dùng reload trang
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+    } else if (!analyzedUrlRef.current) {
       router.push('/');
     }
   }, [searchParams, router]);
@@ -613,19 +618,19 @@ function AnalyzeContent() {
                         <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 font-medium">
                           <Filter className="w-4 h-4" /> Lọc:
                         </div>
-                        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterSentiment} onChange={e => setFilterSentiment(e.target.value)}>
+                        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterSentiment} onChange={e => {setFilterSentiment(e.target.value); setCurrentPage(1);}}>
                           <option value="all">Mọi trạng thái</option>
                           <option value="positive">Tích cực</option>
                           <option value="neutral">Trung lập</option>
                           <option value="negative">Tiêu cực</option>
                         </select>
-                        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterLabel} onChange={e => setFilterLabel(e.target.value)}>
+                        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterLabel} onChange={e => {setFilterLabel(e.target.value); setCurrentPage(1);}}>
                           <option value="all">Mọi tình trạng ảnh</option>
                           <option value="intact">Nguyên vẹn</option>
                           <option value="damaged">Móp méo</option>
                           <option value="irrelevant">Không liên quan</option>
                         </select>
-                        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterRating} onChange={e => setFilterRating(e.target.value)}>
+                        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterRating} onChange={e => {setFilterRating(e.target.value); setCurrentPage(1);}}>
                           <option value="all">Mọi rating</option>
                           <option value="5">5 ⭐</option>
                           <option value="4">4 ⭐</option>
@@ -635,9 +640,7 @@ function AnalyzeContent() {
                         </select>
                       </div>
 
-                      <div className="overflow-x-auto">
-                        {filteredReviews.length > 20 && <div className="text-center text-md text-black dark:text-white mb-2 font-quicksand font-semibold">Hiển thị 20 đánh giá tiêu biểu</div>}
-
+                      <div className="overflow-x-auto min-h-[300px]">
                         <table className="w-full text-left text-sm text-slate-600 dark:text-slate-300">
                           <thead className="text-xs uppercase bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400">
                             <tr>
@@ -649,13 +652,13 @@ function AnalyzeContent() {
                           </thead>
                           <tbody>
                             {filteredReviews.length === 0 ? (
-                              <tr><td colSpan={4} className="text-center py-8">Không có đánh giá nào phù hợp với bộ lọc.</td></tr>
+                              <tr><td colSpan={4} className="text-center py-24 text-slate-500 bg-white dark:bg-transparent">Không có đánh giá nào phù hợp với bộ lọc.</td></tr>
                             ) : (
-                              filteredReviews.slice(0, 20).map((r: any, idx: number) => (
+                              filteredReviews.slice((currentPage - 1) * 20, currentPage * 20).map((r: any, idx: number) => (
                                 <tr key={idx} className="font-quicksand border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                                   <td className="px-4 py-4 max-w-xs">
                                     <div className="text-amber-400 text-xs mb-1">{"★".repeat(r.rating)}{"☆".repeat(5 - r.rating)}</div>
-                                    <p className="truncate" title={r.review_text}>{r.review_text}</p>
+                                    <p className="line-clamp-2" title={r.review_text}>{r.review_text}</p>
                                   </td>
                                   <td className="px-4 py-4">
                                     {r.image_path ? (
@@ -685,6 +688,31 @@ function AnalyzeContent() {
                           </tbody>
                         </table>
                       </div>
+                      
+                      {/* Pagination Control */}
+                      {filteredReviews.length > 20 && (
+                        <div className="flex justify-between items-center mt-6 px-4">
+                          <span className="text-sm text-slate-500 dark:text-slate-400">
+                            Hiển thị từ {(currentPage - 1) * 20 + 1} đến {Math.min(currentPage * 20, filteredReviews.length)} trong tổng số {filteredReviews.length} đánh giá
+                          </span>
+                          <div className="flex gap-2">
+                            <button 
+                              disabled={currentPage === 1}
+                              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                              className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            >
+                              Trang trước
+                            </button>
+                            <button 
+                              disabled={currentPage * 20 >= filteredReviews.length}
+                              onClick={() => setCurrentPage(p => p + 1)}
+                              className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            >
+                              Trang tiếp
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -719,10 +747,10 @@ function AnalyzeContent() {
             {mainTab === 'recommendations' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
                 {/* UC8 Alternative Products */}
-                {(metadata.trustScore < 50 || metadata.spamPercentage > 40) && metadata.alternativeProducts ? (
-                  <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-rose-200 dark:border-rose-900/50 p-8 overflow-hidden relative">
+                {metadata.alternativeProducts && metadata.alternativeProducts.length > 0 ? (
+                  <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-200 dark:border-slate-700/50 p-8 overflow-hidden relative">
                     <h3 className="text-xl font-bold mb-2 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
-                      <ShieldAlert className="w-6 h-6 text-rose-500" /> Sản phẩm thay thế
+                      <ShieldAlert className="w-6 h-6 text-blue-500" /> Sản phẩm tham khảo
                     </h3>
                     <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Sản phẩm hiện tại có rủi ro cao. Hệ thống đề xuất các sản phẩm tương tự có độ tin cậy tốt hơn:</p>
 

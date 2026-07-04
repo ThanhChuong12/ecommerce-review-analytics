@@ -54,7 +54,7 @@ app = FastAPI(title="AI Engine", version="3.0.0")
 
 WEBHOOK_PROGRESS    = os.getenv("NODE_WEBHOOK_PROGRESS", "http://localhost:5000/api/webhook/update-progress")
 WEBHOOK_FINISHED    = os.getenv("NODE_WEBHOOK_FINISHED", "http://localhost:5000/api/webhook/finished")
-MAX_REVIEWS_SCRAPE  = int(os.getenv("MAX_REVIEWS_SCRAPE", "200"))
+MAX_REVIEWS_SCRAPE  = int(os.getenv("MAX_REVIEWS_SCRAPE", "0"))  # 0 = không giới hạn, cào toàn bộ
 MAX_IMAGES_PROCESS  = int(os.getenv("MAX_IMAGES_PROCESS", "50"))
 MOBILENET_WEIGHTS   = os.getenv(
     "MOBILENET_WEIGHTS_PATH",
@@ -567,8 +567,19 @@ def heavy_ai_process(product_id: int, url: str) -> None:
             fusion_out = calculator.calculate(fusion_in)
             per_review_scores.append(fusion_out.final_score)
 
-        overall_trust = round(sum(per_review_scores) / max(len(per_review_scores), 1), 1)
-        print(f"[Fusion] Trust Score trung bình: {overall_trust}/100")
+        # Tính trust score dựa trên NON-SPAM reviews để phản ánh chất lượng thực
+        # Spam reviews đã bị penalize về 9.5 → không nên kéo trust score tổng xuống
+        non_spam_scores = [
+            per_review_scores[i]
+            for i in range(len(per_review_scores))
+            if i < len(is_spam_flags) and not is_spam_flags[i]
+        ]
+        if non_spam_scores:
+            overall_trust = round(sum(non_spam_scores) / len(non_spam_scores), 1)
+        else:
+            # Tất cả đều là spam → trust thấp nhưng không phải 9.5
+            overall_trust = round(sum(per_review_scores) / max(len(per_review_scores), 1), 1)
+        print(f"[Fusion] Trust Score trung bình: {overall_trust}/100 (từ {len(non_spam_scores)} non-spam reviews)")
 
     except Exception as e:
         print(f"[Fusion] Thất bại (fallback 60.0): {e}")
