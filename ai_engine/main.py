@@ -424,18 +424,19 @@ def heavy_ai_process(product_id: int, url: str) -> None:
             text_probs.append(tp)
             aspects_list.append([])
 
-    # ── STEP 4: Download ảnh ─────────────────────────────────────────────────
-    _report_progress(product_id, 55, f"Đang tải ảnh đánh giá (tối đa {MAX_IMAGES_PROCESS})...")
+    _report_progress(product_id, 55, f"Đang tải ảnh đánh giá (tất cả ảnh)...")
 
     img_temp_dir = tempfile.mkdtemp(prefix="ai_imgs_")
     image_local_paths: List[Optional[str]] = [None] * len(scraped_rows)
     image_orig_urls:   List[Optional[str]] = [None] * len(scraped_rows)
 
-    download_targets = [
+    all_img_targets = [
         (i, r["image_urls"][0])
         for i, r in enumerate(scraped_rows)
         if r.get("image_urls")
-    ][:MAX_IMAGES_PROCESS]
+    ]
+    # MAX_IMAGES_PROCESS=0 → không giới hạn, tải toàn bộ
+    download_targets = all_img_targets if MAX_IMAGES_PROCESS == 0 else all_img_targets[:MAX_IMAGES_PROCESS]
 
     for idx, img_url in download_targets:
         local = _download_image(img_url, img_temp_dir)

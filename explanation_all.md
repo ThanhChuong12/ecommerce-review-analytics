@@ -743,3 +743,17 @@ NGƯỜI DÙNG (Browser)
 ---
 
 *Chúc bạn vấn đáp thành công! 🎉*
+
+---
+
+### Bổ sung cực mạnh (Dựa trên code thực tế): Tại sao có MobileNetV3 nhưng không dùng?
+
+**Q: Trong code file `defect_detection.py` em có viết hàm chạy model `MobileNetV3`, nhưng tại sao thực tế luồng chính `main.py` lại gọi `ResNet50`? Em viết code vào cho có tụ hay sao?**
+
+> *"Dạ thưa thầy, không phải code thừa đâu ạ. Đây là quá trình nghiên cứu và tối ưu hóa (model iteration) của nhóm em qua 2 phiên bản:*
+> 
+> *- **Ở Phiên bản V1 (Baseline):** Nhóm em dùng **MobileNetV3**. Ưu điểm của nó là kiến trúc cực nhẹ, suy luận (inference) rất nhanh (~50ms/ảnh trên CPU), phân loại được 4 nhãn. Nhưng nhược điểm là mạng khá nông, khi gặp các vết móp hộp carton mờ hoặc nhỏ, nó hay nhận diện sai.*
+> 
+> *- **Ở Phiên bản V2 (Production - Đang dùng):** Nhóm quyết định nâng cấp lên **ResNet50** (mạng sâu 50 tầng, trích xuất đặc trưng mạnh hơn rất nhiều). Hơn nữa, thay vì chỉ đổi model, nhóm còn áp dụng kỹ thuật xịn hơn: dùng hàm **Focal Loss** (để ép model học các ca móp méo khó nhìn thay vì chỉ học ca dễ) và kỹ thuật **Oversampling** (nhân bản ảnh lỗi để xử lý việc data bị mất cân bằng trầm trọng 1:37). Ngoài ra tụi em thêm **MLP head** tùy biến với Dropout để chống Overfitting.*
+> 
+> *Kết quả là ResNet50 có chỉ số **F1-Score cao hơn hẳn**. Nên hiện tại hệ thống Web đang gọi ResNet50 (V2) làm model chính thức. Đoạn code MobileNetV3 (V1) nhóm em giữ lại đóng vai trò là Baseline Model để so sánh (benchmark), hoặc dùng làm Fallback khi server quá tải không chạy nổi ResNet ạ."*
