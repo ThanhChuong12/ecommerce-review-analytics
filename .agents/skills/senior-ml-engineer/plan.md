@@ -296,6 +296,26 @@ const worker = new Worker('AnalysisQueue', handler, {
 
 ---
 
+#### [x] [ML] Multimodal Denoising Module (MDSBR-inspired)
+
+**Files:** `ai_engine/denoising/feature_denoiser.py` (new), `scripts/train_denoiser.py` (new), `tests/test_feature_denoiser.py` (new), `docs/multimodal_denoising.md` (new)  
+**Paper:** [MDSBR: Multimodal Denoising for Session-based Recommendation](https://dl.acm.org/doi/full/10.1145/3705328.3748061) (RecSys'25)  
+**What was done:**
+- Adapted MDSBR's Gaussian Diffusion denoising for review feature vectors
+- Implemented 5 components: `DenoisingMLP`, `GaussianDiffusionDenoiser`, `TaskGuidedGating`, `MultimodalAlignmentLayer`, `FeatureDenoiser`
+- Training script with demo mode, text-only mode, and real embeddings support
+- 31 unit tests (all passing)
+- Full documentation in `docs/multimodal_denoising.md`
+
+**Completed:** 11/07/2026  
+**Results:**
+- 31/31 tests passed ✅
+- Demo training: loss 0.907 → 0.782 (10 epochs, 0.7s on CPU) ✅
+- Model params: ~312K (lightweight) ✅
+- No new dependencies required ✅
+
+---
+
 ## Sprint 2 — Integration & Deployment
 
 #### [ ] [INTEGRATION] Replace mock in FastAPI with real AI pipeline
@@ -327,6 +347,7 @@ const worker = new Worker('AnalysisQueue', handler, {
 | Scraping Generic | ✅ Working | — | 0.5s/page | 23/05/2026 |
 | Text augmentation | ✅ Done | — | — | — |
 | Evaluation framework | ✅ Done | — | — | — |
+| Feature denoising (MDSBR) | ✅ Done | — | ~0.7s train | 11/07/2026 |
 
 > *TBD = needs re-evaluation with real ground-truth (see "Fix circular evaluation" task)
 
@@ -356,3 +377,4 @@ const worker = new Worker('AnalysisQueue', handler, {
 | 29/05/2026 | Model Comparison Visualizations | AI | ✅ |
 | 06/06/2026 | ResNet50 Retrain Pipeline Fix | Antigravity | ✅ |
 | 07/06/2026 | ResNet50 GPU Fine-Tuning | Antigravity | ✅ defect F1: 0.8042 |
+| 11/07/2026 | [ML] MDSBR Denoising Module | Antigravity | ✅ 31/31 tests, 312K params |
