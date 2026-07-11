@@ -4,31 +4,25 @@
 # =============================================================================
 
 # ── Web Server ────────────────────────────────────────────────────────────────
-fastapi==0.136.1
-uvicorn==0.46.0
-starlette==1.0.0
-h11==0.16.0
+fastapi>=0.111.0
+uvicorn>=0.29.0
+starlette>=0.37.0
+h11>=0.14.0
 
 # ── Data validation ───────────────────────────────────────────────────────────
-pydantic==2.13.4
-pydantic_core==2.46.4
-annotated-types==0.7.0
-typing_extensions==4.15.0
-typing-inspection==0.4.2
+pydantic>=2.6.0
+annotated-types>=0.6.0
+typing_extensions>=4.9.0
+python-dotenv>=1.0.0
 
 # ── Networking ────────────────────────────────────────────────────────────────
-requests==2.33.1
-urllib3==2.7.0
-certifi==2026.4.22
-charset-normalizer==3.4.7
-idna==3.14
-anyio==4.13.0
+requests>=2.31.0
+certifi>=2024.1.0
+anyio>=4.0.0
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
-click==8.3.3
-colorama==0.4.6
-annotated-doc==0.0.4
-python-dotenv>=1.0.0
+click>=8.1.0
+colorama>=0.4.6
 
 # =============================================================================
 # Machine Learning Stack
@@ -48,7 +42,7 @@ pandas>=2.2.0
 # ── Model serialisation ───────────────────────────────────────────────────────
 joblib>=1.3.0
 
-# Image Model (Transfer Learning)
+# ── Image Model (Transfer Learning) ──────────────────────────────────────────
 torch>=2.2.0
 torchvision>=0.17.0
 Pillow>=10.0.0
