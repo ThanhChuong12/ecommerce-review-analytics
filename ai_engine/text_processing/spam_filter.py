@@ -372,12 +372,8 @@ def count_template_phrases(text: str) -> int:
 
 
 def is_ai_template_review(text: str) -> bool:
-    """Flag reviews containing two or more template phrases.
-
-    The "comma-chained marketing claims" pattern is the dominant form of
-    machine-generated review on Lazada in our dataset.
-    """
-    return count_template_phrases(text) >= 2
+    """[UPDATED]: Disabled per user request."""
+    return False
 
 
 def is_template_repetition(text: str) -> bool:
@@ -390,17 +386,8 @@ def is_template_repetition(text: str) -> bool:
 
 
 def is_mostly_template(text: str) -> bool:
-    """Flag reviews where a single template phrase makes up most of the text.
-
-    Short, single-template reviews like 'Hoàn hảo cho việc sử dụng hàng ngày,'
-    are still seeded content even though they only contain one phrase.
-    """
-    text_low = normalize_text(text)
-    nchars = len(text_low)
-    if nchars == 0 or nchars > 200:
-        return False
-    template_chars = sum(len(p) for p in _TEMPLATE_PHRASES if p in text_low)
-    return template_chars / nchars > 0.5 and template_chars > 10
+    """[UPDATED]: Disabled per user request."""
+    return False
 
 
 # =====================================================================
@@ -461,7 +448,7 @@ _NON_INFORMATIVE_TOKENS = {
 }
 
 
-def is_too_short(text: str, min_words: int = 3) -> bool:
+def is_too_short(text: str, min_words: int = 1) -> bool:
     """Reviews shorter than min_words add no information."""
     return count_words(text) < min_words
 
@@ -469,20 +456,10 @@ def is_too_short(text: str, min_words: int = 3) -> bool:
 def is_non_informative_short(text: str, rating) -> bool:
     """Flag five-star reviews that contain only a single empty filler word.
 
-    Examples: "ok", "good", "tốt", "5 sao". These are valid reviews
-    in a permissive sense but they carry zero information about the
-    product, so for our seed-detection purposes we treat them as spam.
+    Examples: "ok", "good", "tốt", "5 sao". 
+    [UPDATED]: Disabled per user request to avoid catching real lazy users.
     """
-    try:
-        stars = int(float(str(rating)))
-    except (ValueError, TypeError):
-        return False
-    if stars != 5:
-        return False
-    text_low = normalize_text(text).strip(".,! ")
-    if len(text_low) > 6:
-        return False
-    return text_low in _NON_INFORMATIVE_TOKENS
+    return False
 
 
 def is_too_long(text: str, max_words: int = 500) -> bool:

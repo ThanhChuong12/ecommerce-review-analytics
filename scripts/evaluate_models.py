@@ -316,7 +316,7 @@ def _save_confusion_matrix_plot(
         )
         ax.set_xlabel("Predicted Label", fontsize=12)
         ax.set_ylabel("Actual Label", fontsize=12)
-        ax.set_title(f"Confusion Matrix — {model_name}", fontsize=14, fontweight="bold")
+        ax.set_title(f"Confusion Matrix - {model_name}", fontsize=14, fontweight="bold", pad=15)
         plt.tight_layout()
 
         out_dir = Path(plot_dir)
@@ -523,15 +523,15 @@ def evaluate_spam_model(
 
     CSV can co cac cot: text, rating, va 1 cot ground-truth spam (0/1).
     Cot ground-truth co the la:
-      - 'final_spam'  : nhan ket hop duoc ghi ra boi train_spam_model.py
-      - 'is_spam'     : nhan thu cong hoac tu nguon khac
+      - 'is_spam'     : nhan thu cong hoac tu nguon khac (DEFAULT)
+      - 'final_spam'  : nhan ket hop duoc ghi ra boi train_spam_model.py (KHONG NEN DUNG)
 
     Args:
         model_path: Duong dan toi file .pkl cua SpamHybridModel.
         data_path:  Duong dan toi CSV test.
         text_col:   Ten cot van ban (default: text).
         rating_col: Ten cot rating (default: rating).
-        label_col:  Ten cot nhan spam ground-truth (default: final_spam).
+        label_col:  Ten cot nhan spam ground-truth (default: is_spam).
         save_plot:  Co luu bieu do khong.
         plot_dir:   Thu muc luu bieu do.
 
@@ -580,7 +580,7 @@ def evaluate_spam_model(
     y_proba = np.column_stack([scores_norm, 1.0 - scores_norm])
 
     return print_full_report(
-        model_name="SpamHybridModel (Rule-based + Isolation Forest)",
+        model_name="Spam Model (Isolation Forest)",
         y_true=y_true,
         y_pred=y_pred,
         y_proba=y_proba,
@@ -679,14 +679,14 @@ def build_parser() -> argparse.ArgumentParser:
     spam_p = subparsers.add_parser("spam", help="Danh gia SpamHybridModel (Rule-based + IForest)")
     spam_p.add_argument("--model-path", required=True,
                         help="Duong dan toi file .pkl cua SpamHybridModel")
-    spam_p.add_argument("--data-path", required=True,
+    spam_p.add_argument("--data-path", default="data/processed/spam_test.csv",
                         help="CSV test co cot text, rating va ground-truth spam label")
     spam_p.add_argument("--text-col", default="text",
                         help="Ten cot van ban (default: text)")
     spam_p.add_argument("--rating-col", default="rating",
                         help="Ten cot rating (default: rating)")
-    spam_p.add_argument("--label-col", default="final_spam",
-                        help="Ten cot nhan spam ground-truth (default: final_spam)")
+    spam_p.add_argument("--label-col", default="is_spam",
+                        help="Ten cot nhan spam ground-truth (default: is_spam)")
     spam_p.add_argument("--no-plot", action="store_true",
                         help="Khong luu bieu do")
     spam_p.add_argument("--plot-dir", default="reports/figures",
