@@ -46,25 +46,13 @@ def extract_structural_features(texts: List[str], ratings: List) -> np.ndarray:
     features = []
     for text, rating in zip(texts, ratings):
         text_str = str(text) if text else ""
-        words = text_str.split()
-        avg_word_len = (
-            np.mean([len(w) for w in words]) if words else 0.0
-        )
-        try:
-            rating_norm = (float(rating) - 1.0) / 4.0  # scale 1-5 -> 0-1
-        except (ValueError, TypeError):
-            rating_norm = 0.5
 
         features.append([
-            count_words(text_str),
-            count_chars(text_str),
             get_emoji_ratio(text_str),
             get_special_char_ratio(text_str),
             get_uppercase_ratio(text_str),
             get_digit_ratio(text_str),
             get_type_token_ratio(text_str),
-            avg_word_len,
-            rating_norm,
         ])
     return np.array(features, dtype=np.float32)
 
@@ -87,7 +75,7 @@ def build_feature_matrix(
     # Rule score aggregate (tong so rule bi vi pham)
     rule_score = rule_feats.sum(axis=1, keepdims=True)
 
-    # Structural features (9 cols)
+    # Structural features (5 cols)
     struct_feats = extract_structural_features(texts, ratings)
 
     X = np.hstack([rule_feats, rule_score, struct_feats])
@@ -148,7 +136,7 @@ class SpamHybridModel:
     ) -> np.ndarray:
         iforest_pred = self.predict_anomaly(X)
         iforest_spam = (iforest_pred == -1).astype(int)
-        return np.clip(rule_is_spam + iforest_spam, 0, 1)
+        return iforest_spam
 
     def save(self, path: str) -> None:
         save_path = Path(path)

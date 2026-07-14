@@ -116,7 +116,7 @@ def main() -> None:
         description="Train spam/seeding detection model (Rule-based + Isolation Forest)"
     )
     parser.add_argument(
-        "--data-path", required=True,
+        "--data-path", default="data/processed/spam_train.csv",
         help="CSV file with columns: text, rating (and optionally is_spam for reference)",
     )
     parser.add_argument(
