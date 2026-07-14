@@ -22,12 +22,25 @@ import shutil
 import os
 import sys
 import random
+import traceback
 import urllib.request
 from pathlib import Path
 from datetime import datetime, timedelta
 from collections import Counter, defaultdict
 from typing import Optional, List
 import pandas as pd
+
+# ─── Fix Unicode stdout/stderr trên Windows CP1252 ───────────────────────────
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 # ─── Path setup ──────────────────────────────────────────────────────────────
 # Đảm bảo import được:
@@ -58,11 +71,11 @@ MAX_REVIEWS_SCRAPE  = int(os.getenv("MAX_REVIEWS_SCRAPE", "0"))  # 0 = không gi
 MAX_IMAGES_PROCESS  = int(os.getenv("MAX_IMAGES_PROCESS", "50"))
 MOBILENET_WEIGHTS   = os.getenv(
     "MOBILENET_WEIGHTS_PATH",
-    "e:\\Nhập môn học máy\\Project\\ecommerce-review-analytics\\artifacts\\models\\mobilenet\\mobilenet_v3_model2_defect.pt"
+    str(_PROJECT_ROOT / "artifacts" / "models" / "mobilenet" / "mobilenet_v3_model2_defect.pt")
 )
 RESNET_WEIGHTS = os.getenv(
     "RESNET_WEIGHTS_PATH",
-    "e:\\Nhập môn học máy\\Project\\ecommerce-review-analytics\\artifacts\\models\\resnet50\\resnet50_defect_gpu_best.pth"
+    str(_PROJECT_ROOT / "artifacts" / "models" / "resnet50" / "resnet50_defect_gpu_best.pth")
 )
 SPAM_WEIGHTS        = os.getenv(
     "SPAM_WEIGHTS_PATH",
@@ -77,6 +90,11 @@ TEXT_BASELINE_WEIGHTS = os.getenv(
     str(_PROJECT_ROOT / "artifacts" / "models" / "baselines" / "ensemble_smote_auto_weights.pkl")
 )
 
+DENOISER_DIR = os.getenv("DENOISER_DIR", str(_THIS_DIR / "models" / "denoiser"))
+FEATURE_DENOISER_PATH = os.getenv("FEATURE_DENOISER_PATH", os.path.join(DENOISER_DIR, "feature_denoiser.pt"))
+TEXT_HEAD_PATH = os.getenv("TEXT_HEAD_PATH", os.path.join(DENOISER_DIR, "text_sentiment_head.pt"))
+IMAGE_HEAD_PATH = os.getenv("IMAGE_HEAD_PATH", os.path.join(DENOISER_DIR, "image_defect_head.pt"))
+
 # Mapping nhãn tiếng Việt → English (DB + Frontend)
 _SENTIMENT_VI_EN = {
     "tích cực": "positive",
@@ -86,6 +104,112 @@ _SENTIMENT_VI_EN = {
     "negative":  "negative",
     "neutral":   "neutral",
 }
+
+# ─── Custom MLP Classification Head & Denoiser Models (MDSBR Pipeline) ────────
+
+import torch
+import torch.nn as nn
+
+class ClassificationHead(nn.Module):
+    """MLP head for classification on top of embeddings."""
+    def __init__(self, input_dim: int, num_classes: int, hidden_dim: int = 256, dropout: float = 0.3):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(dropout / 2),
+            nn.Linear(hidden_dim // 2, num_classes),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+# Cache for new denoiser and classification head models
+_denoiser_cache = None
+_text_head_cache = None
+_image_head_cache = None
+_resnet_backbone_cache = None
+_phobert_backbone_cache = None
+_phobert_tokenizer_cache = None
+
+def _load_new_models(device: torch.device):
+    global _denoiser_cache, _text_head_cache, _image_head_cache
+    global _resnet_backbone_cache, _phobert_backbone_cache, _phobert_tokenizer_cache
+    
+    # 1. Load PhoBERT Tokenizer and Backbone if not cached
+    if _phobert_tokenizer_cache is None or _phobert_backbone_cache is None:
+        from transformers import AutoTokenizer, AutoModelForSequenceClassification
+        print(f"[AI Engine] Loading PhoBERT from: {PHOBERT_WEIGHTS}")
+        _phobert_tokenizer_cache = AutoTokenizer.from_pretrained(PHOBERT_WEIGHTS)
+        full_model = AutoModelForSequenceClassification.from_pretrained(PHOBERT_WEIGHTS)
+        if hasattr(full_model, "roberta"):
+            _phobert_backbone_cache = full_model.roberta
+        else:
+            _phobert_backbone_cache = full_model.base_model
+        _phobert_backbone_cache.to(device)
+        _phobert_backbone_cache.eval()
+
+    # 2. Load ResNet50 Backbone if not cached
+    if _resnet_backbone_cache is None:
+        from torchvision import models
+        print(f"[AI Engine] Loading ResNet50 from: {RESNET_WEIGHTS}")
+        resnet = models.resnet50(weights=None)
+        
+        # Determine num_classes from checkpoint
+        checkpoint = torch.load(RESNET_WEIGHTS, map_location=device, weights_only=False)
+        state_dict = checkpoint.get("model_state_dict", checkpoint)
+        fc_key = "fc.weight"
+        if fc_key in state_dict:
+            num_classes = state_dict[fc_key].shape[0]
+            resnet.fc = torch.nn.Linear(resnet.fc.in_features, num_classes)
+            
+        resnet.load_state_dict(state_dict, strict=False)
+        resnet.fc = torch.nn.Identity()  # strip the classification head to get 2048-dim features
+        resnet.to(device)
+        resnet.eval()
+        _resnet_backbone_cache = resnet
+
+    # 3. Load Feature Denoiser
+    if _denoiser_cache is None and os.path.exists(FEATURE_DENOISER_PATH):
+        from ai_engine.denoising.feature_denoiser import FeatureDenoiser
+        print(f"[AI Engine] Loading Feature Denoiser from: {FEATURE_DENOISER_PATH}")
+        ckpt = torch.load(FEATURE_DENOISER_PATH, map_location=device, weights_only=False)
+        config = ckpt["config"]
+        denoiser = FeatureDenoiser(
+            text_dim=config["text_dim"],
+            image_dim=config["image_dim"],
+            hidden_dim=config["hidden_dim"],
+            noise_steps=config["noise_steps"],
+            noise_schedule=config.get("noise_schedule", "cosine"),
+        )
+        denoiser.load_state_dict(ckpt["model_state_dict"])
+        denoiser.to(device)
+        denoiser.eval()
+        _denoiser_cache = denoiser
+
+    # 4. Load Text Classification Head
+    if _text_head_cache is None and os.path.exists(TEXT_HEAD_PATH):
+        print(f"[AI Engine] Loading Text MLP Head from: {TEXT_HEAD_PATH}")
+        ckpt = torch.load(TEXT_HEAD_PATH, map_location=device, weights_only=False)
+        head = ClassificationHead(input_dim=ckpt["input_dim"], num_classes=ckpt["num_classes"])
+        head.load_state_dict(ckpt["model_state_dict"])
+        head.to(device)
+        head.eval()
+        _text_head_cache = (head, ckpt.get("class_names", ["tiêu cực", "trung lập", "tích cực"]))
+
+    # 5. Load Image Classification Head
+    if _image_head_cache is None and os.path.exists(IMAGE_HEAD_PATH):
+        print(f"[AI Engine] Loading Image MLP Head from: {IMAGE_HEAD_PATH}")
+        ckpt = torch.load(IMAGE_HEAD_PATH, map_location=device, weights_only=False)
+        head = ClassificationHead(input_dim=ckpt["input_dim"], num_classes=ckpt["num_classes"])
+        head.load_state_dict(ckpt["model_state_dict"])
+        head.to(device)
+        head.eval()
+        _image_head_cache = (head, ckpt.get("class_names", ["no-defect", "defect"]))
 
 
 # ─── Utils ────────────────────────────────────────────────────────────────────
@@ -200,7 +324,8 @@ def heavy_ai_process(product_id: int, url: str) -> None:
 
     def _fail(reason: str):
         """Gửi lỗi về webhook và thoát."""
-        print(f"[AI Engine] FATAL: {reason}")
+        safe_reason = reason.encode('ascii', errors='replace').decode('ascii')
+        print(f"[AI Engine] FATAL: {safe_reason}")
         try:
             requests.post(WEBHOOK_FINISHED, json={
                 "productId":   product_id,
@@ -279,11 +404,13 @@ def heavy_ai_process(product_id: int, url: str) -> None:
             os.unlink(tmp_csv)
 
     except Exception as e:
-        _fail(f"Scraping thất bại: {e}")
+        tb = traceback.format_exc()
+        print(f"[Scraper] EXCEPTION TRACEBACK:\n{tb}")
+        _fail(f"Scraping that bai: {type(e).__name__}: {str(e)[:200]}")
         return
 
     if not scraped_rows:
-        _fail("Không tìm thấy đánh giá nào cho sản phẩm này.")
+        _fail("Khong tim thay danh gia nao cho san pham nay.")
         return
 
     print(f"[Scraper] Parsed {len(scraped_rows)} reviews")
@@ -338,8 +465,18 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         from ai_engine.text_processing.embeddings import DeepEmbedder
 
         # Load Sentiment Models
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        use_new_text_pipeline = False
+        try:
+            _load_new_models(device)
+            if _phobert_backbone_cache is not None and _text_head_cache is not None:
+                use_new_text_pipeline = True
+                print("[AI Engine] Using retrained PhoBERT + MLP Head sentiment pipeline.")
+        except Exception as e:
+            print(f"[AI Engine] Error loading new text pipeline: {e}. Falling back to old sentiment model.")
+
         phobert_model = None
-        if os.path.exists(PHOBERT_WEIGHTS):
+        if not use_new_text_pipeline and os.path.exists(PHOBERT_WEIGHTS):
             phobert_model = PhoBertSentimentModel(PHOBERT_WEIGHTS)
         
         text_baseline_model = None
@@ -364,7 +501,38 @@ def heavy_ai_process(product_id: int, url: str) -> None:
             probs = {"positive": 0.33, "negative": 0.33, "neutral": 0.34}
 
             try:
-                if phobert_model and text.strip():
+                if use_new_text_pipeline and text.strip():
+                    cleaned = " ".join(str(text).strip().split())
+                    encodings = _phobert_tokenizer_cache(
+                        [cleaned], padding=True, truncation=True,
+                        max_length=256, return_tensors="pt"
+                    )
+                    input_ids = encodings["input_ids"].to(device)
+                    attention_mask = encodings["attention_mask"].to(device)
+                    
+                    with torch.no_grad():
+                        outputs = _phobert_backbone_cache(input_ids=input_ids, attention_mask=attention_mask)
+                        if hasattr(outputs, "last_hidden_state"):
+                            cls_emb = outputs.last_hidden_state[:, 0, :]
+                        else:
+                            cls_emb = outputs[0][:, 0, :]
+                        
+                        text_head, text_class_names = _text_head_cache
+                        logits = text_head(cls_emb)
+                        probs_tensor = torch.softmax(logits, dim=-1)[0].cpu().numpy()
+                        
+                    pred_idx = int(probs_tensor.argmax())
+                    vi_label = text_class_names[pred_idx]
+                    
+                    probs = {}
+                    for cls_name, prob_val in zip(text_class_names, probs_tensor):
+                        en_name = _SENTIMENT_VI_EN.get(cls_name, "neutral")
+                        probs[en_name] = float(prob_val)
+                    
+                    for k in ["positive", "negative", "neutral"]:
+                        if k not in probs:
+                            probs[k] = 0.0
+                elif phobert_model and text.strip():
                     probs_array = phobert_model.predict_proba(text)
                     vi_label = phobert_model.predict(text)
                     probs = {
@@ -477,11 +645,18 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         image_labels[i] = "irrelevant"
         image_probs_dict[i] = {"irrelevant": 1.0, "intact": 0.0, "damaged": 0.0, "wrong_item": 0.0}
 
-    if os.path.exists(RESNET_WEIGHTS):
-        try:
-            from ai_engine.image_processing.defect_detection import detect_defect_resnet_batch
+    use_new_image_pipeline = False
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    try:
+        _load_new_models(device)
+        if _resnet_backbone_cache is not None and _denoiser_cache is not None and _image_head_cache is not None:
+            use_new_image_pipeline = True
+            print("[AI Engine] Using new ResNet50 + FeatureDenoiser + MLP Head image pipeline.")
+    except Exception as e:
+        print(f"[AI Engine] Error loading new image pipeline: {e}. Falling back to old model.")
 
-            # Chỉ lấy ảnh PRODUCT (bỏ qua ảnh CLIP đã loại)
+    if use_new_image_pipeline:
+        try:
             valid_indices = [
                 i for i, p in enumerate(image_local_paths)
                 if p and os.path.exists(str(p))
@@ -490,40 +665,103 @@ def heavy_ai_process(product_id: int, url: str) -> None:
             valid_paths = [image_local_paths[i] for i in valid_indices]
 
             if valid_paths:
-                batch_results = detect_defect_resnet_batch(
-                    image_paths = valid_paths,
-                    model_path  = RESNET_WEIGHTS,
-                    threshold   = 0.85,
-                    batch_size  = 16,
-                )
-                # batch_results[j] = {"label": str, "confidence": float, "probabilities": {class:float}}
-                for j, res in enumerate(batch_results):
-                    orig_i = valid_indices[j]
+                import albumentations as A
+                from albumentations.pytorch import ToTensorV2
+                import cv2
+                
+                preprocess = A.Compose([
+                    A.Resize(224, 224),
+                    A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                    ToTensorV2(),
+                ])
+                
+                image_head, image_class_names = _image_head_cache
+
+                for idx, path in zip(valid_indices, valid_paths):
+                    image_bgr = cv2.imread(str(path))
+                    if image_bgr is None:
+                        continue
+                    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+                    transformed = preprocess(image=image_rgb)
+                    img_tensor = transformed["image"].unsqueeze(0).to(device) # [1, 3, 224, 224]
                     
-                    # Map MobileNetV3 'defect'/'no-defect' to Web DB 'damaged'/'intact'
-                    lbl = res["label"]
-                    if lbl == "defect": lbl = "damaged"
-                    elif lbl == "no-defect": lbl = "intact"
-                    image_labels[orig_i] = lbl
-                    
-                    raw_probs = res.get("probabilities", {})
-                    mapped_probs = {}
-                    if "defect" in raw_probs:
-                        mapped_probs["damaged"] = raw_probs["defect"]
-                    if "no-defect" in raw_probs:
-                        mapped_probs["intact"] = raw_probs["no-defect"]
-                    if not mapped_probs:
-                        mapped_probs = raw_probs
+                    with torch.no_grad():
+                        raw_emb = _resnet_backbone_cache(img_tensor) # [1, 2048]
+                        dummy_text = torch.zeros(1, _denoiser_cache.text_dim, device=device)
+                        _, image_clean = _denoiser_cache(dummy_text, raw_emb)
+                        logits = image_head(image_clean)
+                        probs_tensor = torch.softmax(logits, dim=-1)[0].cpu().numpy()
                         
-                    image_probs_dict[orig_i] = mapped_probs
+                    pred_idx = int(probs_tensor.argmax())
+                    lbl = image_class_names[pred_idx] # "defect" or "no-defect"
+                    
+                    if lbl == "defect":
+                        lbl_mapped = "damaged"
+                    else:
+                        lbl_mapped = "intact"
+                        
+                    image_labels[idx] = lbl_mapped
+                    
+                    mapped_probs = {
+                        "damaged": float(probs_tensor[1]) if len(probs_tensor) > 1 else 0.0,
+                        "intact": float(probs_tensor[0]) if len(probs_tensor) > 0 else 0.0,
+                    }
+                    image_probs_dict[idx] = mapped_probs
 
                 label_dist = Counter(image_labels[i] for i in valid_indices)
-                print(f"[MobileNetV3] Label distribution: {dict(label_dist)}")
-
+                print(f"[New Image Pipeline] Label distribution: {dict(label_dist)}")
         except Exception as e:
-            print(f"[MobileNetV3] Inference thất bại (fallback intact): {e}")
-    else:
-        print(f"[MobileNetV3] Weights không tìm thấy tại {MOBILENET_WEIGHTS} → skip image classification")
+            print(f"[New Image Pipeline] Failed: {e}. Falling back to old model.")
+            use_new_image_pipeline = False
+
+    if not use_new_image_pipeline:
+        if os.path.exists(RESNET_WEIGHTS):
+            try:
+                from ai_engine.image_processing.defect_detection import detect_defect_resnet_batch
+
+                # Chỉ lấy ảnh PRODUCT (bỏ qua ảnh CLIP đã loại)
+                valid_indices = [
+                    i for i, p in enumerate(image_local_paths)
+                    if p and os.path.exists(str(p))
+                    and i not in clip_irrelevant_indices
+                ]
+                valid_paths = [image_local_paths[i] for i in valid_indices]
+
+                if valid_paths:
+                    batch_results = detect_defect_resnet_batch(
+                        image_paths = valid_paths,
+                        model_path  = RESNET_WEIGHTS,
+                        threshold   = 0.85,
+                        batch_size  = 16,
+                    )
+                    # batch_results[j] = {"label": str, "confidence": float, "probabilities": {class:float}}
+                    for j, res in enumerate(batch_results):
+                        orig_i = valid_indices[j]
+                        
+                        # Map MobileNetV3 'defect'/'no-defect' to Web DB 'damaged'/'intact'
+                        lbl = res["label"]
+                        if lbl == "defect": lbl = "damaged"
+                        elif lbl == "no-defect": lbl = "intact"
+                        image_labels[orig_i] = lbl
+                        
+                        raw_probs = res.get("probabilities", {})
+                        mapped_probs = {}
+                        if "defect" in raw_probs:
+                            mapped_probs["damaged"] = raw_probs["defect"]
+                        if "no-defect" in raw_probs:
+                            mapped_probs["intact"] = raw_probs["no-defect"]
+                        if not mapped_probs:
+                            mapped_probs = raw_probs
+                            
+                        image_probs_dict[orig_i] = mapped_probs
+
+                    label_dist = Counter(image_labels[i] for i in valid_indices)
+                    print(f"[MobileNetV3] Label distribution: {dict(label_dist)}")
+
+            except Exception as e:
+                print(f"[MobileNetV3] Inference thất bại (fallback intact): {e}")
+        else:
+            print(f"[MobileNetV3] Weights không tìm thấy tại {MOBILENET_WEIGHTS} → skip image classification")
 
     # ── STEP 6: Fusion Engine ─────────────────────────────────────────────────
     # Dùng xác suất THỰC từ model: TextProbs từ sentiment, ImageProbs từ MobileNetV3
