@@ -39,6 +39,7 @@ class BaseScraper(ABC):
 		output_path: str,
 		fmt: str = 'csv',
 		max_reviews: int = 3000,
+		progress_callback = None
 	) -> int:
 		"""Scrape reviews and write to output_path. Returns count saved."""
 		print(f'  [{self.SITE_NAME}] Direct API scraper — no browser / no LLM needed')
@@ -104,6 +105,8 @@ class BaseScraper(ABC):
 					+ (f' ({skipped} dupes skipped)' if skipped else '')
 					+ f' — Total: {total_saved:,}/{max_reviews:,}'
 				)
+				if progress_callback:
+					progress_callback(total_saved)
 
 				if max_reviews > 0 and total_saved >= max_reviews:
 					print(f'  Target {max_reviews:,} reached.')

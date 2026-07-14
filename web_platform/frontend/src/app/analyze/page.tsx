@@ -153,7 +153,7 @@ function AnalyzeContent() {
       if (analyzedUrlRef.current === `url-${url}`) return;
       analyzedUrlRef.current = `url-${url}`;
       handleAnalyze(url);
-      
+
       // Xoá query param để tránh chạy lại khi người dùng reload trang
       const newUrl = window.location.pathname;
       window.history.replaceState({}, '', newUrl);
@@ -446,14 +446,54 @@ function AnalyzeContent() {
                   <div className="bg-gradient-to-br from-violet-50 to-purple-50 dark:from-indigo-950/40 dark:to-purple-950/40 backdrop-blur-xl rounded-3xl lg:col-span-2 shadow-xl border border-violet-100 dark:border-purple-800/50 p-8 relative flex flex-col justify-center">
                     <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-purple-200 dark:bg-purple-600/20 rounded-full blur-3xl"></div>
                     <Bot className="absolute top-6 right-6 w-24 h-24 text-purple-200 dark:text-purple-800/30 -rotate-12" />
-                    <h3 className="flex items-center gap-3 text-xl font-bold mb-6 text-purple-700 dark:text-purple-300 z-10 relative font-quicksand">
+                    <h3 className="flex items-center gap-3 text-xl font-bold mb-4 text-purple-700 dark:text-purple-300 z-10 relative font-quicksand">
                       <Sparkles className="w-6 h-6 text-purple-500 dark:text-purple-400 self-start" /> AI Summary
                     </h3>
-                    <div className="relative z-10">
-                      <MessageSquare className="w-8 h-8 text-purple-300 dark:text-purple-600 absolute -top-2 -left-3 opacity-50" />
-                      <p className="text-slate-700 dark:text-slate-200 leading-relaxed text-lg italic pl-6 font-quicksand">
-                        "{result.summary}"
-                      </p>
+                    <div className="relative z-10 space-y-1">
+                      {result.summary && (() => {
+                        const lines = result.summary.split('\n').filter((l: string) => l.trim());
+                        return lines.map((line: string, idx: number) => {
+                          const trimmed = line.trim();
+                          // Header line (first line with Trust Score info)
+                          if (idx === 0 && !trimmed.startsWith('+') && !trimmed.startsWith('-')) {
+                            return (
+                              <p key={idx} className="text-base font-semibold text-slate-700 dark:text-slate-200 mb-3 font-quicksand">
+                                {trimmed}
+                              </p>
+                            );
+                          }
+                          // Section header (e.g. "Về sản phẩm:", "Về dịch vụ:")
+                          if (!trimmed.startsWith('+') && !trimmed.startsWith('-') && trimmed.endsWith(':')) {
+                            return (
+                              <p key={idx} className="text-base font-bold text-slate-800 dark:text-slate-100 mt-4 mb-1.5 font-quicksand">
+                                {trimmed}
+                              </p>
+                            );
+                          }
+                          // Positive bullet
+                          if (trimmed.startsWith('+')) {
+                            return (
+                              <div key={idx} className="flex items-start gap-2">
+                                <span className="mt-0.5 text-emerald-500 font-bold text-base flex-shrink-0">+</span>
+                                <span className="text-slate-700 dark:text-slate-200 text-base leading-relaxed font-quicksand">{trimmed.slice(1).trim()}</span>
+                              </div>
+                            );
+                          }
+                          // Negative bullet
+                          if (trimmed.startsWith('-')) {
+                            return (
+                              <div key={idx} className="flex items-start gap-2">
+                                <span className="mt-0.5 text-rose-500 font-bold text-base flex-shrink-0">−</span>
+                                <span className="text-slate-700 dark:text-slate-200 text-base leading-relaxed font-quicksand">{trimmed.slice(1).trim()}</span>
+                              </div>
+                            );
+                          }
+                          // Fallback plain text
+                          return (
+                            <p key={idx} className="text-slate-700 dark:text-slate-200 text-base leading-relaxed font-quicksand">{trimmed}</p>
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -535,15 +575,15 @@ function AnalyzeContent() {
                     <div className="h-64">
                       {metadata.sentimentTimeSeries && metadata.sentimentTimeSeries.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={metadata.sentimentTimeSeries}>
+                          <BarChart data={metadata.sentimentTimeSeries}>
                             <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e2e8f0"} vertical={false} />
                             <XAxis dataKey="date" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
-                            <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
+                            <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
                             <Tooltip contentStyle={{ backgroundColor: isDark ? '#0f172a' : '#ffffff', border: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0', borderRadius: '12px' }} />
                             <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
-                            <Line type="monotone" dataKey="positive" name="Tích cực" stroke="#10b981" strokeWidth={3} dot={false} activeDot={{ r: 6 }} />
-                            <Line type="monotone" dataKey="negative" name="Tiêu cực" stroke="#ef4444" strokeWidth={3} dot={false} activeDot={{ r: 6 }} />
-                          </LineChart>
+                            <Bar dataKey="positive" name="Tích cực" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
+                            <Bar dataKey="negative" name="Tiêu cực" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                          </BarChart>
                         </ResponsiveContainer>
                       ) : (
                         <div className="flex items-center justify-center h-full text-slate-500">Chưa có dữ liệu chuỗi thời gian</div>
@@ -618,19 +658,19 @@ function AnalyzeContent() {
                         <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 font-medium">
                           <Filter className="w-4 h-4" /> Lọc:
                         </div>
-                        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterSentiment} onChange={e => {setFilterSentiment(e.target.value); setCurrentPage(1);}}>
+                        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterSentiment} onChange={e => { setFilterSentiment(e.target.value); setCurrentPage(1); }}>
                           <option value="all">Mọi trạng thái</option>
                           <option value="positive">Tích cực</option>
                           <option value="neutral">Trung lập</option>
                           <option value="negative">Tiêu cực</option>
                         </select>
-                        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterLabel} onChange={e => {setFilterLabel(e.target.value); setCurrentPage(1);}}>
+                        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterLabel} onChange={e => { setFilterLabel(e.target.value); setCurrentPage(1); }}>
                           <option value="all">Mọi tình trạng ảnh</option>
                           <option value="intact">Nguyên vẹn</option>
                           <option value="damaged">Móp méo</option>
                           <option value="irrelevant">Không liên quan</option>
                         </select>
-                        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterRating} onChange={e => {setFilterRating(e.target.value); setCurrentPage(1);}}>
+                        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterRating} onChange={e => { setFilterRating(e.target.value); setCurrentPage(1); }}>
                           <option value="all">Mọi rating</option>
                           <option value="5">5 ⭐</option>
                           <option value="4">4 ⭐</option>
@@ -672,9 +712,9 @@ function AnalyzeContent() {
                                   </td>
                                   <td className="px-4 py-4">
                                     <span className={`px-2 py-1 rounded font-semibold ${!r.image_path ? 'text-slate-400 dark:text-slate-500' :
-                                        r.label === 'intact' ? 'text-emerald-700 dark:text-emerald-400' :
-                                          r.label === 'damaged' ? 'text-rose-700 dark:text-rose-400' :
-                                            'text-slate-700 dark:text-slate-300'
+                                      r.label === 'intact' ? 'text-emerald-700 dark:text-emerald-400' :
+                                        r.label === 'damaged' ? 'text-rose-700 dark:text-rose-400' :
+                                          'text-slate-700 dark:text-slate-300'
                                       }`}>
                                       {!r.image_path ? 'Không có ảnh' :
                                         r.label === 'intact' ? 'Nguyên vẹn' :
@@ -688,7 +728,7 @@ function AnalyzeContent() {
                           </tbody>
                         </table>
                       </div>
-                      
+
                       {/* Pagination Control */}
                       {filteredReviews.length > 20 && (
                         <div className="flex justify-between items-center mt-6 px-4">
@@ -696,14 +736,14 @@ function AnalyzeContent() {
                             Hiển thị từ {(currentPage - 1) * 20 + 1} đến {Math.min(currentPage * 20, filteredReviews.length)} trong tổng số {filteredReviews.length} đánh giá
                           </span>
                           <div className="flex gap-2">
-                            <button 
+                            <button
                               disabled={currentPage === 1}
                               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                               className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                             >
                               Trang trước
                             </button>
-                            <button 
+                            <button
                               disabled={currentPage * 20 >= filteredReviews.length}
                               onClick={() => setCurrentPage(p => p + 1)}
                               className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
@@ -723,9 +763,9 @@ function AnalyzeContent() {
                           <img src={r.image_path} onError={(e) => { e.currentTarget.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>'; }} alt="review" className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-80 transition-opacity flex items-center justify-center">
                             <span className={`px-2 py-1 rounded text-xs font-bold ${!r.image_path ? 'bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400' :
-                                r.label === 'intact' ? 'bg-emerald-500 text-white' :
-                                  r.label === 'damaged' ? 'bg-rose-500 text-white' :
-                                    'bg-slate-500 text-white'
+                              r.label === 'intact' ? 'bg-emerald-500 text-white' :
+                                r.label === 'damaged' ? 'bg-rose-500 text-white' :
+                                  'bg-slate-500 text-white'
                               }`}>
                               {!r.image_path ? 'Không có ảnh' :
                                 r.label === 'intact' ? 'OK' :
@@ -750,19 +790,16 @@ function AnalyzeContent() {
                 {metadata.alternativeProducts && metadata.alternativeProducts.length > 0 ? (
                   <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-200 dark:border-slate-700/50 p-8 overflow-hidden relative">
                     <h3 className="text-xl font-bold mb-2 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
-                      <ShieldAlert className="w-6 h-6 text-blue-500" /> Sản phẩm tham khảo
+                      <ShieldAlert className="w-6 h-6 text-blue-500" /> Đề xuất sản phẩm tương tự
                     </h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Sản phẩm hiện tại có rủi ro cao. Hệ thống đề xuất các sản phẩm tương tự có độ tin cậy tốt hơn:</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Danh sách các sản phẩm tương tự cùng danh mục bạn có thể tham khảo thêm:</p>
 
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                       {metadata.alternativeProducts.map((alt: any, idx: number) => (
                         <div key={idx} className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 rounded-2xl p-4 hover:shadow-md transition-shadow cursor-default group flex flex-col">
                           <img src={alt.thumbnail} alt={alt.name} className="w-full aspect-square object-cover rounded-xl mb-3 group-hover:scale-[1.03] transition-transform" />
                           <h4 className="font-semibold text-sm line-clamp-2 mb-1 dark:text-slate-200 flex-1">{alt.name}</h4>
-                          <div className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-500/10 w-fit px-2 py-1 rounded mt-auto">
-                            <ShieldCheck className="w-3 h-3" /> Trust: {alt.trustScore}
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 mt-3">
+                          <div className="grid grid-cols-2 gap-2 mt-auto pt-3">
                             <button onClick={(e) => { e.stopPropagation(); window.open(alt.url, '_blank'); }} className="cursor-pointer flex items-center justify-center text-xs font-semibold bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 py-2 rounded-xl transition-colors w-full">Truy cập</button>
                             <button onClick={(e) => { e.stopPropagation(); router.push('/analyze?url=' + encodeURIComponent(alt.url)); }} className="cursor-pointer flex items-center justify-center text-xs font-semibold bg-blue-100 dark:bg-blue-500/20 hover:bg-blue-200 dark:hover:bg-blue-500/30 text-blue-700 dark:text-blue-400 py-2 rounded-xl transition-colors w-full">Phân tích</button>
                           </div>
@@ -772,9 +809,9 @@ function AnalyzeContent() {
                   </div>
                 ) : (
                   <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-16 text-center text-slate-500 dark:text-slate-400 font-quicksand flex flex-col items-center justify-center">
-                    <CheckCircle className="w-16 h-16 text-emerald-500 mb-4 opacity-50" />
-                    <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">Sản phẩm Uy tín</h3>
-                    <p>Sản phẩm này khá an toàn nên hệ thống không đề xuất thay thế.</p>
+                    <CheckCircle className="w-16 h-16 text-slate-400 mb-4 opacity-50" />
+                    <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">Chưa có đề xuất</h3>
+                    <p>Hiện không tìm thấy đề xuất sản phẩm tương tự nào cho mặt hàng này.</p>
                   </div>
                 )}
               </motion.div>

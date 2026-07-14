@@ -25,7 +25,8 @@ from scraper.models import SimilarProduct
 
 log = logging.getLogger("SimilarProducts")
 
-SESSION_DIR = Path("output") / "agent_sessions"
+_THIS_DIR = Path(__file__).resolve().parent.parent.parent
+SESSION_DIR = _THIS_DIR / "output" / "agent_sessions"
 
 _TIKI_HEADERS = {
     "User-Agent": (
@@ -43,55 +44,65 @@ _TIKI_HEADERS = {
 # Tiki — Direct API
 # ---------------------------------------------------------------------------
 
+def _extract_tiki_recs(data: object, depth: int = 0) -> list[dict]:
+    if depth > 5:
+        return []
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        sample = data[0]
+        # Tiki uses 'name', 'price', 'id', 'thumbnail_url'
+        if "name" in sample and "id" in sample and "price" in sample:
+            return data
+    if isinstance(data, dict):
+        for v in data.values():
+            found = _extract_tiki_recs(v, depth + 1)
+            if found:
+                return found
+    return []
+
 class TikiSimilar:
-    """Lấy sản phẩm tương tự từ Tiki qua internal API (httpx, nhanh)."""
+    """Lấy sản phẩm tương tự từ Tiki thông qua API tìm kiếm, vì API recommendation đã bị ẩn/đổi format."""
 
     SITE = "tiki"
 
-    # Thử nhiều endpoint theo thứ tự ưu tiên
-    _ENDPOINTS = [
-        "https://tiki.vn/api/v2/products/{id}/related",
-        "https://tiki.vn/api/v2/widgets/parent-category-recommendations?product_id={id}",
-        "https://tiki.vn/api/v2/recommendations?product_id={id}",
-    ]
-
-    def _parse_id(self, url: str) -> str:
-        m = re.search(r"-p(\d+)(?:\.html)?(?:[?#]|$)", url)
-        if m:
-            return m.group(1)
-        raise ValueError(f"Không tìm được product ID từ Tiki URL: {url}")
-
     async def fetch(self, url: str, limit: int = 5) -> list[SimilarProduct]:
-        product_id = self._parse_id(url)
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            for endpoint_tpl in self._ENDPOINTS:
-                endpoint = endpoint_tpl.format(id=product_id)
-                try:
-                    resp = await client.get(endpoint, headers=_TIKI_HEADERS)
-                    if resp.status_code != 200:
-                        continue
-                    data  = resp.json()
-                    items = (
-                        data.get("data")
-                        or data.get("products")
-                        or data.get("items")
-                        or []
-                    )
-                    if not items:
-                        continue
-                    results: list[SimilarProduct] = []
+        import httpx
+        import urllib.parse
+        import re
+        
+        results: list[SimilarProduct] = []
+        
+        if "search?q=" in url:
+            query = url.split("search?q=")[1]
+        else:
+            m = re.search(r"tiki\.vn/([^/]+)-p\d+", url)
+            if not m:
+                log.warning(f"[Tiki] Không trích xuất được slug từ {url}")
+                return []
+            slug = m.group(1)
+            query = slug.replace("-", " ")
+        
+        search_api = f"https://tiki.vn/api/v2/products?limit={limit}&q={urllib.parse.quote(query)}"
+        
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(search_api, headers={"User-Agent": "Mozilla/5.0"})
+                if resp.status_code == 200:
+                    data = resp.json()
+                    items = data.get("data", [])
                     for p in items[:limit]:
                         pid   = str(p.get("id") or "")
-                        name  = str(p.get("name") or p.get("product_name") or "")
-                        price = int(p.get("price") or p.get("price_vnd") or 0)
-                        rating = float(p.get("rating_average") or p.get("rating") or 0)
-                        sold  = int(p.get("quantity_sold") or p.get("sold_quantity") or 0)
-                        img   = str(
-                            p.get("thumbnail_url")
-                            or p.get("image")
-                            or p.get("images", [""])[0]
-                            or ""
-                        )
+                        name  = str(p.get("name") or "")
+                        if not name or not pid: continue
+                        price = int(p.get("price") or 0)
+                        rating = float(p.get("rating_average") or 0)
+                        
+                        sold_raw = p.get("quantity_sold") or 0
+                        if isinstance(sold_raw, dict):
+                            sold = int(sold_raw.get("value") or 0)
+                        else:
+                            sold = int(sold_raw)
+                            
+                        img   = str(p.get("thumbnail_url") or "")
                         purl  = f"https://tiki.vn/{p.get('url_key', '')}-p{pid}.html" if pid else url
                         results.append(SimilarProduct(
                             name=name, url=purl, price=price,
@@ -99,12 +110,12 @@ class TikiSimilar:
                             image_url=img, source=self.SITE,
                         ))
                     if results:
-                        log.info("[Tiki] %d similar products found", len(results))
+                        log.info(f"[Tiki] Đã dùng Search API tìm được {len(results)} sản phẩm tương tự")
                         return results
-                except Exception as exc:
-                    log.debug("[Tiki] Endpoint %s failed: %s", endpoint, exc)
-                    continue
-        log.warning("[Tiki] Không lấy được sản phẩm tương tự")
+        except Exception as exc:
+            log.error(f"[Tiki] Lỗi fetch search API: {exc}")
+            
+        log.warning("[Tiki] Không lấy được sản phẩm tương tự qua search API")
         return []
 
 
@@ -122,12 +133,9 @@ class LazadaSimilar:
 
     SITE = "lazada"
 
-    # Paths API recommendation của Lazada
+    # Chỉ bắt API gợi ý của Product Detail Page, tránh các API gợi ý của Shop hay Giỏ hàng
     _PATHS = [
-        "api/v1/recommend",
-        "mtop.alicom.wireless.recommend",
-        "recommendation",
-        "related_items",
+        "detail.getrecommend"
     ]
 
     def __init__(self, headless: bool = True) -> None:
@@ -145,6 +153,11 @@ class LazadaSimilar:
             if response.status != 200:
                 return
             url_lower = response.url.lower()
+            
+            # Bỏ qua mtop.relation vì đây là API "Just For You" cá nhân hóa (trả về bạt trùm xe máy)
+            if "mtop.relation" in url_lower:
+                return
+                
             if not any(p in url_lower for p in self._PATHS):
                 return
             try:
@@ -152,33 +165,57 @@ class LazadaSimilar:
                 data  = json.loads(body)
                 items = _extract_lazada_recs(data)
                 if items:
-                    for item in items[:limit]:
+                    for item in items:
                         r = _normalize_lazada_rec(item, self.SITE)
                         if r:
                             results.append(r)
-                    found_event.set()
+                            if len(results) >= limit:
+                                break
+                    if results:
+                        found_event.set()
             except Exception:
                 pass
 
         try:
             # Dùng stealth_browser — tương tự LazadaScraper._scrape_attempt()
-            # Chia sẻ session state với LazadaScraper → tránh re-trigger captcha
+            # Không dùng storage_state cho Similar Products vì cookie đăng nhập làm Lazada ẩn API recommend
             context = await launch_stealth_context(
-                storage_state=str(self._state_file) if self._state_file.exists() else None,
+                storage_state=None,
                 headless=self.headless,
                 humanize=False,
             )
             page = await context.new_page()
             page.on("response", _on_response)
 
-            await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.6)")
-            await page.wait_for_timeout(3000)
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            except Exception:
+                pass
+
+            is_verify = any(kw in page.url.lower() for kw in ["verify", "captcha", "security", "login"])
+            if is_verify and not self.headless:
+                print("  [Similar] 🔒 Lazada bot-check detected! Vui lòng giải quyết captcha trong trình duyệt (tối đa 5 phút)...")
+                for _ in range(60):
+                    await page.wait_for_timeout(5000)
+                    if not any(kw in page.url.lower() for kw in ["verify", "captcha", "security", "login"]):
+                        print("  [Similar] ✅ Verification successful! Continuing...")
+                        break
+
+            # Progressive scroll to trigger lazy-loaded recommendations (Lazada's observer needs sequential scrolling)
+            for _ in range(15):
+                if found_event.is_set():
+                    break
+                try:
+                    await page.evaluate("window.scrollBy(0, 1000)")
+                    await page.wait_for_timeout(1000)
+                except Exception:
+                    pass
 
             try:
                 await asyncio.wait_for(_await_event(found_event), timeout=15.0)
             except asyncio.TimeoutError:
-                log.warning("[Lazada] Recommendation API không phản hồi")
+                if not found_event.is_set():
+                    log.warning("[Lazada] Recommendation API không phản hồi")
 
             # Lưu session state sau mỗi lần chạy thành công
             try:
@@ -194,16 +231,16 @@ class LazadaSimilar:
 
 
 def _extract_lazada_recs(data: object, depth: int = 0) -> list[dict]:
-    if depth > 5:
-        return []
-    if isinstance(data, list) and data and isinstance(data[0], dict):
-        if "name" in data[0] or "title" in data[0] or "itemUrl" in data[0]:
-            return data
     if isinstance(data, dict):
-        for v in data.values():
-            found = _extract_lazada_recs(v, depth + 1)
-            if found:
-                return found
+        # Ưu tiên lấy module v2v (Sản phẩm tương tự)
+        data_block = data.get("data")
+        if isinstance(data_block, dict):
+            for mod in data_block.values():
+                if isinstance(mod, dict):
+                    rec_type = mod.get("recommendType", "")
+                    if rec_type in ["v2v", "item2item", "similar"]:
+                        return mod.get("products") or mod.get("items") or []
+    
     return []
 
 
@@ -211,15 +248,32 @@ def _normalize_lazada_rec(item: dict, source: str) -> SimilarProduct | None:
     try:
         name  = str(item.get("name") or item.get("title") or "")
         price_raw = item.get("price") or item.get("priceShow") or 0
-        price = int(re.sub(r"[^\d]", "", str(price_raw)) or 0)
-        rating = float(item.get("ratingScore") or item.get("rating") or 0)
-        sold   = int(item.get("itemSoldCntShow") or item.get("sold") or 0)
+        price_str = re.sub(r"[^\d]", "", str(price_raw))
+        price = int(price_str) if price_str else 0
+        
+        rating_raw = item.get("ratingScore") or item.get("rating") or 0
+        if isinstance(rating_raw, dict):
+            rating_raw = rating_raw.get("average") or rating_raw.get("score") or 0
+        rating = float(rating_raw)
+        
+        sold_raw = item.get("itemSoldCntShow") or item.get("sold") or 0
+        sold = int(re.sub(r"[^\d]", "", str(sold_raw)) or 0)
         img    = str(item.get("image") or item.get("mainImage") or "")
         if img.startswith("//"):
             img = "https:" + img
         raw_url = str(item.get("itemUrl") or item.get("url") or "")
-        if raw_url and not raw_url.startswith("http"):
-            raw_url = "https://www.lazada.vn" + raw_url
+        if not raw_url:
+            item_id = item.get("itemId") or item.get("item_id")
+            if item_id:
+                raw_url = f"https://www.lazada.vn/products/i{item_id}.html"
+
+        if raw_url:
+            if raw_url.startswith("//"):
+                raw_url = "https:" + raw_url
+            elif raw_url.startswith("/"):
+                raw_url = "https://www.lazada.vn" + raw_url
+            elif not raw_url.startswith("http"):
+                raw_url = "https://www.lazada.vn/" + raw_url
         return SimilarProduct(
             name=name, url=raw_url, price=price,
             rating=rating, sold=sold, image_url=img, source=source,
@@ -248,7 +302,7 @@ class ShopeeSimilar:
         self.headless = headless
 
     async def fetch(self, url: str, limit: int = 5) -> list[SimilarProduct]:
-        from playwright.async_api import async_playwright
+        from scraper.stealth_browser import launch_stealth_context
 
         results: list[SimilarProduct] = []
         found_event = asyncio.Event()
@@ -269,42 +323,45 @@ class ShopeeSimilar:
                         if r:
                             results.append(r)
                     found_event.set()
-            except Exception:
+            except Exception as e:
                 pass
 
         try:
-            async with async_playwright() as pw:
-                browser = await pw.chromium.launch(
-                    headless=self.headless,
-                    args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
-                )
-                state_file = SESSION_DIR / "state_shopee.vn.json"
-                ctx_kw: dict = {
-                    "user_agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-                    ),
-                    "locale": "vi-VN",
-                }
-                if state_file.exists():
-                    ctx_kw["storage_state"] = str(state_file)
+            state_file = SESSION_DIR / "state_shopee.vn.json"
+            
+            context = await launch_stealth_context(
+                storage_state=str(state_file) if state_file.exists() else None,
+                headless=self.headless,
+                humanize=False,
+                locale="vi-VN",
+            )
+            page = await context.new_page()
+            page.on("response", _on_response)
 
-                ctx  = await browser.new_context(**ctx_kw)
-                page = await ctx.new_page()
-                page.on("response", _on_response)
-
+            try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.5)")
-                await page.wait_for_timeout(3000)
+            except Exception:
+                pass
 
+            # Progressive scroll to trigger lazy-loaded recommendations
+            for _ in range(15):
+                if found_event.is_set():
+                    break
                 try:
-                    await asyncio.wait_for(
-                        _await_event(found_event), timeout=15.0
-                    )
-                except asyncio.TimeoutError:
+                    await page.evaluate("window.scrollBy(0, 1000)")
+                    await page.wait_for_timeout(1000)
+                except Exception:
+                    pass
+
+            try:
+                await asyncio.wait_for(
+                    _await_event(found_event), timeout=10.0
+                )
+            except asyncio.TimeoutError:
+                if not found_event.is_set():
                     log.warning("[Shopee] Recommendation API không phản hồi")
 
-                await browser.close()
+            await context.close()
         except Exception as exc:
             log.error("[Shopee] Similar fetch error: %s", exc)
 
@@ -315,9 +372,19 @@ def _extract_shopee_recs(data: object, depth: int = 0) -> list[dict]:
     if depth > 5:
         return []
     if isinstance(data, list) and data and isinstance(data[0], dict):
-        if any(k in data[0] for k in ("itemid", "item_id", "name", "shopid")):
+        keys = data[0].keys()
+        has_id = "itemid" in keys or "item_id" in keys
+        has_shop = "shopid" in keys or "shop_id" in keys
+        if has_id and has_shop:
             return data
-    if isinstance(data, dict):
+        
+        # If it's a list but not the target, recurse into its elements
+        for item in data:
+            found = _extract_shopee_recs(item, depth + 1)
+            if found:
+                return found
+
+    elif isinstance(data, dict):
         for v in data.values():
             found = _extract_shopee_recs(v, depth + 1)
             if found:
@@ -486,6 +553,22 @@ class TGDDSimilar:
                 except Exception as exc:
                     log.debug("[TGDD] Endpoint %s failed: %s", endpoint, exc)
                     continue
+
+        # Fallback: Dùng Tiki API để tìm sản phẩm tương tự dựa trên tên
+        _, _, _, product_name = self._parse_product_meta(html)
+        if product_name:
+            log.info("[TGDD] Fallback to Tiki search API using name: %s", product_name)
+            tiki_url = f"https://tiki.vn/search?q={product_name}"
+            try:
+                tiki_fetcher = TikiSimilar()
+                tiki_results = await tiki_fetcher.fetch(tiki_url, limit=limit)
+                if tiki_results:
+                    # Update source to tgdd_fallback so UI knows
+                    for r in tiki_results:
+                        r.source = "tgdd"
+                    return tiki_results
+            except Exception as e:
+                log.warning("[TGDD] Fallback failed: %s", e)
 
         log.warning("[TGDD] Không lấy được sản phẩm tương tự")
         return []

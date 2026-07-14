@@ -46,16 +46,17 @@ if sys.platform == 'win32':
 log = logging.getLogger("ShopeeParallelScraper")
 
 # ── Constants ────────────────────────────────────────────────────────────────
-SESSION_DIR       = Path("output") / "agent_sessions"
+_THIS_DIR = Path(__file__).resolve().parent.parent.parent
+SESSION_DIR       = _THIS_DIR / "output" / "agent_sessions"
 PROFILE_DIR       = SESSION_DIR / "profile_shopee"
-CHECKPOINT_DIR    = Path("output") / "checkpoints"
-COOKIES_FILE      = SESSION_DIR / "cookies_shopee.json"
+CHECKPOINT_DIR    = _THIS_DIR / "output" / "checkpoints"
+COOKIES_FILE      = SESSION_DIR / "state_shopee.vn.json"
 _RATINGS_PATH     = "get_ratings"
 
 DEFAULT_API_LIMIT    = 59   # Shopee accepts up to 60; use 59 to stay safe
 DEFAULT_BATCH_SIZE   = 5    # parallel fetch() calls per page.evaluate
 MONITOR_INTERVAL     = 10.0
-BUFFER_SIZE          = 500  # flush to disk every N reviews
+BUFFER_SIZE          = 20   # flush to disk frequently for real-time progress updates
 STAR_TYPES           = [1, 2, 3, 4, 5]
 MAX_RETRIES          = 3
 
@@ -271,10 +272,11 @@ class ShopeeParallelScraper:
 
     async def run(
         self,
-        url:         str,
+        url: str,
         output_path: str,
-        fmt:         str = "csv",
-        max_reviews: int = 0,
+        fmt: str = "csv",
+        max_reviews: int = 3000,
+        progress_callback = None
     ) -> int:
         shop_id, item_id = _parse_ids(url)
         checkpoint = _Checkpoint(item_id)
@@ -423,6 +425,8 @@ class ShopeeParallelScraper:
                                     saved = exporter.save_batch(list(buffer))
                                     total_saved += saved
                                     buffer.clear()
+                                    if progress_callback:
+                                        progress_callback(total_saved)
 
                 # Early stop: if 3+ consecutive requests return empty, star is done
                 if consecutive_empty >= 3 or not batch_got_data:
@@ -448,6 +452,8 @@ class ShopeeParallelScraper:
                     saved = exporter.save_batch(list(buffer))
                     total_saved += saved
                     buffer.clear()
+                    if progress_callback:
+                        progress_callback(total_saved)
 
             # Final checkpoint
             checkpoint.save({

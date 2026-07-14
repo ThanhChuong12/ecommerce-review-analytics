@@ -73,13 +73,13 @@ async def scrape_similar_products(
     """
     FetcherClass = _get_fetcher_class(url)
 
-    # TikiSimilar không cần headless (dùng httpx)
-    if "Tiki" in FetcherClass.__name__:
+    # TikiSimilar và TGDDSimilar không cần headless (dùng httpx)
+    if "Tiki" in FetcherClass.__name__ or "TGDD" in FetcherClass.__name__:
         fetcher = FetcherClass()
     else:
         fetcher = FetcherClass(headless=headless)
 
-    log.info("Fetching %d similar products for %s via %s", limit, url, FetcherClass.__name__)
+    log.info("Fetching %d similar products", limit)
     results = await fetcher.fetch(url, limit=limit)
     log.info("Got %d similar products", len(results))
     return results

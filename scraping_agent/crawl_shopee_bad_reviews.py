@@ -189,10 +189,10 @@ async def _crawl_one(url: str, output_path: Path, idx: int, total: int) -> int:
         filter_mode=SHOPEE_FILTER,
     )
 
-    # Xóa session sau mỗi link để Shopee không nhận ra fingerprint cũ
-    if _SESSION_FILE.exists():
-        _SESSION_FILE.unlink()
-        print(f"  [Session] Đã xóa session cũ — link tiếp theo sẽ dùng session mới.")
+    # (Đã tắt theo yêu cầu) Xóa session sau mỗi link để Shopee không nhận ra fingerprint cũ
+    # if _SESSION_FILE.exists():
+    #     _SESSION_FILE.unlink()
+    #     print(f"  [Session] Đã xóa session cũ — link tiếp theo sẽ dùng session mới.")
 
     # Nghỉ ngẫu nhiên 15-30 giây trước link tiếp theo để tránh rate-limit
     if idx < len([u for u in URLS_TO_CRAWL if u.strip() and not u.strip().startswith('#')]):

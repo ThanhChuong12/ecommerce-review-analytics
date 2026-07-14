@@ -138,11 +138,20 @@ def _parse_one_block(block: str, product_url: str, product_name: str = '') -> Re
 		text = unescape(text)
 
 	# ----- Images -----
-	imgs = re.findall(
-		r'(?:src|href)="(https?://cdn(?:v2)?\.tgdd\.vn/[^"]+\.(?:jpg|jpeg|png|webp))"',
+	raw_imgs = re.findall(
+		r'(?:src|data-src|href)="([^"]+\.(?:jpg|jpeg|png|webp))"',
 		block,
 		re.IGNORECASE,
 	)
+	imgs = []
+	for link in raw_imgs:
+		# Extract inner url if TGDD proxy is used (e.g. https://img.tgdd.vn/imgt/.../https://cdnv2...)
+		if 'https://' in link[10:]:
+			idx = link.find('https://', 10)
+			if idx != -1:
+				link = link[idx:]
+		if link not in imgs:
+			imgs.append(link)
 
 	if not text and not date_str and rating == 0:
 		return None
@@ -248,8 +257,8 @@ class TGDDScraper(BaseScraper):
 	def _extract_total_from_html(self, html: str) -> int:
 		"""Trích tổng review từ HTML sản phẩm hoặc /danh-gia."""
 		for pattern in [
-			r'(\d+)\s*d.nh gi.',  # danh gia (broad)
-			r'(\d+)\s*nh.n x.t',  # nhan xet
+			r'(\d+)\s*đánh giá',  # danh gia (broad)
+			r'(\d+)\s*nhận xét',  # nhan xet
 			r'"total"\s*:\s*(\d+)',
 			r'rating_total[":\s]+(\d+)',
 		]:
