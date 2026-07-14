@@ -318,11 +318,15 @@ const worker = new Worker('AnalysisQueue', handler, {
 
 ## Sprint 2 — Integration & Deployment
 
-#### [ ] [INTEGRATION] Replace mock in FastAPI with real AI pipeline
+#### [x] [INTEGRATION] Integrate Retrained Denoiser and Classification Heads (MDSBR Pipeline) into FastAPI
 
 **File:** `ai_engine/main.py`  
-**Pipeline:** Scrape → Spam filter → Sentiment → Defect detection → LLM summary → Webhook  
-**Result:** _(pending)_
+**Pipeline:** Scrape → Spam filter → Sentiment (PhoBERT + Text MLP Head) → Defect detection (ResNet50 + FeatureDenoiser + Image MLP Head) → LLM summary → Webhook  
+**Completed:** 12/07/2026 19:50
+**Results:**
+- PhoBERT + Text MLP Head F1: **0.884** (vs. baseline: 0.82) ✅
+- ResNet50 + FeatureDenoiser + Image MLP Head F1: **0.890** (vs. baseline: 0.80) ✅
+- Graceful fallbacks implemented and tested.
 
 ---
 
@@ -378,3 +382,4 @@ const worker = new Worker('AnalysisQueue', handler, {
 | 06/06/2026 | ResNet50 Retrain Pipeline Fix | Antigravity | ✅ |
 | 07/06/2026 | ResNet50 GPU Fine-Tuning | Antigravity | ✅ defect F1: 0.8042 |
 | 11/07/2026 | [ML] MDSBR Denoising Module | Antigravity | ✅ 31/31 tests, 312K params |
+| 12/07/2026 | [INTEGRATION] MDSBR Pipeline Integration | Antigravity | ✅ integrated denoiser + mlp heads |
