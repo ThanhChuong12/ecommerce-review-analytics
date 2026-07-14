@@ -154,7 +154,7 @@ URL đến → Dispatcher kiểm tra domain → Chọn Scraper phù hợp
 
 **Tiến độ:** 10% → 25%  
 **File:** `ai_engine/text_processing/spam_filter.py`  
-**Tình trạng trong code:** Hiện tại chỉ dùng phần **Rule-based**. Phần **IForest** đã được train nhưng đang tắt (comment out) vì độ chính xác chưa đủ tốt.
+**Tình trạng trong code:** Dùng **2 tầng song song**: (1) Rule-based filter và (2) **Isolation Forest (IForest)** — model Machine Learning vừa được train lại (phiên bản mới `spam_iforest.pkl`, thay thế bản cũ `tuned_spam_iforest.pkl` đã bị bỏ vì nhận nhầm quá nhiều).
 
 **Mục tiêu:** Xác định xem review nào là thật, review nào là rác (cày xu, seeding, copy-paste, spam bàn phím).
 
@@ -290,71 +290,13 @@ Ví dụ trong không gian vector:
 **Cách dùng:**
 1. Code định nghĩa 4 "neo ngữ nghĩa" (anchor) cho 4 khía cạnh:
    - `shipping: "giao hàng đóng gói thời gian vận chuyển nhanh chậm"`
-   - `product: "chất lượng sản phẩm chính hãng hàng giả hàng nhái"`
-   - `price: "giá cả đắt rẻ khuyến mãi voucher"`
-   - `service: "dịch vụ chăm sóc khách hàng tư vấn thái độ"`
-
-2. Với mỗi review, encode nó thành vector, rồi tính Cosine Similarity với 4 anchor vector.
-3. Nếu similarity với một anchor > 0.65 → Review này đang nói về aspect đó.
-
-**Kết quả Bước 3:** Mảng `sentiments[]` chứa `["positive", "negative", "neutral", ...]` và `text_probs[]` chứa `[{positive: 0.9, negative: 0.05, neutral: 0.05}, ...]` cho từng review.
-
----
-
-### BƯỚC 4: DOWNLOAD ẢNH
-
-**Tiến độ:** 42% → 55%
-
-**Mục tiêu:** Tải ảnh mà khách hàng đã đăng kèm review về server để phân tích.
-
-Bước này đơn giản: Dùng `urllib` của Python để download từng URL ảnh về thư mục tạm trong máy chủ. Giới hạn tối đa `MAX_IMAGES_PROCESS` ảnh (mặc định 40-50 ảnh) để tránh mất quá nhiều thời gian và storage.
-
-**Vấn đề:** Nhiều khách hàng đăng ảnh **KHÔNG liên quan** đến sản phẩm (selfie, ảnh nhà, ảnh cái cây...) để platform nghĩ họ có đính kèm ảnh và tính xu cho họ. Nếu đưa những ảnh này vào model nhận diện hỏng hóc thì kết quả sẽ vô nghĩa. Đây là lý do cần Bước 4.5.
-
----
-
-### BƯỚC 4.5: CLIP FILTER — LỌC ẢNH KHÔNG LIÊN QUAN
-
-**Tiến độ:** 55% → 63%  
-**File:** `ai_engine/image_processing/zero_shot_clip.py`  
-**Model:** `openai/clip-vit-base-patch32`
-
-**Mục tiêu:** Với mỗi ảnh vừa tải về, phân loại xem đây là ảnh **product** (sản phẩm/hộp hàng) hay **irrelevant** (không liên quan). Chỉ ảnh `product` mới được đưa vào Bước 5.
-
-#### CLIP là gì?
-
-**CLIP** (Contrastive Language-Image Pre-Training) là mô hình của OpenAI, được huấn luyện trên **400 triệu cặp (ảnh, text) từ internet**.
-
-Ý tưởng đột phá của CLIP: **Học chung không gian vector cho cả ảnh và văn bản.** Nghĩa là sau khi huấn luyện, một bức ảnh con chó và câu text `"a photo of a dog"` sẽ có **vector rất gần nhau** trong cùng một không gian toán học.
-
-Trước CLIP, muốn phân loại ảnh thì phải: Thu thập dataset, gán nhãn thủ công hàng nghìn ảnh, huấn luyện model mới. Với CLIP, chỉ cần viết text mô tả là phân loại được ngay — gọi là **Zero-shot Classification**.
-
-#### Cách hoạt động trong code:
-
-1. Code định nghĩa 2 nhóm prompt:
-   - **PRODUCT_PROMPTS (9 câu):** Mô tả ảnh sản phẩm hợp lệ: `"a photo of a product package or cardboard shipping box"`, `"a consumer product sitting on a table for inspection"`, v.v.
-   - **IRRELEVANT_PROMPTS (8 câu):** Mô tả ảnh không liên quan: `"a selfie, portrait, or group photo of people without any product"`, `"cooked food, a meal plated on a dish"`, `"flowers, bouquets, gift baskets"`, v.v.
-
-2. CLIP model encode bức ảnh thành vector ảnh, và encode tất cả 17 câu prompt thành vector text.
-
-3. Tính Cosine Similarity giữa vector ảnh và **từng** vector text:
-   - Kết quả: 9 điểm similarity với PRODUCT_PROMPTS, 8 điểm với IRRELEVANT_PROMPTS.
-
-4. **Tính điểm trung bình** của 2 nhóm, nhóm nào có điểm cao hơn thì ảnh thuộc nhóm đó.
-
-5. Nếu label = `irrelevant` → Đánh dấu index này, **không** đưa vào ResNet50.
-
-> **Giải thích cho thầy:** *"Thưa thầy, kỹ thuật Zero-shot với CLIP là một trong những đột phá lớn nhất của AI trong 3 năm qua. Truyền thống phải dán nhãn hàng nghìn ảnh để train model phân loại. Với CLIP, em chỉ cần viết mô tả bằng tiếng Anh, model tự phân loại được ngay vì nó đã học sự liên kết giữa ngôn ngữ và hình ảnh từ hàng triệu ví dụ trên internet."*
-
-**Kết quả Bước 4.5:** Tập hợp `clip_irrelevant_indices` chứa index của các ảnh bị loại. Chỉ ảnh `product` mới tiếp tục.
-
----
-
-### BƯỚC 5: RESNET50 DEFECT DETECTION — NHẬN DIỆN HỎNG HÓC
+   - `product: "c
+   
+### BƯỚC 5: RESNET50 + FEATURE DENOISER — NHẬN DIỆN HỊNG HÓC
 
 **Tiến độ:** 63% → 72%  
-**File:** `ai_engine/image_processing/defect_detection.py`  
-**Model:** ResNet50 (đã được fine-tune)
+**File:** `ai_engine/image_processing/defect_detection.py`, `ai_engine/denoising/feature_denoiser.py`  
+**Model:** ResNet50 (frozen encoder) + FeatureDenoiser (Gaussian Diffusion) + MLP Head
 
 **Mục tiêu:** Với các ảnh đã qua lọc CLIP (ảnh sản phẩm thật), xác định tình trạng: hộp hàng có nguyên vẹn hay bị móp méo/hỏng?
 
@@ -362,9 +304,51 @@ Trước CLIP, muốn phân loại ảnh thì phải: Thu thập dataset, gán n
 - `intact` (no-defect): Sản phẩm/hộp nguyên vẹn, không có vấn đề.
 - `damaged` (defect): Sản phẩm/hộp bị móp, xước, vỡ, giao sai hàng.
 
+#### Luồng xử lý ảnh:
+
+```
+Ảnh review (224x224px)
+    └─► ResNet50 (frozen encoder, fc = Identity())
+            └─► Embedding [2048-dim]
+                    └─► FeatureDenoiser (Gaussian Diffusion)
+                            └─► Embedding đã lọc nhiễu [2048-dim]
+                                    └─► MLP Head (2048 → 256 → 128 → 2)
+                                            └─► no-defect / defect
+```
+
 #### ResNet50 là gì?
 
 **ResNet50** (Residual Network, 50 tầng) là một trong những kiến trúc mạng nơ-ron tích chập (**CNN — Convolutional Neural Network**) nổi tiếng nhất trong Computer Vision (thị giác máy tính).
+
+**CNN học như thế nào?**
+
+Hãy tưởng tượng não người nhìn ảnh: đầu tiên nhận ra các đường thẳng cơ bản, rồi ghép lại thành góc cạnh, rồi ghép thành hình khối, rồi nhận ra vật thể. CNN làm y hệt vậy theo các lớp (layers):
+
+- **Lớp đầu (Early layers):** Học phát hiện các đặc trưng đơn giản như cạnh nằm ngang, cạnh thẳng đứng, góc 45°.
+- **Lớp giữa (Middle layers):** Kết hợp các đặc trưng đơn giản để nhận ra texture (bề mặt), pattern (hoa văn).
+- **Lớp cuối (Deep layers):** Kết hợp tất cả để nhận ra vật thể hoàn chỉnh: "đây là hộp carton bị móp".
+
+**Vấn đề của mạng sâu:** Khi tăng số lớp lên 50+, thông tin gradient trong quá trình huấn luyện có thể biến mất (Vanishing Gradient) khiến model không học được. ResNet giải quyết vấn đề này bằng **Residual Connection (Skip Connection)** — tạo đường tắt cho thông tin bypass qua nhiều lớp, đảm bảo gradient luôn chạy được.
+
+**Cách ResNet50 được dùng trong pipeline này:**
+
+Thay vì fine-tune toàn bộ ResNet50 để ra nhãn trực tiếp (cách cũ), pipeline hiện tại dùng ResNet50 như một **feature extractor (trích xuất đặc trưng)**: bỏ lớp classification cuối đi (set `fc = Identity()`), giữ nguyên phần thân (frozen), và lấy vector 2048 chiều ở đầu ra làm đầu vào cho bước tiếp theo.
+
+#### FeatureDenoiser là gì?
+
+Cc embedding vector được trích xuất từ ResNet50 trong thực tế không hoàn toàn "ạch". Chúng chứa nhiễu: góc chụp khác nhau, ánh sáng khác nhau, background khác nhau... Tất cả làm cho embedding của "hộp nguyên vẹn" và "hộp hơi móp" bị chồng chéo nhau trong không gian vector, dẫn đến phân loại sai.
+
+**FeatureDenoiser** là một mạng học sâu được xây dựng theo nguyên lý **Diffusion** (tương tự Stable Diffusion nhưng hoạt động trong không gian embedding thay vì không gian pixel). Nó học cách "làm sạch" embedding, tức là kéo các embedding của cùng một lớp (intact/damaged) lại gần nhau hơn trong không gian vector, giúp MLP Head phân loại chính xác hơn.
+
+**Quá trình:**
+- Lúc train: thêm nhiễu Gaussian dần dần vào embedding sạch (forward process), rồi dạy model học cách khử nhiễu ngược lại (reverse process).
+- Lúc inference: embedding từ ResNet50 được đưa qua Denoiser để lọc nhiễu, sau đó mới đưa vào **MLP Head** (mạng tầng perceptron nhẹ, kiến trúc 2048 → 256 → 128 → 2) để phân loại cuối cùng.
+
+> **Giải thích cho thầy:** *"Thưa thầy, thay vì chỉ fine-tune ResNet50 trực tiếp (cách truyền thống), nhóm em thêm một bước lọc nhiễu trong không gian embedding dựa trên nguyên lý Diffusion. Điều này giúp model robust hơn trước các biến thiên về ánh sáng, góc chụp và nhiễu nền trong ảnh review thực tế của người dùng."*
+
+**Batch Inference:** Thay vì xử lý từng ảnh một (chậm), code dùng `batch_size=16` — xử lý 16 ảnh cùng lúc trên GPU/CPU để tận dụng tối đa phần cứng.
+
+**Kết quả Bước 5:** Mảng `image_labels[]` chứa `["intact", "damaged", "irrelevant", ...]` và `image_probs_dict[]` chứa xác suất cho từng ảnh.��ng nhất trong Computer Vision (thị giác máy tính).
 
 **CNN học như thế nào?**
 
@@ -389,6 +373,39 @@ Model nhận ảnh đầu vào (resized về 224x224 pixel), xử lý qua 50 l�
 **Batch Inference:** Thay vì xử lý từng ảnh một (chậm), code dùng `batch_size=16` — xử lý 16 ảnh cùng lúc trên GPU/CPU để tận dụng tối đa phần cứng.
 
 **Kết quả Bước 5:** Mảng `image_labels[]` chứa `["intact", "damaged", "irrelevant", ...]` và `image_probs_dict[]` chứa xác suất cho từng ảnh.
+
+#### 🆕 Pipeline nâng cao: ResNet50 Encoder + FeatureDenoiser (MDSBR)
+
+**Ghi chú:** Code `ai_engine/main.py` hiện hỗ trợ pipeline ảnh nâng cao hơn nếu có đủ file weights:
+
+```
+Ảnh review
+    └─► ResNet50 (frozen encoder, fc = Identity())
+            └─► Embedding [2048-dim]
+                    └─► FeatureDenoiser (Gaussian Diffusion, hidden=1024)
+                            └─► Embedding đã lọc nhiễu [2048-dim]
+                                    └─► MLP Head (2048 → 256 → 128 → 2)
+                                            └─► no-defect / defect
+```
+
+**Ý tưởng cốt lõi — Tại sao cần Denoiser?**
+
+Các embedding vector được trích xuất từ ResNet50 trong thực tế không hoàn toàn "sạch". Chúng chứa nhiễu: góc chụp khác nhau, ánh sáng khác nhau, background khác nhau... Tất cả làm cho embedding của "hộp nguyên vẹn" và "hộp hơi móp" bị chồng chéo nhau trong không gian vector, dẫn đến phân loại sai.
+
+**FeatureDenoiser** là một mạng học sâu được xây dựng theo nguyên lý **Diffusion** (tương tự Stable Diffusion nhưng hoạt động trong không gian embedding thay vì không gian pixel). Nó học cách "làm sạch" embedding, tức là kéo các embedding của cùng một lớp (intact/damaged) lại gần nhau hơn trong không gian vector, giúp MLP Head phân loại chính xác hơn.
+
+**Kỹ thuật — Gaussian Diffusion trong không gian embedding:**
+- Lúc train: thêm nhiễu Gaussian dần dần vào embedding sạch (forward process), rồi dạy model học cách khử nhiễu ngược lại (reverse process).
+- Lúc inference: embedding từ ResNet50 được đưa qua Denoiser để lọc nhiễu, sau đó mới đưa vào MLP Head phân loại.
+
+**Các file weights cần thiết cho pipeline nâng cao này:**
+- `ai_engine/models/denoiser/feature_denoiser.pt` — FeatureDenoiser weights
+- `artifacts/models/denoiser/image_defect_head.pt` - MLP Head cho ảnh
+- `artifacts/models/denoiser/text_sentiment_head.pt` - MLP Head cho text
+
+Nếu các file trên không tồn tại, hệ thống **tự động fallback** về pipeline cũ (ResNet50 fine-tuned trực tiếp như mô tả ở trên), đảm bảo luôn có kết quả.
+
+> **Giải thích cho thầy:** *"Thưa thầy, cải tiến FeatureDenoiser của nhóm em là một hướng tiếp cận novel: thay vì chỉ fine-tune ResNet50 trực tiếp (cách truyền thống), nhóm em thêm một bước lọc nhiễu trong không gian embedding dựa trên nguyên lý Diffusion. Điều này giúp model robust hơn trước các biến thiên về ánh sáng, góc chụp và nhiễu nền trong ảnh review thực tế của người dùng."*
 
 ---
 
@@ -629,8 +646,10 @@ NGƯỜI DÙNG (Browser)
 │    └── CLIP-ViT-B/32: ảnh vs 17 text prompts               │
 │         ↓ clip_irrelevant_indices (set)                     │
 │                                                             │
-│  STEP 5: ResNet50 Defect Detection             → 72%        │
-│    └── CNN 50 lớp: intact vs damaged                        │
+│  STEP 5: ResNet50 + FeatureDenoiser           → 72%        │
+│    ├── ResNet50 (frozen): ảnh → Embedding [2048-dim]        │
+│    ├── FeatureDenoiser (Diffusion): lọc nhiễu embedding    │
+│    └── MLP Head: Embedding sạch → intact / damaged          │
 │         ↓ image_labels[], image_probs_dict[]                │
 │                                                             │
 │  STEP 6: Cross-Modal Fusion                    → 82%        │

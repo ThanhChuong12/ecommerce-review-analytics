@@ -217,7 +217,7 @@ def main():
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
     parser = argparse.ArgumentParser(description="Train classification heads on denoised embeddings")
-    parser.add_argument("--denoiser-path", default="ai_engine/models/feature_denoiser.pt")
+    parser.add_argument("--denoiser-path", default="artifacts/models/denoiser/feature_denoiser.pt")
     parser.add_argument("--paired-csv", default="data/processed/paired_text_image.csv")
     parser.add_argument("--text-embeddings", default="data/processed/paired_text_embeddings.pt")
     parser.add_argument("--image-embeddings", default="data/processed/paired_image_embeddings.pt")
@@ -228,7 +228,7 @@ def main():
     parser.add_argument("--dropout", type=float, default=0.3)
     parser.add_argument("--warmup-epochs", type=int, default=20)
     parser.add_argument("--label-smoothing", type=float, default=0.1)
-    parser.add_argument("--save-dir", default="artifacts/models")
+    parser.add_argument("--save-dir", default="artifacts/models/denoiser")
     args = parser.parse_args()
 
     device = "cpu"

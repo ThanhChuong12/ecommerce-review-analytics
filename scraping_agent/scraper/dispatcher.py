@@ -52,6 +52,7 @@ async def scrape(
     llm_provider: str = "auto",
     headless: bool    = False,
     filter_mode: str  = "max",
+    progress_callback = None
 ) -> int:
     """Route URL đến đúng scraper. Trả về số review đã lưu."""
 
@@ -59,13 +60,13 @@ async def scrape(
     ScraperClass = _get_direct_scraper(url)
     if ScraperClass is not None:
         scraper = ScraperClass()
-        return await scraper.run(url, output_path, fmt, max_reviews)
+        return await scraper.run(url, output_path, fmt, max_reviews, progress_callback=progress_callback)
 
     # ── Lớp 2a: Lazada — Playwright interception ─────────────────────────
     if "lazada.vn" in url:
         from scraper.direct.lazada import LazadaScraper
         scraper = LazadaScraper(headless=headless)
-        return await scraper.run(url, output_path, fmt, max_reviews)
+        return await scraper.run(url, output_path, fmt, max_reviews, progress_callback=progress_callback)
 
     # ── Lớp 2b: Shopee — httpx parallel + multi-type (v5) ───────────────
     if "shopee.vn" in url:
@@ -78,14 +79,14 @@ async def scrape(
             human_preset = "careful",
             filter_mode  = filter_mode,
         )
-        return await scraper.run(url, output_path, fmt, max_reviews)
+        return await scraper.run(url, output_path, fmt, max_reviews, progress_callback=progress_callback)
 
     # ── Lớp 2c: Site lạ — Generic Playwright (tự detect API) ────────────
     # Ưu tiên thử trước khi tốn tiền LLM
     try:
         from scraper.direct.generic_playwright import GenericPlaywrightScraper
         generic = GenericPlaywrightScraper(headless=headless)
-        count = await generic.run(url, output_path, fmt, max_reviews)
+        count = await generic.run(url, output_path, fmt, max_reviews, progress_callback=progress_callback)
         if count > 0:
             return count
         # count == 0 → không detect được → fallthrough sang LLM

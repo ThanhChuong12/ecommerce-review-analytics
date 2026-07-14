@@ -65,6 +65,7 @@ PRODUCT_PROMPTS = [
     "a product being examined or held up for quality check",
     # Sách và văn phòng phẩm là sản phẩm TMĐT hợp lệ (không phải irrelevant)
     "a book, notebook, or stationery product for sale or review",
+    "a book lying flat on a desk, table, or floor for review",
 ]
 
 # ── Nhóm 2: IRRELEVANT — Cụ thể theo pattern dataset TMĐT Việt Nam ──
@@ -78,22 +79,45 @@ PRODUCT_PROMPTS = [
 #   - Screenshot / video frame → "screenshot, phone app"
 # GHI CHÚ: Xóa “sach/notebooks” khỏi irrelevant vì sách là sản phẩm TMDT hợp lệ
 IRRELEVANT_PROMPTS = [
-    # Người (selfie, đám đông, tay cầm đồ random)
+    # Người (selfie, đám đông, tay cầm đồ random, idol kpop)
     "a selfie, portrait, or group photo of people without any product",
+    "a photo of a K-pop idol, celebrity, or singer on stage",
+    "a photo of a child or baby playing or smiling without any product",
+    # Thú cưng
+    "a photo of a pet, dog, or cat doing random things",
     # Người đang dùng đồ (đồ gia dụng random, không phải review)
     "a person wearing, holding, or using an everyday household item not for sale",
+    "a person trying on clothes or wearing an outfit without clear product focus",
     # Thực phẩm & đồ uống đã được phục vụ (không có bao bì sản phẩm)
     "cooked food, a meal plated on a dish, drinks in a glass or cup without packaging",
-    # Screenshot / giao diện / video frame
+    "a photo of street food, restaurant food, or home-cooked meal on a table",
+    # Screenshot / giao diện / video frame / text lyrics
+    "a digital screenshot showing a phone screen, UI elements, status bar, or social media feed",
     "a screenshot of a phone app, chat message, or video thumbnail",
+    "a picture containing only text, song lyrics, quotes, or typography",
+    "a screenshot of a website, social media post, or online order confirmation",
     # Hoa / quà tặng / trang trí / lễ hội Tết
     "flowers, bouquets, gift baskets, festive decorations, or ornaments",
     # Thiếp cảm ơn / hóa đơn / tờ rơi
     "a thank you card, printed receipt, invoice, or promotional flyer",
-    # Xe / nội thất / cảnh ngoài trời / phòng ốc
+    # Xe / nội thất / cảnh ngoài trời / phòng ốc / trần nhà / sàn nhà / bàn trống
     "a room interior, furniture, vehicle, motorcycle, or outdoor scene",
+    "an empty floor, ceiling, or empty table without any product",
+    # Ảnh nền đen / ảnh tối / ảnh bị nhòe / ảnh lỗi
+    "a completely black image, very dark photo, or fully white blank image",
+    "a very blurry, out-of-focus, or corrupted image with no recognizable content",
+    # Abstract, màu sắc, nền trơn
+    "an abstract background, solid color wall, or black and white pattern",
+    "a plain colored background or gradient with no product visible",
+    # Thiên nhiên / phong cảnh / bầu trời
+    "a landscape photo, nature scenery, sky, clouds, or outdoor view",
+    # Meme / fanart / hình ảnh vẽ / hoạt hình
+    "a cartoon, anime illustration, meme, drawing, or digital artwork",
+    "a map, diagram, chart, infographic, or hand-drawn sketch",
     # Cảnh sinh hoạt thường ngày không liên quan sản phẩm
     "an everyday lifestyle photo unrelated to any product for sale",
+    # Ảnh ghép nhiều cảnh không liên quan / collage
+    "a collage of unrelated photos, screenshots, or random images without product focus",
 ]
 
 _N_PRODUCT = len(PRODUCT_PROMPTS)

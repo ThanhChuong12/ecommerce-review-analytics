@@ -365,7 +365,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=64, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument(
-        "--save-path", type=str, default="ai_engine/models/feature_denoiser.pt",
+        "--save-path", type=str, default="artifacts/models/denoiser/feature_denoiser.pt",
         help="Path to save trained model",
     )
     parser.add_argument(

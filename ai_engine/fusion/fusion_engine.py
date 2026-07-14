@@ -148,7 +148,7 @@ class TrustScoreCalculator:
             penalty_score = round(
                 self.SPAM_PENALTY_SCORE + (1.0 - severity) * (self.SPAM_MILD_CEILING - self.SPAM_PENALTY_SCORE), 2
             )
-            logger.warning("Spam detected (severity=%.2f)! Trust penalized to %.1f.", severity, penalty_score)
+            logger.debug("Spam detected (severity=%.2f)! Trust penalized to %.1f.", severity, penalty_score)
             return FusionResult(
                 final_score=penalty_score,
                 is_conflict=False,
@@ -162,7 +162,7 @@ class TrustScoreCalculator:
 
         # Step 2: Image Modality Routing & Dynamic Weighting
         if inputs.image_probs is None:
-            logger.info("Image modality missing. Redistributing weight to text.")
+            logger.debug("Image modality missing. Redistributing weight to text.")
             weight_text = self.base_text_weight + self.base_image_weight
             weight_image = 0.0
             image_score = 0.0
@@ -173,7 +173,7 @@ class TrustScoreCalculator:
               inputs.image_probs.irrelevant > inputs.image_probs.intact and
               inputs.image_probs.irrelevant > inputs.image_probs.damaged and
               inputs.image_probs.irrelevant > inputs.image_probs.wrong_item):
-            logger.info("Irrelevant image detected. Redistributing weight to text.")
+            logger.debug("Irrelevant image detected. Redistributing weight to text.")
             weight_text = self.base_text_weight + self.base_image_weight
             weight_image = 0.0
             image_score = 0.0
