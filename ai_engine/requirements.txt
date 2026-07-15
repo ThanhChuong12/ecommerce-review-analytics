@@ -29,7 +29,7 @@ colorama>=0.4.6
 # =============================================================================
 
 # ── Core ML ───────────────────────────────────────────────────────────────────
-scikit-learn>=1.8
+scikit-learn==1.5.0
 imbalanced-learn>=0.12.0
 
 # ── Numerics ──────────────────────────────────────────────────────────────────
@@ -48,6 +48,6 @@ torchvision>=0.17.0
 Pillow>=10.0.0
 
 beautifulsoup4>=4.15.0
-transformers>=5.13.1
+transformers>=4.40.0
 sentencepiece>=0.2.2
-sentence-transformers>=5.1.0
+sentence-transformers>=2.2.0
