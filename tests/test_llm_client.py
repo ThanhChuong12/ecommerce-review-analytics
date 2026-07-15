@@ -24,7 +24,7 @@ class TestLLMFallbackClientParsing(unittest.TestCase):
     def test_parse_label_in_text(self) -> None:
         raw = "Kết quả phân tích là: tích cực."
         result = self.client._parse_response(raw)
-        self.assertEqual(result, {"sentiment": "trung lập"})
+        self.assertEqual(result, {"sentiment": "tích cực"})
 
     def test_parse_invalid_default(self) -> None:
         raw = "unknown"
