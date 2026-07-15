@@ -220,10 +220,11 @@ function AnalyzeContent() {
         setResult(data);
         socket.disconnect();
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
       setStatus('ERROR');
-      alert('Lỗi kết nối với Backend. Đảm bảo Node.js đang chạy.');
+      const errMessage = error.response?.data?.error || 'Lỗi kết nối với Backend. Đảm bảo Node.js đang chạy.';
+      alert(errMessage);
       router.push('/');
     }
   };

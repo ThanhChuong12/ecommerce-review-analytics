@@ -1,4 +1,5 @@
 import { Product } from '../models/index.mjs';
+import { User } from '../models/index.mjs'
 import analysisQueue from '../queue/analysisQueue.mjs';
 
 export const analyzeUrl = async (req, res) => {
@@ -8,6 +9,11 @@ export const analyzeUrl = async (req, res) => {
 
         let productId;
         if (userId) {
+            const userExists = await User.findByPk(userId);
+            if (!userExists) {
+                return res.status(400).json({ error: 'Tài khoản chưa được đồng bộ với hệ thống. Vui lòng tải lại trang (F5) và thử lại.' });
+            }
+
             const product = await Product.create({
                 url,
                 status: 'PENDING',
