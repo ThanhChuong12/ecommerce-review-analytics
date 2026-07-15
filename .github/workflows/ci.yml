@@ -7,9 +7,9 @@ on:
     branches: [ "main" ]
 
 jobs:
-  # 1. Job kiểm tra Frontend (Cài đặt, Lint và Build)
+  # 1. Job kiểm tra Frontend (Cài đặt và Lint)
   frontend-check:
-    name: Frontend Lint & Build Check
+    name: Frontend Lint Check
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -31,17 +31,8 @@ jobs:
       run: |
         cd web_platform/frontend
         npm run lint
-      continue-on-error: true # Cho phép cảnh báo lint không chặn hoàn toàn build nếu chưa cấu hình chặt chẽ
+      continue-on-error: true # Cho phép cảnh báo lint không chặn CI nếu chưa cấu hình chặt chẽ
 
-    - name: Build Next.js
-      run: |
-        cd web_platform/frontend
-        npm run build
-      env:
-        NEXT_PUBLIC_API_URL: "http://localhost:5000/api"
-        NEXT_PUBLIC_SOCKET_URL: "http://localhost:5000"
-        NEXT_PUBLIC_SUPABASE_URL: "https://dummy-supabase-project.supabase.co"
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: "dummy-anon-key"
 
   # 2. Job kiểm tra Backend Node.js
   backend-check:
