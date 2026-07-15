@@ -990,7 +990,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         class LLMProductSummaryClient(BaseLLMClient):
             def __init__(self):
                 super().__init__(timeout=30.0)
-                self.temperature = 0.2
+                self.temperature = 0.1
                 self.max_tokens = 800
                 self.response_format = None
                 self.system_prompt = (
