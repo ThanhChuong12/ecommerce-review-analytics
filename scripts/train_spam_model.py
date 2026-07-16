@@ -128,8 +128,8 @@ def main() -> None:
         help="Column name for star rating (default: rating)",
     )
     parser.add_argument(
-        "--contamination", type=float, default=0.1,
-        help="Estimated fraction of spam in dataset for IForest (default: 0.1)",
+        "--contamination", type=float, default=0.10,
+        help="Estimated fraction of spam in dataset for IForest (default: 0.10)",
     )
     parser.add_argument(
         "--n-estimators", type=int, default=200,
@@ -148,8 +148,8 @@ def main() -> None:
         help="If provided, save the annotated DataFrame with spam labels to this CSV path",
     )
     parser.add_argument(
-        "--dup-threshold", type=float, default=0.85,
-        help="Cosine similarity threshold for duplicate seeding detection (default: 0.85)",
+        "--dup-threshold", type=float, default=0.95,
+        help="Cosine similarity threshold for duplicate seeding detection (default: 0.95)",
     )
     args = parser.parse_args()
 
