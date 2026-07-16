@@ -51,7 +51,6 @@ def extract_structural_features(texts: List[str], ratings: List) -> np.ndarray:
             get_emoji_ratio(text_str),
             get_special_char_ratio(text_str),
             get_uppercase_ratio(text_str),
-            get_digit_ratio(text_str),
             get_type_token_ratio(text_str),
         ])
     return np.array(features, dtype=np.float32)
@@ -88,7 +87,7 @@ class SpamHybridModel:
 
     def __init__(
         self,
-        contamination: float = 0.1,
+        contamination: float = 0.10,
         n_estimators: int = 200,
         max_samples: float | str = "auto",
         random_state: int = 42,
@@ -136,6 +135,7 @@ class SpamHybridModel:
     ) -> np.ndarray:
         iforest_pred = self.predict_anomaly(X)
         iforest_spam = (iforest_pred == -1).astype(int)
+        # User requested to ONLY use the model (Isolation Forest)
         return iforest_spam
 
     def save(self, path: str) -> None:

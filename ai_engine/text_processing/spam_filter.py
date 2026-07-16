@@ -592,9 +592,10 @@ _SHORT_TEMPLATE_TOKENS = {
 
 
 def is_short_generic(text: str) -> bool:
-    """Reviews whose entire content is a single platitude."""
-    norm = normalize_text(remove_emojis(text)).strip(".,! ")
-    return norm in _SHORT_TEMPLATE_TOKENS
+    """Reviews whose entire content is a single platitude.
+    [UPDATED]: Disabled per user request to avoid catching real short reviews.
+    """
+    return False
 
 
 # Substrings that strongly suggest the review is copied from somewhere
@@ -766,7 +767,7 @@ def find_duplicate_clusters(
     return clusters
 
 
-def flag_duplicates(texts: List[str], threshold: float = 0.85) -> List[bool]:
+def flag_duplicates(texts: List[str], threshold: float = 0.95) -> List[bool]:
     """Boolean list parallel to texts; True if the review is in a duplicate cluster."""
     clusters = find_duplicate_clusters(texts, threshold=threshold)
     dup_indices: Set[int] = set()
@@ -779,7 +780,7 @@ def flag_duplicates(texts: List[str], threshold: float = 0.85) -> List[bool]:
 #  8. PIPELINE
 # =====================================================================
 
-def detect_spam(df: pd.DataFrame, dup_threshold: float = 0.85) -> pd.DataFrame:
+def detect_spam(df: pd.DataFrame, dup_threshold: float = 0.95) -> pd.DataFrame:
     """Run all rules and return df with one extra column 'is_spam' (0 or 1).
 
     The detailed per-rule flag matrix is attached as df.attrs['flag_details']
