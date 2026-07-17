@@ -71,21 +71,22 @@ export const exportPDF = async (req, res) => {
 
         const metadata = product.report?.metadata || {};
         const reviews = product.reviews || [];
-        
+
         let s = { positive: 0, neutral: 0, negative: 0 };
         let l = { intact: 0, damaged: 0, wrong_item: 0, irrelevant: 0 };
         let imagesHtml = '';
         let reviewsHtml = '';
-        
+
+        let imageCount = 0;
         reviews.forEach((r, idx) => {
             if (s[r.sentiment] !== undefined) s[r.sentiment]++;
             if (l[r.label] !== undefined) l[r.label]++;
-            
+
             if (idx < 20) {
                 const sentClass = r.sentiment === 'positive' ? 'badge-pos' : r.sentiment === 'negative' ? 'badge-neg' : 'badge-neu';
                 const sentText = r.sentiment === 'positive' ? 'Tích cực' : r.sentiment === 'negative' ? 'Tiêu cực' : 'Trung lập';
                 const lblText = r.label === 'intact' ? 'Nguyên vẹn' : r.label === 'damaged' ? 'Hỏng/Móp' : r.label === 'wrong_item' ? 'Sai hàng' : 'Không l.quan';
-                
+
                 let imgLblBg = '#e2e8f0';
                 let imgLblColor = '#334';
                 if (r.label === 'intact') {
@@ -101,23 +102,24 @@ export const exportPDF = async (req, res) => {
                     imgLblBg = '#fee2e2'; // warning red-100 (irrelevant)
                     imgLblColor = '#991b1b'; // warning red-800
                 }
-                
+
                 reviewsHtml += `
                     <tr>
-                        <td><div style="color:#f59e0b;font-size:11px;">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>${r.review_text}</td>
+                        <td><div style="color:#f59e0b;font-size:11px;">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</div>${r.review_text}</td>
                         <td><span class="badge ${sentClass}">${sentText}</span></td>
                         <td><span class="badge" style="background:${imgLblBg};color:${imgLblColor}">${lblText}</span></td>
                     </tr>
                 `;
             }
-            
-            if (r.image_path) {
+
+            if (r.image_path && imageCount < 20) {
+                imageCount++;
                 const lblText = r.label === 'intact' ? 'Nguyên vẹn' : r.label === 'damaged' ? 'Hỏng/Móp' : r.label === 'wrong_item' ? 'Sai hàng' : 'Không l.quan';
                 // Professional solid background colors for image labels
                 const lblColor = r.label === 'intact' ? '#10b981' : r.label === 'damaged' ? '#be123c' : r.label === 'wrong_item' ? '#f59e0b' : '#dc2626';
                 imagesHtml += `
                     <div class="image-card">
-                        <img src="${r.image_path}" alt="Review image">
+                        <img src="${r.image_path}" alt="Review image" loading="lazy">
                         <div class="lbl" style="background: ${lblColor}">${lblText}</div>
                     </div>
                 `;
@@ -138,7 +140,7 @@ export const exportPDF = async (req, res) => {
                 <div class="stat-row">
                     <div style="flex:1;">${displayName}</div>
                     <div style="width: 150px;">
-                        <div class="progress-bar"><div class="progress-fill" style="width: ${(val/5)*100}%; background: #d946ef;"></div></div>
+                        <div class="progress-bar"><div class="progress-fill" style="width: ${(val / 5) * 100}%; background: #d946ef;"></div></div>
                     </div>
                     <div style="width: 40px; text-align:right; font-weight:bold;">${val}/5</div>
                 </div>
@@ -180,48 +182,121 @@ export const exportPDF = async (req, res) => {
             <head>
                 <meta charset="UTF-8">
                 <title>BÁO CÁO PHÂN TÍCH CHUYÊN SÂU</title>
+                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
                 <style>
                     @page {
-                        size: auto;
-                        margin: 0mm;
+                        size: A4;
+                        margin: 15mm;
                     }
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; line-height: 1.5; padding: 20mm 15mm; background: #fff; font-size: 14px; }
-                    .header { text-align: center; border-bottom: 3px solid #3b82f6; padding-bottom: 15px; margin-bottom: 25px; }
-                    .title { font-size: 28px; color: #1e40af; margin: 0; font-weight: 800; }
-                    .subtitle { color: #64748b; font-size: 13px; margin-top: 5px; }
-                    .section { margin-bottom: 25px; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; page-break-inside: avoid; }
-                    .section h2 { color: #0f172a; margin-top: 0; font-size: 18px; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 15px; }
-                    .flex { display: flex; gap: 15px; flex-wrap: wrap; }
-                    .box { flex: 1; min-width: 150px; background: white; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; text-align: center; }
-                    .box h3 { margin: 0 0 5px 0; color: #64748b; font-size: 12px; text-transform: uppercase; }
-                    .box .value { font-size: 26px; font-weight: bold; }
-                    .danger-box { background: #fff1f2; border: 1px solid #fecdd3; padding: 15px; border-radius: 12px; margin-bottom: 25px; }
-                    .danger-box h2 { color: #be123c; margin-top: 0; font-size: 18px; border-bottom: 1px solid #fda4af; padding-bottom: 8px; }
+                    body { 
+                        font-family: 'Inter', sans-serif; 
+                        color: #1e293b; 
+                        line-height: 1.6; 
+                        background: #ffffff; 
+                        font-size: 13px; 
+                        margin: 0;
+                        -webkit-print-color-adjust: exact;
+                        print-color-adjust: exact;
+                    }
+                    .header { 
+                        text-align: center; 
+                        border-bottom: 4px solid #2563eb; 
+                        padding-bottom: 20px; 
+                        margin-bottom: 30px; 
+                    }
+                    .title { 
+                        font-size: 26px; 
+                        color: #1e3a8a; 
+                        margin: 0; 
+                        font-weight: 800; 
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    }
+                    .subtitle { 
+                        color: #64748b; 
+                        font-size: 13px; 
+                        margin-top: 8px; 
+                        font-weight: 500;
+                    }
+                    .section { 
+                        margin-bottom: 30px; 
+                        background: #ffffff; 
+                        padding: 24px; 
+                        border-radius: 12px; 
+                        border: 1px solid #e2e8f0; 
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+                        page-break-inside: avoid; 
+                    }
+                    .section h2 { 
+                        color: #0f172a; 
+                        margin-top: 0; 
+                        font-size: 17px; 
+                        border-bottom: 2px solid #e2e8f0; 
+                        padding-bottom: 12px; 
+                        margin-bottom: 20px; 
+                        font-weight: 700;
+                    }
+                    .flex { display: flex; gap: 20px; flex-wrap: wrap; }
+                    .box { 
+                        flex: 1; 
+                        min-width: 150px; 
+                        background: #f8fafc; 
+                        padding: 20px; 
+                        border-radius: 12px; 
+                        border: 1px solid #e2e8f0; 
+                        text-align: center; 
+                    }
+                    .box h3 { 
+                        margin: 0 0 8px 0; 
+                        color: #475569; 
+                        font-size: 12px; 
+                        text-transform: uppercase; 
+                        font-weight: 600;
+                        letter-spacing: 0.5px;
+                    }
+                    .box .value { font-size: 28px; font-weight: 800; }
+                    .danger-box { 
+                        background: #fff1f2; 
+                        border: 1px solid #fecdd3; 
+                        padding: 20px; 
+                        border-radius: 12px; 
+                        margin-bottom: 30px; 
+                    }
+                    .danger-box h2 { 
+                        color: #be123c; 
+                        margin-top: 0; 
+                        font-size: 17px; 
+                        border-bottom: 1px solid #fda4af; 
+                        padding-bottom: 12px; 
+                        margin-bottom: 12px;
+                    }
                     
-                    .progress-bar { background: #e2e8f0; border-radius: 6px; overflow: hidden; height: 12px; margin-top: 4px; }
-                    .progress-fill { height: 100%; border-radius: 6px; }
-                    .stat-row { display: flex; justify-content: space-between; margin-bottom: 10px; align-items: center; }
+                    .progress-bar { background: #e2e8f0; border-radius: 8px; overflow: hidden; height: 10px; margin-top: 5px; }
+                    .progress-fill { height: 100%; border-radius: 8px; transition: width 0.3s ease; }
+                    .stat-row { display: flex; justify-content: space-between; margin-bottom: 12px; align-items: center; font-weight: 500;}
                     
-                    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
-                    th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; vertical-align: top; }
-                    th { background: #e2e8f0; color: #334155; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 12px; }
+                    th, td { border-bottom: 1px solid #e2e8f0; padding: 12px 14px; text-align: left; vertical-align: top; }
+                    th { background: #f8fafc; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px;}
+                    tr:nth-child(even) { background: #fdfdfd; }
                     
-                    .badge { padding: 3px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; display: inline-block; white-space: nowrap; }
-                    .badge-pos { background: #d1fae5; color: #065f46; }
-                    .badge-neg { background: #ffe4e6; color: #9f1239; }
-                    .badge-neu { background: #f3e8ff; color: #5b21b6; }
+                    .badge { padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-block; white-space: nowrap; }
+                    .badge-pos { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
+                    .badge-neg { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+                    .badge-neu { background: #f3e8ff; color: #5b21b6; border: 1px solid #e9d5ff; }
                     
-                    .keywords { display: flex; gap: 6px; flex-wrap: wrap; }
-                    .kw { background: #fff; border: 1px solid #cbd5e1; padding: 3px 8px; border-radius: 15px; font-size: 12px; }
-                    .kw.pos { border-color: #10b981; color: #10b981; }
-                    .kw.neg { border-color: #ef4444; color: #ef4444; }
+                    .keywords { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+                    .kw { background: #ffffff; border: 1px solid #cbd5e1; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500;}
+                    .kw.pos { border-color: #34d399; color: #059669; background: #ecfdf5;}
+                    .kw.neg { border-color: #f87171; color: #dc2626; background: #fef2f2;}
  
-                    .image-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
-                    .image-card { border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; position: relative; }
-                    .image-card img { width: 100%; height: 90px; object-fit: cover; display: block; }
-                    .image-card .lbl { color: white; text-align: center; font-size: 10px; padding: 3px; font-weight: bold; }
-                    .alt-product { padding: 10px; }
-                    .alt-product img { width: 100%; height: 80px; object-fit: cover; border-radius: 4px; }
+                    .image-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+                    .image-card { border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; position: relative; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+                    .image-card img { width: 100%; height: 110px; object-fit: cover; display: block; }
+                    .image-card .lbl { color: white; text-align: center; font-size: 10px; padding: 4px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;}
+                    
+                    .alt-product { padding: 12px; background: #ffffff; }
+                    .alt-product img { width: 100%; height: 100px; object-fit: cover; border-radius: 6px; border: 1px solid #f1f5f9; }
                 </style>
             </head>
             <body>
@@ -262,38 +337,38 @@ export const exportPDF = async (req, res) => {
                         <h2>2. Phân Bố Cảm Xúc & Nhãn Ảnh</h2>
                         <div class="stat-row">
                             <div style="width: 80px;">Tích cực</div>
-                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(s.positive/totalReviews)*100}%; background: #10b981;"></div></div></div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(s.positive / totalReviews) * 100}%; background: #10b981;"></div></div></div>
                             <div style="width: 30px; text-align:right;">${s.positive}</div>
                         </div>
                         <div class="stat-row">
                             <div style="width: 80px;">Trung lập</div>
-                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(s.neutral/totalReviews)*100}%; background: #8b5cf6;"></div></div></div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(s.neutral / totalReviews) * 100}%; background: #8b5cf6;"></div></div></div>
                             <div style="width: 30px; text-align:right;">${s.neutral}</div>
                         </div>
                         <div class="stat-row">
                             <div style="width: 80px;">Tiêu cực</div>
-                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(s.negative/totalReviews)*100}%; background: #ef4444;"></div></div></div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(s.negative / totalReviews) * 100}%; background: #ef4444;"></div></div></div>
                             <div style="width: 30px; text-align:right;">${s.negative}</div>
                         </div>
                         <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 15px 0;">
                         <div class="stat-row">
                             <div style="width: 80px;">Nguyên vẹn</div>
-                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.intact/totalImages)*100}%; background: #10b981;"></div></div></div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.intact / totalImages) * 100}%; background: #10b981;"></div></div></div>
                             <div style="width: 30px; text-align:right;">${l.intact}</div>
                         </div>
                         <div class="stat-row">
                             <div style="width: 80px;">Hỏng/Móp</div>
-                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.damaged/totalImages)*100}%; background: #ef4444;"></div></div></div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.damaged / totalImages) * 100}%; background: #ef4444;"></div></div></div>
                             <div style="width: 30px; text-align:right;">${l.damaged}</div>
                         </div>
                         <div class="stat-row">
                             <div style="width: 80px;">Sai hàng</div>
-                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.wrong_item/totalImages)*100}%; background: #f59e0b;"></div></div></div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.wrong_item / totalImages) * 100}%; background: #f59e0b;"></div></div></div>
                             <div style="width: 30px; text-align:right;">${l.wrong_item}</div>
                         </div>
                         <div class="stat-row">
                             <div style="width: 80px;">Không l.quan</div>
-                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.irrelevant/totalImages)*100}%; background: #dc2626;"></div></div></div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.irrelevant / totalImages) * 100}%; background: #dc2626;"></div></div></div>
                             <div style="width: 30px; text-align:right;">${l.irrelevant}</div>
                         </div>
                     </div>
