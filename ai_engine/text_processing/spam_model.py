@@ -42,7 +42,7 @@ RULE_FLAG_COLS: List[str] = [
 ]
 
 def extract_structural_features(texts: List[str], ratings: List) -> np.ndarray:
-    """Trich xuat cac dac trung cau truc tu van ban."""
+    """Extract structural features from text."""
     features = []
     for text, rating in zip(texts, ratings):
         text_str = str(text) if text else ""
@@ -61,7 +61,7 @@ def build_feature_matrix(
     texts: List[str],
     ratings: List,
 ) -> np.ndarray:
-    """Ket hop rule flags va structural features thanh 1 feature matrix."""
+    """Combine rule flags and structural features into a single feature matrix."""
     flag_details = df_flagged.attrs.get("flag_details")
     if flag_details is None:
         raise RuntimeError(
@@ -69,7 +69,7 @@ def build_feature_matrix(
             "Make sure detect_spam() was called before build_feature_matrix()."
         )
 
-    # Rule-based binary flags (21 cols) — gia tri 0/1
+    # Rule-based binary flags (21 cols) - 0/1 values
     rule_feats = flag_details[RULE_FLAG_COLS].values.astype(np.float32)
 
     # Rule score aggregate (tong so rule bi vi pham)
@@ -84,7 +84,7 @@ def build_feature_matrix(
 
 
 class SpamHybridModel:
-    """Mo hinh phat hien spam ket hop Rule-based va Isolation Forest."""
+    """Hybrid spam detection model combining rule-based rules and Isolation Forest."""
 
     def __init__(
         self,
@@ -119,13 +119,13 @@ class SpamHybridModel:
 
     def predict_anomaly(self, X: np.ndarray) -> np.ndarray:
         if self.iforest is None:
-            raise RuntimeError("Model chua duoc huan luyen. Goi .fit() truoc.")
+            raise RuntimeError("Model is not trained. Call .fit() first.")
         X_scaled = self.scaler.transform(X)
         return self.iforest.predict(X_scaled)
 
     def anomaly_score(self, X: np.ndarray) -> np.ndarray:
         if self.iforest is None:
-            raise RuntimeError("Model chua duoc huan luyen. Goi .fit() truoc.")
+            raise RuntimeError("Model is not trained. Call .fit() first.")
         X_scaled = self.scaler.transform(X)
         return self.iforest.score_samples(X_scaled)
 

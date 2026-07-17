@@ -228,7 +228,7 @@ async def scrape_reviews(
                 continue
 
             try:
-                # Lấy tên sản phẩm lần đầu tiên, cache cho các review sau
+                # Cache product name on first match
                 if not state.product_name:
                     try:
                         page = await browser_session.get_current_page()

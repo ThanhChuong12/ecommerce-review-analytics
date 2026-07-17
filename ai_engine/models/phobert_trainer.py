@@ -238,14 +238,14 @@ class FocalLossTrainer(Trainer):
             return alpha
 
         if class_counts is not None:
-            # Sử dụng Square Root Smoothing để tránh alpha quá nhỏ cho lớp majority
+            # Use Square Root Smoothing to prevent tiny alpha for majority class
             counts = torch.tensor([class_counts.get(c, 1) for c in range(num_classes)], dtype=torch.float)
             smoothed_counts = torch.sqrt(counts)
             
-            # Trọng số tỷ lệ nghịch với căn bậc hai của số lượng
+            # Inverse frequency weighting with square root counts
             weights = 1.0 / smoothed_counts
             
-            # Chuẩn hóa sao cho tổng các trọng số = num_classes (Trung bình = 1.0)
+            # Normalize so that weights sum to num_classes
             weights = weights / weights.sum() * num_classes
             
             logger.info(

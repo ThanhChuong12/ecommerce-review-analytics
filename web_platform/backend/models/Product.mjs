@@ -9,7 +9,7 @@ const Product = sequelize.define('Product', {
     },
     userId: {
         type: DataTypes.UUID,
-        allowNull: true, // Nếu chưa đăng nhập thì field này để trống (ẩn danh)
+        allowNull: true, // Null for anonymous scans
     },
     name: {
         type: DataTypes.STRING,

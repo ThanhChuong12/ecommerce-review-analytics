@@ -14,7 +14,7 @@ export const finishedWebhook = async (req, res) => {
                 status: 'COMPLETED'
             }, { where: { id: productId } });
 
-            // BulkCreate review vào DB
+            // Save review data
             if (reviews && reviews.length > 0) {
                 const reviewRecords = reviews.map(r => ({
                     product_id: productId,
@@ -27,7 +27,7 @@ export const finishedWebhook = async (req, res) => {
                 await Review.bulkCreate(reviewRecords);
             }
 
-            // Lưu Report đánh giá rủi ro
+            // Save risk evaluation report
             await Report.create({
                 product_id: productId,
                 summary_text: summary,
@@ -36,7 +36,7 @@ export const finishedWebhook = async (req, res) => {
             });
         }
 
-        // Báo Frontend render UI
+        // Notify frontend clients
         const io = getIo();
         io.to(`room-${productId}`).emit('finished', {
             productId, productData, summary, reviews, metadata
@@ -54,7 +54,7 @@ export const finishedWebhook = async (req, res) => {
 
 export const updateProgressWebhook = async (req, res) => {
     try {
-        // API để Python báo cáo % tiến độ liên tục (vd: Scraping 20%, ResNet 50%)
+        // Update progress from python engine
         const { productId, progress, message } = req.body;
 
         const io = getIo();

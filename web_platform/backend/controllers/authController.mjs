@@ -5,7 +5,7 @@ export const syncUser = async (req, res) => {
         const { id, email, name, avatar } = req.body;
         if (!id || !email) return res.status(400).json({ error: 'Thiếu dữ liệu user' });
 
-        // upsert: tìm thấy thì cập nhật, chưa có thì tạo mới
+        // Upsert user profile
         const [user, created] = await User.upsert({
             id, email, name, avatar
         });

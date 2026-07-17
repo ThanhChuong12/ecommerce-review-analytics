@@ -154,7 +154,7 @@ function AnalyzeContent() {
       analyzedUrlRef.current = `url-${url}`;
       handleAnalyze(url);
 
-      // Xoá query param để tránh chạy lại khi người dùng reload trang
+      // Remove query parameters to prevent duplicate analysis on refresh
       const newUrl = window.location.pathname;
       window.history.replaceState({}, '', newUrl);
     } else if (!analyzedUrlRef.current) {
@@ -251,7 +251,7 @@ function AnalyzeContent() {
         printWindow.document.write(res.data);
         printWindow.document.close();
 
-        // Đợi các tài nguyên (ảnh, font) tải xong rồi tự động in
+        // Wait for resources to load before printing
         printWindow.onload = () => {
           setTimeout(() => {
             printWindow.print();

@@ -4,15 +4,15 @@ import Product from './Product.mjs';
 import Review from './Review.mjs';
 import Report from './Report.mjs';
 
-// User - Product
+// User - Product association
 User.hasMany(Product, { foreignKey: 'userId', as: 'products' });
 Product.belongsTo(User, { foreignKey: 'userId' });
 
-// Product - Review (Thêm ON DELETE CASCADE)
+// Product - Review association
 Product.hasMany(Review, { foreignKey: 'product_id', as: 'reviews', onDelete: 'CASCADE' });
 Review.belongsTo(Product, { foreignKey: 'product_id' });
 
-// Product - Report (Thêm ON DELETE CASCADE)
+// Product - Report association
 Product.hasOne(Report, { foreignKey: 'product_id', as: 'report', onDelete: 'CASCADE' });
 Report.belongsTo(Product, { foreignKey: 'product_id' });
 

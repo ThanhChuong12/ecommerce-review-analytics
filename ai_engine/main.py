@@ -30,7 +30,7 @@ from collections import Counter, defaultdict
 from typing import Optional, List
 import pandas as pd
 
-# ─── Fix Unicode stdout/stderr trên Windows CP1252 ───────────────────────────
+# -- CP1252 to UTF-8 stdout/stderr fix for Windows
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
     try:
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -42,10 +42,10 @@ if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
     except Exception:
         pass
 
-# ─── Path setup ──────────────────────────────────────────────────────────────
-# Đảm bảo import được:
-#   - ai_engine.* (khi gọi từ project root)
-#   - text_processing.*, fusion.*, etc. (khi gọi từ ai_engine/)
+# -- Path setup
+# Ensure imports work for:
+#   - ai_engine.* (from project root)
+#   - text_processing.*, fusion.*, etc. (from ai_engine/)
 _THIS_DIR    = Path(__file__).resolve().parent        # .../ai_engine
 _PROJECT_ROOT = _THIS_DIR.parent                      # .../ecommerce-review-analytics
 _SCRAPING_DIR = _PROJECT_ROOT / "scraping_agent"      # .../scraping_agent
@@ -54,13 +54,13 @@ for _p in [str(_PROJECT_ROOT), str(_THIS_DIR), str(_SCRAPING_DIR)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# ─── Load env ─────────────────────────────────────────────────────────────────
+# -- Load env
 try:
     from dotenv import load_dotenv
     load_dotenv(_THIS_DIR / ".env", override=False)
     load_dotenv(_PROJECT_ROOT / ".env", override=False)
 except ImportError:
-    pass  # dotenv optional — env vars có thể set trực tiếp
+    pass  # env variables can be set directly
 
 import logging
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -68,12 +68,12 @@ logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
-# ─── FastAPI app ─────────────────────────────────────────────────────────────
+# -- FastAPI app
 app = FastAPI(title="AI Engine", version="3.0.0")
 
 WEBHOOK_PROGRESS    = os.getenv("NODE_WEBHOOK_PROGRESS", "http://localhost:5000/api/webhook/update-progress")
 WEBHOOK_FINISHED    = os.getenv("NODE_WEBHOOK_FINISHED", "http://localhost:5000/api/webhook/finished")
-MAX_REVIEWS_SCRAPE  = int(os.getenv("MAX_REVIEWS_SCRAPE", "0"))  # 0 = không giới hạn, cào toàn bộ
+MAX_REVIEWS_SCRAPE  = int(os.getenv("MAX_REVIEWS_SCRAPE", "0"))  # 0 = unlimited
 MAX_IMAGES_PROCESS  = int(os.getenv("MAX_IMAGES_PROCESS", "50"))
 MOBILENET_WEIGHTS   = os.getenv(
     "MOBILENET_WEIGHTS_PATH",
@@ -101,7 +101,7 @@ FEATURE_DENOISER_PATH = os.getenv("FEATURE_DENOISER_PATH", os.path.join(DENOISER
 TEXT_HEAD_PATH = os.getenv("TEXT_HEAD_PATH", os.path.join(DENOISER_DIR, "text_sentiment_head.pt"))
 IMAGE_HEAD_PATH = os.getenv("IMAGE_HEAD_PATH", os.path.join(DENOISER_DIR, "image_defect_head.pt"))
 
-# Mapping nhãn tiếng Việt → English (DB + Frontend)
+# Map Vietnamese labels to English
 _SENTIMENT_VI_EN = {
     "tích cực": "positive",
     "tiêu cực": "negative",
@@ -250,7 +250,7 @@ def _download_image(url: str, dest_dir: str) -> Optional[str]:
         }, timeout=12)
         r.raise_for_status()
         
-        # Ngăn chặn việc tải nhầm trang báo lỗi HTML (403/Captcha)
+        # Prevent downloading HTML error pages
         if "text/html" in r.headers.get("Content-Type", ""):
             print(f"[IMG] Lỗi ảnh trả về HTML/Captcha: {url[:80]}")
             return None
@@ -264,7 +264,7 @@ def _download_image(url: str, dest_dir: str) -> Optional[str]:
 
 
 def _build_time_series(reviews: List[dict]) -> List[dict]:
-    """Nhóm reviews theo thời gian (ngày/tuần/tháng) tùy thuộc vào độ trải dài của dữ liệu."""
+    """Group reviews by time based on date range."""
     import pandas as pd
     if not reviews:
         return []
@@ -298,13 +298,13 @@ def _build_time_series(reviews: List[dict]) -> List[dict]:
     days_diff = (max_date - min_date).days
     
     if days_diff <= 30:
-        # Nhóm theo ngày
+        # Group by day
         df["period"] = df["date"].dt.strftime("%d/%m")
     elif days_diff <= 180:
-        # Nhóm theo tuần (hiển thị ngày đầu tuần)
+        # Group by week
         df["period"] = df["date"].dt.to_period('W').apply(lambda r: r.start_time.strftime("%d/%m"))
     else:
-        # Nhóm theo tháng
+        # Group by month
         df["period"] = df["date"].dt.strftime("%m/%Y")
         
     grouped = df.groupby(["period", "sentiment"]).size().unstack(fill_value=0)
@@ -472,17 +472,16 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     product_name  = "Sản phẩm"
     thumbnail_url = ""
 
-    # ── Pre-fetch product metadata từ API nền tảng ──────────────────────────
-    # Chạy độc lập với scraper nhưng dùng lightweight API, đảm bảo có
-    # tên + thumbnail dù sản phẩm chưa có đánh giá nào.
+    # -- Pre-fetch product metadata from platform APIs
+    # Runs independently to ensure name and thumbnail are fetched even if no reviews exist.
     def _fetch_product_meta(product_url: str):
-        """Trả về (name, thumbnail_url) từ API sàn TMDT."""
+        """Return (name, thumbnail_url) from e-commerce platform APIs."""
         import re as _re_meta, requests as _req_meta
         name_out = ""
         thumb_out = ""
         try:
             if "tiki.vn" in product_url:
-                # URL dạng: /...-p279365497.html
+                # URL format like /...-p279365497.html
                 m = _re_meta.search(r"-p(\d+)(?:\.html)?(?:\?|$)", product_url)
                 if m:
                     pid = m.group(1)
@@ -502,7 +501,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                             thumb_out = imgs[0].get("base_url", "") if imgs else ""
 
             elif "shopee.vn" in product_url:
-                # URL dạng: /shop_id.i.item_id
+                # URL format like /shop_id.i.item_id
                 m = _re_meta.search(r"\.(\d+)\.(\d+)(?:\?|$)", product_url)
                 if m:
                     shop_id, item_id = m.group(1), m.group(2)
@@ -518,7 +517,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                         thumb_out = f"https://cf.shopee.vn/file/{img_hash}_tn" if img_hash else ""
 
             else:
-                # Fallback: parse Open Graph via HTTP GET (Cho Lazada, TGDD, DMX...)
+                # Fallback: parse Open Graph via HTTP GET
                 resp = _req_meta.get(
                     product_url,
                     headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
@@ -534,10 +533,10 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         except Exception as _meta_err:
             print(f"[MetaFetch] Không lấy được metadata: {_meta_err}")
 
-        # Fallback: trích xuất từ slug URL nếu các API đều thất bại
+        # Fallback: extract from URL slug
         if not name_out:
             slug = product_url.split("?")[0].rstrip("/").split("/")[-1]
-            slug = _re_meta.sub(r"-p\d+.*$", "", slug)  # bỏ -p{id}.*
+            slug = _re_meta.sub(r"-p\d+.*$", "", slug)  # Strip suffix
             name_out = slug.replace("-", " ").strip().title()
 
         return name_out, thumb_out
@@ -556,7 +555,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
         os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
-        # === 1) Setup Constants & Paths === 
+        # Handle dynamic column names
         def _scrape_progress_cb(lines: int):
             pct = 10
             if MAX_REVIEWS_SCRAPE > 0:
@@ -576,7 +575,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         if total > 0 and os.path.exists(tmp_csv):
             df_raw = pd.read_csv(tmp_csv, encoding="utf-8-sig")
 
-            # Tìm tên cột động (scraper khác nhau có thể đặt tên khác nhau)
+            # Handle dynamic column names
             text_col   = next((c for c in df_raw.columns if c in ("text", "review_text", "content")), None)
             rating_col = next((c for c in df_raw.columns if c in ("rating", "stars", "star")), None)
             img_col    = next((c for c in df_raw.columns if c in ("image_urls", "images", "image_url")), None)
@@ -610,7 +609,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                 if name_col and not df_raw[name_col].dropna().empty:
                     product_name = str(df_raw[name_col].dropna().iloc[0])
 
-                # Cố gắng lấy thumbnail từ CSV (nếu scraper lưu cột ảnh sản phẩm)
+                # Try to extract thumbnail from CSV
                 thumb_col = next(
                     (c for c in df_raw.columns if c in
                      ("thumbnail", "product_thumbnail", "thumbnail_url", "product_image", "product_img")),
@@ -630,9 +629,8 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         return
 
     if not scraped_rows:
-        # ── Sản phẩm tồn tại nhưng chưa có đánh giá nào ────────────────────
-        # Không báo lỗi — trả về payload đầy đủ với metrics = 0 và gợi ý
-        # sản phẩm tương tự để tab Đề xuất vẫn có dữ liệu hữu ích.
+        # No reviews found
+        # Return empty metrics with recommendations instead of throwing an error.
         print(f"[AI Engine] Sản phẩm '{product_name}' chưa có đánh giá. Trả về no-reviews payload.")
         _report_progress(product_id, 95, "Đang tìm sản phẩm tương tự...")
 
@@ -736,7 +734,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         df_result = detect_spam(df_spam)
         rule_is_spam = df_result["is_spam"].values.astype(int)
 
-        # 2. IForest Hybrid — bắt spam nâng cao (train lại, version mới)
+        # 2. IForest Hybrid model
         if os.path.exists(SPAM_WEIGHTS):
             import __main__
             __main__.SpamHybridModel = SpamHybridModel
@@ -927,7 +925,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         for i, r in enumerate(scraped_rows)
         if r.get("image_urls")
     ]
-    # MAX_IMAGES_PROCESS=0 → không giới hạn, tải toàn bộ
+    # MAX_IMAGES_PROCESS=0 means unlimited
     download_targets = all_img_targets if MAX_IMAGES_PROCESS == 0 else all_img_targets[:MAX_IMAGES_PROCESS]
 
     total_imgs = len(download_targets)
@@ -941,10 +939,10 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     valid_count = sum(1 for p in image_local_paths if p and os.path.exists(str(p)))
     print(f"[Images] Tải thành công {valid_count}/{len(download_targets)} ảnh")
 
-    # ── STEP 4.5: CLIP Filter (lọc ảnh không liên quan) ───────────────────
+    # -- STEP 4.5: CLIP Filter (irrelevant image filter)
     _report_progress(product_id, 63, "Đang lọc ảnh không liên quan (CLIP)...")
 
-    clip_irrelevant_indices: set = set()  # indices bị CLIP loại
+    clip_irrelevant_indices: set = set()  # CLIP irrelevant indices
 
     try:
         from ai_engine.image_processing.zero_shot_clip import classify_image as clip_classify
@@ -964,13 +962,13 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     except Exception as e:
         print(f"[CLIP] Filter thất bại (bỏ qua, giữ tất cả ảnh): {e}")
 
-    # ── STEP 5: ResNet50 Defect Detection ─────────────────────────────────
+    # -- STEP 5: ResNet50 Defect Detection
     _report_progress(product_id, 72, "Đang nhận diện tình trạng hộp (ResNet50)...")
 
     image_labels:     List[str]           = ["intact"] * len(scraped_rows)
     image_probs_dict: List[Optional[dict]] = [None]    * len(scraped_rows)
 
-    # Gán nhãn "irrelevant" cho ảnh bị CLIP loại (không cần qua ResNet50)
+    # Mark CLIP irrelevant images
     for i in clip_irrelevant_indices:
         image_labels[i] = "irrelevant"
         image_probs_dict[i] = {"irrelevant": 1.0, "intact": 0.0, "damaged": 0.0, "wrong_item": 0.0}
@@ -1052,7 +1050,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
             try:
                 from ai_engine.image_processing.defect_detection import detect_defect_resnet_batch
 
-                # Chỉ lấy ảnh PRODUCT (bỏ qua ảnh CLIP đã loại)
+                # Skip CLIP irrelevant images
                 valid_indices = [
                     i for i, p in enumerate(image_local_paths)
                     if p and os.path.exists(str(p))
@@ -1096,8 +1094,8 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         else:
             print(f"[ResNet50] Weights không tìm thấy tại {RESNET_WEIGHTS} → skip image classification")
 
-    # ── STEP 6: Fusion Engine ─────────────────────────────────────────────────
-    # Dùng xác suất THỰC từ model: TextProbs từ sentiment, ImageProbs từ MobileNetV3
+    # -- STEP 6: Fusion Engine
+    # Uses model probabilities: TextProbs from sentiment, ImageProbs from MobileNetV3
     _report_progress(product_id, 82, "Đang tính Trust Score (Cross-Modal Fusion Engine)...")
 
     per_review_scores: List[float] = []
@@ -1139,7 +1137,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
             fusion_out = calculator.calculate(fusion_in)
             per_review_scores.append(fusion_out.final_score)
 
-        # Tính trust score dựa trên NON-SPAM reviews
+        # Calculate trust score using non-spam reviews
         non_spam_scores = [
             per_review_scores[i]
             for i in range(len(per_review_scores))
@@ -1156,7 +1154,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         overall_trust = 60.0
         per_review_scores = [60.0] * len(scraped_rows)
 
-    # ── STEP 7: LLM Summary ────────────────────────────────────────────────────
+    # -- STEP 7: LLM Summary
     _report_progress(product_id, 90, "Đang tổng hợp AI summary (LLM CoT)...")
 
     llm_summary = ""
@@ -1168,7 +1166,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     try:
         from ai_engine.llm_integration.llm_client import BaseLLMClient
 
-        # ── Phần 1: Keyword frequency từ TOÀN BỘ reviews ──────────────────────
+        # -- Part 1: Keyword frequency from all reviews
         try:
             from ai_engine.text_processing.sentiment_analysis import POSITIVE_LEXICON, NEGATIVE_LEXICON
             _pos_kw: Counter = Counter()
@@ -1190,14 +1188,14 @@ def heavy_ai_process(product_id: int, url: str) -> None:
             top_pos_kw = []
             top_neg_kw = []
 
-        # ── Phần 2: Aspect summary ─────────────────────────────────────────────
+        # -- Part 2: Aspect summary
         aspect_summary_parts = []
         for asp_key, asp_sc in aspect_scores.items():
             if asp_sc:
                 avg_sc = round(sum(asp_sc) / len(asp_sc), 1)
                 aspect_summary_parts.append(f"{asp_key}: TB {avg_sc}/5 ({len(asp_sc)} đề cập)")
 
-        # ── Phần 3: Review mẫu stratified — mix dài + ngẫu nhiên ──────────────
+        # -- Part 3: Stratified review samples
         import random as _rnd
         _by_rating: dict = {5: [], 4: [], 3: [], 2: [], 1: []}
         for r in scraped_rows:
@@ -1262,29 +1260,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                     "8. Đánh giá điểm trừ phải khách quan, nếu nhận xét của số ít thì nói là một số ít người gặp phải.\n"
                     "9. KHÔNG NƯƠNG THEO ngôn từ cực đoan, từ lóng hoặc nói quá của khách hàng ở review mẫu (Ví dụ: khách chê 'dịch vụ tệ nhất tôi từng thấy' phải sửa thành tông giọng trung lập là 'một số người đánh giá dịch vụ chưa tốt'; khách khen 'cuốn dã man mng nên mua nha' phải sửa thành 'nội dung tác phẩm lôi cuốn và hấp dẫn')."
                 )
-                # self.system_prompt = (
-                #     "Bạn là trợ lý AI tổng hợp đánh giá sản phẩm thương mại điện tử Việt Nam.\n"
-                #     "Dữ liệu bạn nhận được gồm: (1) Tần suất từ khóa từ TOÀN BỘ đánh giá, (2) Khía cạnh, (3) Review mẫu nhiều mức sao.\n\n"
-                #     "Nhiệm vụ: Tổng hợp ý kiến thành một báo cáo ngắn gọn, KHÁCH QUAN và TỰ NHIÊN.\n\n"
-                #     "CẤU TRÚC BẮT BUỘC:\n"
-                #     "Về sản phẩm:\n"
-                #     "+ [Nhận xét tích cực 1]\n"
-                #     "+ [Nhận xét tích cực 2 (nếu có)]\n"
-                #     "+ [Nhận xét tích cực 3 (nếu có)]\n"
-                #     "- [Nhận xét tiêu cực 1 (nếu có)]\n"
-                #     "- [Nhận xét tiêu cực 2 (nếu có)]\n\n"
-                #     "Về dịch vụ:\n"
-                #     "+ [Nhận xét tích cực 1 (nếu có)]\n"
-                #     "+ [Nhận xét tích cực 2 (nếu có)]\n"
-                #     "- [Nhận xét tiêu cực 1 (nếu có)]\n\n"
-                #     "LUẬT TUYỆT ĐỐI PHẢI TUÂN THEO:\n"
-                #     "1. GIỚI HẠN SỐ DÒNG: Tổng cộng 'Về sản phẩm' KHÔNG QUÁ 4 DÒNG (bao gồm cả + và -). 'Về dịch vụ' KHÔNG QUÁ 3 DÒNG. Nếu ít ý thì viết 1-2 dòng, KHÔNG BỊA THÊM.\n"
-                #     "2. GOM Ý TRIỆT ĐỂ: Gộp các ý giống nhau thành 1 câu. KHÔNG tạo nhiều dòng có ý nghĩa tương đương (Ví dụ: 'Sách đẹp', 'Bìa xinh' phải gộp chung).\n"
-                #     "3. ĐÚNG DẤU: Dấu `+` CHỈ DÀNH CHO KHEN. Dấu `-` CHỈ DÀNH CHO CHÊ. TUYỆT ĐỐI không để điểm trừ vào dấu `+`.\n"
-                #     "4. NGÔN TỪ TỰ NHIÊN, ĐA DẠNG: Mỗi câu từ 10-25 từ. KHÔNG đếm số lượng (không dùng '1 người', 'nhiều người', '200 đánh giá'). KHÔNG lặp lại một cấu trúc câu (VD: không viết liên tục 'Một số người phàn nàn...', 'Một số người gặp phải...'). Hãy đổi cách diễn đạt (VD: 'Chất giấy hơi mỏng', 'Thiếu chữ ký tác giả khiến trải nghiệm chưa trọn vẹn').\n"
-                #     "5. KHÁCH QUAN: Không dùng từ lóng, nói quá. Không dùng in đậm (**), markdown.\n"
-                #     "6. ĐÚNG CHỦ ĐỀ: Các đánh giá về 'giao hàng, đóng gói, quà tặng kèm, CSKH' phải nằm ở mục 'Về dịch vụ'. Các đánh giá về 'chất lượng, thiết kế, nội dung' phải nằm ở mục 'Về sản phẩm'."
-                # )
+
             def summarize(self, text: str) -> str:
                 for provider in self.provider_chain:
                     try:
@@ -1321,17 +1297,17 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         else:
             llm_summary = f"Sản phẩm đánh giá trung bình ({pos_count} tích cực, {neg_count} tiêu cực, Trust Score: {overall_trust}/100)."
 
-    # ── STEP 8: Similar Products + Zero-Shot Semantic Reranking ──────────────
+    # -- STEP 8: Similar Products & Zero-Shot Semantic Reranking
     _report_progress(product_id, 95, "Đang xếp hạng đề xuất thông minh (PhoBERT Reranker)...")
 
     import re as _re
 
     alternative_products: List[dict] = []
     try:
-        # 8a. Thu kết quả từ background thread
+        # 8a. Collect results from background thread
         similar_items = similar_future.result(timeout=30)
 
-        # 8b. Chuyển sang raw candidate dicts để reranker xử lý
+        # 8b. Convert to raw candidate dicts for reranker
         raw_candidates: List[dict] = [
             {
                 "name":      p.name,
@@ -1345,13 +1321,13 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         ]
         print(f"[Similar] Thu được {len(raw_candidates)} sản phẩm thô từ background thread")
 
-        # 8c. Zero-Shot Semantic Reranking bằng PhoBERT backbone đã có trong RAM
+        # 8c. Zero-Shot Semantic Reranking using PhoBERT backbone
         if raw_candidates and _phobert_backbone_cache is not None and _phobert_tokenizer_cache is not None:
             try:
                 from recommendation.reranker import rerank_candidates
                 _device = next(_phobert_backbone_cache.parameters()).device
 
-                # Ước tính giá sản phẩm gốc từ trung vị giá ứng viên (scraper không lấy giá gốc)
+                # Estimate original product price using median candidate price
                 _prices = []
                 for c in raw_candidates:
                     _raw_p = str(c.get("price", "")).lower()
@@ -1379,7 +1355,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                 print(f"[Reranker] Reranking thất bại — fallback heuristic: {rerank_err}")
                 alternative_products = _heuristic_score(raw_candidates)
         else:
-            # Fallback khi PhoBERT chưa load xong
+            # Fallback when PhoBERT is not loaded
             print("[Reranker] PhoBERT chưa sẵn sàng, dùng heuristic scoring")
             alternative_products = _heuristic_score(raw_candidates)
 
@@ -1391,13 +1367,12 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         except Exception:
             pass
 
-    # ── Xây dựng aspectSentiment từ kết quả embedding thực ───────────────────
-    # NextGenReviewAnalyzer.extract_aspects trả về keys: "shipping", "product", "price", "service"
-    # Map sang tên hiển thị frontend: Product, Packaging (shipping), Shipping (service)
+    # -- Build aspect sentiments
+    # Map raw aspect keys to frontend display names.
     _aspect_map = {
         "product":  "Product",
-        "shipping": "Packaging",   # "shipping" aspect = đóng gói + vận chuyển
-        "service":  "Shipping",    # "service" aspect = dịch vụ giao hàng
+        "shipping": "Packaging",   # shipping aspect = packaging + delivery
+        "service":  "Shipping",    # service aspect = delivery service
         "price":    "Price",
     }
     aspect_sentiment_result: dict = {}
@@ -1405,7 +1380,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         display_name = _aspect_map.get(asp_key, asp_key.title())
         aspect_sentiment_result[display_name] = round(sum(asp_scores) / len(asp_scores), 1)
 
-    # Ensure mặc định cho từng aspect nếu không detect được
+    # Ensure default aspect scores if undetected
     # Fallback to average sentiment score (5, 1, 3) instead of rating, to match the pie chart
     sentiment_scores = [5 if s == "positive" else (1 if s == "negative" else 3) for s in sentiments]
     avg_sentiment = sum(sentiment_scores) / max(len(sentiment_scores), 1)
@@ -1417,7 +1392,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     if "Shipping" not in aspect_sentiment_result:
         aspect_sentiment_result["Shipping"] = round(max(1.0, avg_sentiment - 0.2), 1)
 
-    # ── Keyword extraction từ lexicon thực trong sentiment_analysis.py ────────
+    # -- Keyword extraction
     try:
         from ai_engine.text_processing.sentiment_analysis import POSITIVE_LEXICON, NEGATIVE_LEXICON
 
@@ -1445,12 +1420,12 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         print(f"[Keywords] Import LEXICON thất bại: {e}")
         keywords_result = {"positive": [], "negative": []}
 
-    # ── Build processed_reviews list cho DB ───────────────────────────────────
+    # -- Build processed_reviews list for DB
     processed_reviews = [
         {
             "review_text": scraped_rows[i]["text"],
             "rating":      scraped_rows[i]["rating"],
-            "image_path":  image_orig_urls[i],          # URL gốc, không phải local path
+            "image_path":  image_orig_urls[i],          # Original URL, not local path
             "label":       image_labels[i] if image_orig_urls[i] else None,
             "sentiment":   sentiments[i],
             "date":        scraped_rows[i].get("date", ""),
@@ -1458,13 +1433,13 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         for i in range(len(scraped_rows))
     ]
 
-    # ── STEP 8.5: Lấy ảnh gốc sản phẩm (Thumbnail) ────────────────────────────
+    # -- STEP 8.5: Get original product image (Thumbnail)
     if not thumbnail_url:
         def _get_thumbnail_sync(p_url: str) -> str:
             import httpx, re
             from bs4 import BeautifulSoup
             try:
-                # Nếu là Shopee, dùng API lấy ảnh
+                # Shopee API fallback
                 if "shopee." in p_url:
                     m = re.search(r"i\.(\d+)\.(\d+)", p_url)
                     if m:
@@ -1474,7 +1449,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                         if r.status_code == 200:
                             img_id = r.json().get("data", {}).get("image")
                             if img_id: return f"https://cf.shopee.vn/file/{img_id}"
-                # Tiki, Lazada, TGDD: lấy og:image bằng HTTPX (không cần JS)
+                # Tiki, Lazada, TGDD fallback using HTTPX
                 r = httpx.get(p_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10, follow_redirects=True)
                 soup = BeautifulSoup(r.text, 'html.parser')
                 meta = soup.find('meta', property='og:image') or soup.find('meta', itemprop='image')
@@ -1490,7 +1465,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         else:
             thumbnail_url = next((u for u in image_orig_urls if u), "")
 
-    # ── STEP 9: Webhook → Node.js ─────────────────────────────────────────────
+    # -- STEP 9: Webhook -> Node.js
     _report_progress(product_id, 99, "Đang lưu kết quả vào database...")
 
     metadata = {
@@ -1523,7 +1498,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     print(f"[AI Engine] ===== DONE | productId={product_id} | trust={overall_trust} =====\n")
 
 
-# ─── FastAPI Endpoints ────────────────────────────────────────────────────────
+# -- FastAPI Endpoints
 
 @app.get("/health")
 async def health():
@@ -1536,7 +1511,7 @@ async def health():
 
 @app.post("/process-job")
 async def receive_job(request: Request, background_tasks: BackgroundTasks):
-    """Nhận job từ Node.js BullMQ worker và chạy AI pipeline trong background."""
+    """Receive job from Node.js BullMQ worker and run AI pipeline in background."""
     body = await request.json()
     product_id = body.get("productId")
     url        = body.get("url")

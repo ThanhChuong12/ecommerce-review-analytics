@@ -1,19 +1,14 @@
 """
-crawl.py — File cào dữ liệu tất-cả-trong-một cho Tiki, Lazada, TGDD.
+crawl.py — Multi-site review crawler for Tiki, Lazada, TGDD, Shopee.
 
-CÁCH DÙNG:
-  1. Điền danh sách URL vào URLS_TO_CRAWL bên dưới
-  2. (Tùy chọn) Chỉnh MAX_REVIEWS, OUTPUT_DIR
-  3. Chạy: python crawl.py
-
-Kết quả: mỗi URL được lưu vào 1 file CSV riêng trong thư mục OUTPUT_DIR.
-File tổng hợp tất cả URL cũng được tạo: OUTPUT_DIR/all_reviews_YYYYMMDD.csv
-
-Hỗ trợ: tiki.vn | thegioididong.com | lazada.vn
+USAGE:
+  1. Add target URLs to URLS_TO_CRAWL below
+  2. Configure MAX_REVIEWS, OUTPUT_DIR if needed
+  3. Run: python crawl.py
 """
 
 # ============================================================
-#  ĐẶT DANH SÁCH URL CẦN CÀO VÀO ĐÂY
+#  LIST OF URLS TO CRAWL
 # ============================================================
 URLS_TO_CRAWL: list[str] = [
     # --- SHOPEE ---
@@ -51,12 +46,12 @@ URLS_TO_CRAWL: list[str] = [
 ]
 
 # ============================================================
-#  CẤU HÌNH
+#  CONFIGURATION
 # ============================================================
-MAX_REVIEWS: int     = 0   # 0 = fetch all reviews per URL
-OUTPUT_DIR: str      = "data"   # Thư mục lưu CSV (tương đối với file này)
-LAZADA_HEADLESS: bool = False    # False = hiện browser để giải captcha tay nếu cần
-SHOPEE_FILTER: str   = "max"     # all | comment | media | max (để lấy nhiều nhất)
+MAX_REVIEWS: int     = 0   # 0 fetch all reviews per URL
+OUTPUT_DIR: str      = "data"   # Output folder path
+LAZADA_HEADLESS: bool = False    # Run visible to solve captchas manually
+SHOPEE_FILTER: str   = "max"     # all comment media max
 # ============================================================
 
 import asyncio
@@ -66,13 +61,13 @@ import csv
 from datetime import datetime
 from pathlib import Path
 
-# Fix encoding Windows
+# Configure Windows terminal encoding
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-# Đảm bảo import được các module trong scraping_agent/
+# Ensure scraping_agent is in Python path
 _THIS_DIR = Path(__file__).parent
 sys.path.insert(0, str(_THIS_DIR))
 
@@ -87,7 +82,7 @@ from scraper.dispatcher import scrape as _dispatch
 # ----------------------------------------------------------------
 
 def _site_label(url: str) -> str:
-    """Trả về tên site ngắn gọn để đặt tên file."""
+    """Get short site name for naming files."""
     url = url.lower()
     if "tiki.vn" in url:
         return "tiki"
@@ -101,20 +96,20 @@ def _site_label(url: str) -> str:
 
 
 def _safe_filename(url: str) -> str:
-    """Tạo tên file CSV an toàn từ URL."""
+    """Generate safe CSV filename from URL."""
     import re
     label = _site_label(url)
-    # Lấy slug/path cuối URL, giữ lại ký tự an toàn
-    slug = url.split("//", 1)[-1]          # bỏ https://
+    # Remove protocol
+    slug = url.split("//", 1)[-1]
     slug = re.sub(r"[^a-zA-Z0-9_\-]", "_", slug)
     slug = re.sub(r"_+", "_", slug).strip("_")
-    slug = slug[:60]                        # giới hạn độ dài
+    slug = slug[:60]                        # Limit length
     ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{label}_{slug}_{ts}.csv"
 
 
 def _row_key(row: dict) -> str:
-    """Tạo dedup key từ nội dung review (text + rating + date + url)."""
+    """Generate dedup key from review content."""
     import hashlib
     raw = "|".join([
         str(row.get("text", ""))[:200],
@@ -126,7 +121,7 @@ def _row_key(row: dict) -> str:
 
 
 def _load_existing_keys(path: Path) -> set[str]:
-    """Đọc file all_reviews.csv hiện có và trả về set các dedup key."""
+    """Load existing dedup keys from all_reviews.csv."""
     seen: set[str] = set()
     if not path.exists():
         return seen
@@ -141,11 +136,10 @@ def _load_existing_keys(path: Path) -> set[str]:
 
 def _append_to_master(csv_files: list[Path], out_path: Path) -> tuple[int, int]:
     """
-    Append các review từ csv_files vào out_path (file tổng hợp cố định).
-    Tự động bỏ qua các review đã tồn tại trong out_path (dedup).
-    Trả về (số mới thêm, số bị bỏ qua do trùng).
+    Append reviews from csv_files to out_path.
+    Duplicates are skipped. Returns (added, skipped).
     """
-    # Đọc các key đã tồn tại trong file master
+    # Load existing keys from master file
     existing_keys = _load_existing_keys(out_path)
     old_count = len(existing_keys)
 
@@ -165,7 +159,7 @@ def _append_to_master(csv_files: list[Path], out_path: Path) -> tuple[int, int]:
                     fieldnames = reader.fieldnames
                 if writer is None:
                     writer = csv.DictWriter(fout, fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
-                    # Ghi header chỉ khi file hoàn toàn mới
+                    # Write header for new files only
                     if not file_exists:
                         writer.writeheader()
                 for row in reader:
@@ -190,7 +184,7 @@ def _print_banner() -> None:
     print(f"  Output    : {Path(OUTPUT_DIR).resolve()}")
     print(f"  Lazada    : headless={LAZADA_HEADLESS}")
     print(bar)
-    print("  Nhấn Ctrl+C bất kỳ lúc nào để dừng — dữ liệu đã lưu sẽ giữ nguyên.\n")
+    print("  Press Ctrl+C to stop crawling at any time.\n")
 
 
 # ----------------------------------------------------------------
@@ -203,14 +197,14 @@ async def _crawl_one(
     idx: int,
     total: int,
 ) -> int:
-    """Cào một URL, ghi ra output_path. Trả về số review đã lưu."""
+    """Scrape a single URL. Returns saved review count."""
     bar = "-" * 65
     print(f"\n{bar}")
     print(f"  [{idx}/{total}] {_site_label(url).upper()} → {url[:80]}")
-    print(f"  Đang lưu vào: {output_path.name}")
+    print(f"  Saving to: {output_path.name}")
     print(bar)
 
-    # Truyền headless cho Lazada qua dispatcher; dispatcher đọc 'headless' argument
+    # Pass headless parameter to dispatcher
     total_saved = await _dispatch(
         url=url,
         output_path=str(output_path),
@@ -225,8 +219,8 @@ async def _crawl_one(
 
 async def main() -> None:
     if not URLS_TO_CRAWL:
-        print("\n[!] URLS_TO_CRAWL đang trống!")
-        print("    Mở file crawl.py và điền ít nhất 1 URL vào danh sách rồi chạy lại.\n")
+        print("\n[!] URLS_TO_CRAWL is empty!")
+        print("    Please add URLs to crawl.py and try again.\n")
         sys.exit(1)
 
     _print_banner()
@@ -244,23 +238,23 @@ async def main() -> None:
             results.append({"url": url, "file": out_file.name, "count": count, "status": "OK"})
             csv_files.append(out_file)
         except (KeyboardInterrupt, asyncio.CancelledError):
-            print("\n[!] Dừng theo yêu cầu người dùng.")
+            print("\n[!] Interrupted by user.")
             results.append({"url": url, "file": out_file.name, "count": 0, "status": "STOPPED"})
             break
         except Exception as exc:
-            print(f"\n[!] Lỗi khi cào {url}: {exc}")
+            print(f"\n[!] Error crawling {url}: {exc}")
             results.append({"url": url, "file": out_file.name, "count": 0, "status": f"ERROR: {exc}"})
 
-    # ── Append vào file tổng hợp cố định ────────────────────────────────
+    # -- Append to master file
     MASTER_FILE = "all_reviews.csv"
     merged_path = out_dir / MASTER_FILE
     added, skipped = _append_to_master(csv_files, merged_path)
-    print(f"\n  [all_reviews.csv] +{added:,} mới, bỏ qua {skipped:,} trùng → {merged_path}")
+    print(f"\n  [all_reviews.csv] +{added:,} new, skipped {skipped:,} duplicates → {merged_path}")
 
-    # ── In bảng tổng kết ──────────────────────────────────────────────
+    # -- Print summary
     bar = "=" * 65
     print(f"\n{bar}")
-    print("  KẾT QUẢ TỔNG KẾT")
+    print("  SUMMARY RESULTS")
     print(bar)
     print(f"  {'URL':<55} {'Reviews':>8}  Status")
     print(f"  {'-'*54} {'-'*8}  {'-'*10}")
@@ -269,10 +263,10 @@ async def main() -> None:
         print(f"  {url_short:<55} {r['count']:>8,}  {r['status']}")
     total_reviews = sum(r["count"] for r in results)
     print(f"  {'':55} {'─'*8}")
-    print(f"  {'TỔNG':<55} {total_reviews:>8,}")
+    print(f"  {'TOTAL':<55} {total_reviews:>8,}")
     print(bar)
-    print(f"  Tất cả file CSV đã lưu vào : {out_dir.resolve()}")
-    print(f"  File tổng hợp (cộng dồn)   : {MASTER_FILE}")
+    print(f"  All CSV files saved to : {out_dir.resolve()}")
+    print(f"  Master combined file   : {MASTER_FILE}")
     print(f"{bar}\n")
 
 
