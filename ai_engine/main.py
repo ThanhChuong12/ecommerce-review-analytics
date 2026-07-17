@@ -990,7 +990,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         class LLMProductSummaryClient(BaseLLMClient):
             def __init__(self):
                 super().__init__(timeout=30.0)
-                self.temperature = 0.1
+                self.temperature = 0.05
                 self.max_tokens = 800
                 self.response_format = None
                 self.system_prompt = (
@@ -1001,19 +1001,45 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                     "Về sản phẩm:\n"
                     "+ [nhận xét tích cực phổ biến nhất]\n"
                     "+ [nhận xét tích cực khác nếu thực sự khác biệt]\n"
+                    "...\n"
                     "- [điểm trừ nếu nhiều người đề cập]\n\n"
                     "Về dịch vụ:\n"
                     "+ [nhận xét giao hàng/đóng gói tốt]\n"
                     "- [điểm trừ dịch vụ nếu có]\n\n"
-                    "LUẬT TUYỆT ĐỐI:\n"
-                    "1. KHÔNG đếm ('1 đánh giá', 'N lần', 'nhiều người'...) — viết thành câu chủ động tự nhiên.\n"
+                    "LUẬT TUYỆT ĐỐI PHẢI TUÂN THEO:\n"
+                    "1. KHÔNG đếm (không viết: 1 đánh giá, N lần, nhiều người, 206 đánh giá...). Hãy viết thành câu chủ động tự nhiên.\n"
                     "2. KHÔNG dùng **, markdown, hay in đậm bất kỳ thứ gì.\n"
                     "3. Dấu `+` CHỈ DÀNH CHO KHEN (ưu điểm). Dấu `-` CHỈ DÀNH CHO CHÊ (nhược điểm). Tuyệt đối không để ý chê vào phần dấu `+`.\n"
-                    "4. Mỗi dòng + hay - là 1 câu 10-25 từ, viết như người thật.\n"
-                    "5. Dùng TẦN SUẤT từ khóa để biết điểm nào phổ biến — từ khóa xuất hiện nhiều = ý nhiều người nói.\n"
-                    "6. GOM Ý TRIỆT ĐỂ (VD: 'sách đẹp' + 'bìa xinh' + 'thiết kế bắt mắt' → gộp thành 1 dòng duy nhất).\n"
-                    "7. Tối đa 4 dòng cho phần về sản phẩm, 3 dòng cho phần về dịch vụ. Không viết dòng chỉ để cho đủ số."
+                    "4. Mỗi dòng + hoặc - là một câu hoàn chỉnh từ 10-25 từ, diễn đạt tự nhiên như người thật.\n"
+                    "5. TỐI ĐA 4 dòng cho phần về sản phẩm, 3 dòng cho phần về dịch vụ. Ý ít thì viết ít dòng, không viết chỉ để cho đủ mức tối đa.\n"
+                    "6. Dùng TẦN SUẤT từ khóa để biết điểm nào phổ biến — từ khóa xuất hiện nhiều = ý nhiều người nói.\n"
+                    "7. GOM Ý TRIỆT ĐỂ: Gom các ý tương tự nhau thành 1 dòng duy nhất (Ví dụ: nội dung hay + đọc cuốn + ý nghĩa -> gộp thành 1 câu). Tránh tách các ý tương tự nhau thành nhiều dòng khác nhau.\n"
+                    "8. Đánh giá điểm trừ phải khách quan, nếu nhận xét của số ít thì nói là một số ít người gặp phải.\n"
+                    "9. KHÔNG NƯƠNG THEO ngôn từ cực đoan, từ lóng hoặc nói quá của khách hàng ở review mẫu (Ví dụ: khách chê 'dịch vụ tệ nhất tôi từng thấy' phải sửa thành tông giọng trung lập là 'một số người đánh giá dịch vụ chưa tốt'; khách khen 'cuốn dã man mng nên mua nha' phải sửa thành 'nội dung tác phẩm lôi cuốn và hấp dẫn')."
                 )
+                # self.system_prompt = (
+                #     "Bạn là trợ lý AI tổng hợp đánh giá sản phẩm thương mại điện tử Việt Nam.\n"
+                #     "Dữ liệu bạn nhận được gồm: (1) Tần suất từ khóa từ TOÀN BỘ đánh giá, (2) Khía cạnh, (3) Review mẫu nhiều mức sao.\n\n"
+                #     "Nhiệm vụ: Tổng hợp ý kiến thành một báo cáo ngắn gọn, KHÁCH QUAN và TỰ NHIÊN.\n\n"
+                #     "CẤU TRÚC BẮT BUỘC:\n"
+                #     "Về sản phẩm:\n"
+                #     "+ [Nhận xét tích cực 1]\n"
+                #     "+ [Nhận xét tích cực 2 (nếu có)]\n"
+                #     "+ [Nhận xét tích cực 3 (nếu có)]\n"
+                #     "- [Nhận xét tiêu cực 1 (nếu có)]\n"
+                #     "- [Nhận xét tiêu cực 2 (nếu có)]\n\n"
+                #     "Về dịch vụ:\n"
+                #     "+ [Nhận xét tích cực 1 (nếu có)]\n"
+                #     "+ [Nhận xét tích cực 2 (nếu có)]\n"
+                #     "- [Nhận xét tiêu cực 1 (nếu có)]\n\n"
+                #     "LUẬT TUYỆT ĐỐI PHẢI TUÂN THEO:\n"
+                #     "1. GIỚI HẠN SỐ DÒNG: Tổng cộng 'Về sản phẩm' KHÔNG QUÁ 4 DÒNG (bao gồm cả + và -). 'Về dịch vụ' KHÔNG QUÁ 3 DÒNG. Nếu ít ý thì viết 1-2 dòng, KHÔNG BỊA THÊM.\n"
+                #     "2. GOM Ý TRIỆT ĐỂ: Gộp các ý giống nhau thành 1 câu. KHÔNG tạo nhiều dòng có ý nghĩa tương đương (Ví dụ: 'Sách đẹp', 'Bìa xinh' phải gộp chung).\n"
+                #     "3. ĐÚNG DẤU: Dấu `+` CHỈ DÀNH CHO KHEN. Dấu `-` CHỈ DÀNH CHO CHÊ. TUYỆT ĐỐI không để điểm trừ vào dấu `+`.\n"
+                #     "4. NGÔN TỪ TỰ NHIÊN, ĐA DẠNG: Mỗi câu từ 10-25 từ. KHÔNG đếm số lượng (không dùng '1 người', 'nhiều người', '200 đánh giá'). KHÔNG lặp lại một cấu trúc câu (VD: không viết liên tục 'Một số người phàn nàn...', 'Một số người gặp phải...'). Hãy đổi cách diễn đạt (VD: 'Chất giấy hơi mỏng', 'Thiếu chữ ký tác giả khiến trải nghiệm chưa trọn vẹn').\n"
+                #     "5. KHÁCH QUAN: Không dùng từ lóng, nói quá. Không dùng in đậm (**), markdown.\n"
+                #     "6. ĐÚNG CHỦ ĐỀ: Các đánh giá về 'giao hàng, đóng gói, quà tặng kèm, CSKH' phải nằm ở mục 'Về dịch vụ'. Các đánh giá về 'chất lượng, thiết kế, nội dung' phải nằm ở mục 'Về sản phẩm'."
+                # )
             def summarize(self, text: str) -> str:
                 for provider in self.provider_chain:
                     try:
