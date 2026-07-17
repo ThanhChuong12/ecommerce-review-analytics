@@ -807,10 +807,23 @@ function AnalyzeContent() {
                       </p>
 
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                        {metadata.alternativeProducts.map((alt: any, idx: number) => (
+                        {metadata.alternativeProducts.map((alt: any, idx: number) => {
+                          // Badge color based on reasoning type
+                          const badgeColor = (() => {
+                            const r = alt.reason || '';
+                            if (r.includes('tương tự') || r.includes('Tương tự')) return 'bg-indigo-600/90';
+                            if (r.includes('Đánh giá') || r.includes('Uy tín') || r.includes('Mua nhiều')) return 'bg-emerald-600/90';
+                            if (r.includes('Giá')) return 'bg-violet-600/90';
+                            return 'bg-blue-600/90';
+                          })();
+                          const rerankPct = alt.rerank_score ? Math.round(alt.rerank_score * 100) : null;
+                          const cosinePct = alt.cosine_score ? Math.round(alt.cosine_score * 100) : null;
+
+                          return (
                           <div key={idx} className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/80 rounded-2xl p-4 hover:shadow-lg transition-all duration-300 cursor-default group flex flex-col relative overflow-hidden">
                             {alt.reason && (
-                              <span className="absolute top-2 left-2 bg-blue-600/90 text-white text-[9px] font-bold px-2 py-0.5 rounded-md z-10 shadow-sm backdrop-blur-sm font-quicksand">
+                              <span className={`absolute top-2 left-2 ${badgeColor} text-white text-[9px] font-bold px-2 py-0.5 rounded-md z-10 shadow-sm backdrop-blur-sm font-quicksand`}
+                                title={cosinePct ? `Độ tương đồng ngữ nghĩa: ${cosinePct}%` : undefined}>
                                 {alt.reason}
                               </span>
                             )}
@@ -818,7 +831,7 @@ function AnalyzeContent() {
                               <img src={alt.thumbnail} alt={alt.name} className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300" />
                             </div>
                             <h4 className="font-semibold text-sm line-clamp-2 mb-2 dark:text-slate-200 flex-1 leading-snug font-quicksand">{alt.name}</h4>
-                            
+
                             <div className="space-y-1.5 mb-3">
                               {/* Rating & Sold */}
                               <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-quicksand">
@@ -831,6 +844,22 @@ function AnalyzeContent() {
                                 <Shield className={`w-3.5 h-3.5 ${alt.trustScore >= 70 ? 'text-emerald-500' : 'text-amber-500'}`} />
                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 font-quicksand">Trust: {alt.trustScore || 0}/100</span>
                               </div>
+
+                              {/* AI Rerank Score bar — chỉ hiển thị khi có dữ liệu từ PhoBERT reranker */}
+                              {rerankPct !== null && (
+                                <div title={`AI Relevance Score: ${rerankPct}% (α·CosineSim + β·Trust - γ·ΔPrice)`}>
+                                  <div className="flex items-center justify-between mb-0.5">
+                                    <span className="text-[9px] text-slate-400 dark:text-slate-500 font-quicksand">AI Score</span>
+                                    <span className="text-[9px] font-bold text-indigo-500 dark:text-indigo-400 font-quicksand">{rerankPct}%</span>
+                                  </div>
+                                  <div className="w-full h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-blue-400 transition-all duration-500"
+                                      style={{ width: `${rerankPct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
                             <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60 mt-auto">
@@ -838,7 +867,8 @@ function AnalyzeContent() {
                               <button onClick={(e) => { e.stopPropagation(); router.push('/analyze?url=' + encodeURIComponent(alt.url)); }} className="cursor-pointer flex items-center justify-center text-xs font-semibold bg-blue-100 dark:bg-blue-500/20 hover:bg-blue-200 dark:hover:bg-blue-500/30 text-blue-700 dark:text-blue-400 py-2 rounded-xl transition-colors w-full">Phân tích</button>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   );
