@@ -352,6 +352,61 @@ def _build_smart_advice(trust_score: float, spam_pct: float, reviews: List[dict]
     return " ".join(parts)
 
 
+def _heuristic_score(candidates: List[dict]) -> List[dict]:
+    """
+    Fallback heuristic scoring khi PhoBERT chưa sẵn sàng.
+    Tính mini_trust từ rating và sold, gắn nhãn lý do đề xuất, lọc < 50 điểm.
+    """
+    import re as _re
+    import math as _math
+
+    result = []
+    for cand in candidates:
+        name = cand.get("name", "")
+        if not name:
+            continue
+        try:
+            rating_val = float(cand.get("rating") or 4.0)
+        except (ValueError, TypeError):
+            rating_val = 4.0
+
+        sold_str = str(cand.get("sold", "")).lower().strip()
+        sold_val = 0
+        try:
+            if "k" in sold_str:
+                digits = _re.findall(r"[\d\.]+", sold_str)
+                sold_val = int(float(digits[0]) * 1000) if digits else 0
+            else:
+                digits = _re.findall(r"\d+", sold_str.replace(".", "").replace(",", ""))
+                sold_val = int(digits[0]) if digits else 0
+        except Exception:
+            sold_val = 0
+
+        # Sigmoid-normalized trust [0,1] → [0,100]
+        rating_norm = max(0.0, min(1.0, (rating_val - 1.0) / 4.0))
+        sold_norm   = 1.0 - _math.exp(-sold_val / 500.0) if sold_val > 0 else 0.0
+        trust_norm  = rating_norm * 0.6 + sold_norm * 0.4
+        mini_trust  = round(trust_norm * 100, 1)
+
+        if mini_trust < 50:
+            continue
+
+        if rating_val >= 4.7 and sold_val >= 500:
+            reason = "Bán chạy & Uy tín"
+        elif rating_val >= 4.8:
+            reason = "Đánh giá cực tốt"
+        elif sold_val >= 1000:
+            reason = "Mua nhiều nhất"
+        elif rating_val >= 4.0:
+            reason = "Khách mua hài lòng"
+        else:
+            reason = "Cùng phân khúc"
+
+        result.append({**cand, "trustScore": mini_trust, "reason": reason})
+
+    return result
+
+
 # ─── Main AI Pipeline ─────────────────────────────────────────────────────────
 
 def heavy_ai_process(product_id: int, url: str) -> None:
@@ -1068,78 +1123,68 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         else:
             llm_summary = f"Sản phẩm đánh giá trung bình ({pos_count} tích cực, {neg_count} tiêu cực, Trust Score: {overall_trust}/100)."
 
-    # ── STEP 8: Similar Products ──────────────────────────────────────────────
-    _report_progress(product_id, 95, "Đang hoàn tất đề xuất sản phẩm...")
+    # ── STEP 8: Similar Products + Zero-Shot Semantic Reranking ──────────────
+    _report_progress(product_id, 95, "Đang xếp hạng đề xuất thông minh (PhoBERT Reranker)...")
+
+    import re as _re
 
     alternative_products: List[dict] = []
     try:
-        # Wait for the background scraping task to complete
+        # 8a. Thu kết quả từ background thread
         similar_items = similar_future.result(timeout=30)
-        for p in similar_items:
-            if not p.name:
-                continue
 
-            # Tính toán Mini Trust-Score sơ bộ
-            rating_val = float(p.rating) if p.rating else 4.0
-            sold_val = 0
+        # 8b. Chuyển sang raw candidate dicts để reranker xử lý
+        raw_candidates: List[dict] = [
+            {
+                "name":      p.name,
+                "thumbnail": p.image_url,
+                "url":       p.url,
+                "rating":    p.rating,
+                "price":     p.price,
+                "sold":      p.sold,
+            }
+            for p in similar_items if p.name
+        ]
+        print(f"[Similar] Thu được {len(raw_candidates)} sản phẩm thô từ background thread")
+
+        # 8c. Zero-Shot Semantic Reranking bằng PhoBERT backbone đã có trong RAM
+        if raw_candidates and _phobert_backbone_cache is not None and _phobert_tokenizer_cache is not None:
             try:
-                sold_str = str(p.sold).lower().strip()
-                if "k" in sold_str:
-                    import re
-                    digits = re.findall(r"[\d\.]+", sold_str)
-                    if digits:
-                        sold_val = int(float(digits[0]) * 1000)
-                else:
-                    import re
-                    digits = re.findall(r"\d+", sold_str.replace(".", "").replace(",", ""))
-                    if digits:
-                        sold_val = int(digits[0])
-            except Exception:
-                sold_val = 0
+                from recommendation.reranker import rerank_candidates
+                _device = next(_phobert_backbone_cache.parameters()).device
 
-            # Base score từ rating (tối đa 80 điểm)
-            base_score = rating_val * 20.0
+                # Ước tính giá sản phẩm gốc từ trung vị giá ứng viên (scraper không lấy giá gốc)
+                _prices = []
+                for c in raw_candidates:
+                    _raw_p = str(c.get("price", "")).lower()
+                    _clean = _re.sub(r"[^\d]", "", _raw_p)
+                    if _clean:
+                        _prices.append(int(_clean))
+                origin_price_estimate = sorted(_prices)[len(_prices) // 2] if _prices else 0
 
-            # Bonus từ lượng bán (tối đa 20 điểm)
-            sales_bonus = 0.0
-            if sold_val >= 1000:
-                sales_bonus = 20.0
-            elif sold_val >= 500:
-                sales_bonus = 15.0
-            elif sold_val >= 100:
-                sales_bonus = 10.0
-            elif sold_val >= 10:
-                sales_bonus = 5.0
+                alternative_products = rerank_candidates(
+                    origin_name=product_name,
+                    origin_price=origin_price_estimate,
+                    candidates=raw_candidates,
+                    tokenizer=_phobert_tokenizer_cache,
+                    backbone=_phobert_backbone_cache,
+                    device=_device,
+                    # Weights: semantic=50%, trust=35%, price=15%
+                    alpha=0.50,
+                    beta=0.35,
+                    gamma=0.15,
+                    threshold=0.30,
+                )
+                print(f"[Reranker] Kết quả sau reranking: {len(alternative_products)} sản phẩm đề xuất")
 
-            mini_trust = round(min(100.0, max(10.0, base_score + sales_bonus - (5.0 if rating_val < 3.5 else 0.0))), 1)
+            except Exception as rerank_err:
+                print(f"[Reranker] Reranking thất bại — fallback heuristic: {rerank_err}")
+                alternative_products = _heuristic_score(raw_candidates)
+        else:
+            # Fallback khi PhoBERT chưa load xong
+            print("[Reranker] PhoBERT chưa sẵn sàng, dùng heuristic scoring")
+            alternative_products = _heuristic_score(raw_candidates)
 
-            # Nhãn lý do đề xuất dựa trên phân tích dữ liệu bề mặt
-            if rating_val >= 4.7 and sold_val >= 500:
-                reason_label = "Bán chạy & Uy tín"
-            elif rating_val >= 4.8:
-                reason_label = "Đánh giá cực tốt"
-            elif sold_val >= 1000:
-                reason_label = "Mua nhiều nhất"
-            elif rating_val >= 4.0:
-                reason_label = "Khách mua hài lòng"
-            else:
-                reason_label = "Cùng phân khúc"
-
-            # Chỉ giữ lại các sản phẩm có chất lượng tương đối ổn trở lên
-            if mini_trust < 50:
-                continue
-
-            alternative_products.append({
-                "name":       p.name,
-                "thumbnail":  p.image_url,
-                "url":        p.url,
-                "rating":     p.rating,
-                "price":      p.price,
-                "sold":       p.sold,
-                "trustScore": mini_trust,
-                "reason":     reason_label
-            })
-        print(f"[Similar] Đã nhận {len(alternative_products)} sản phẩm đề xuất từ background thread")
     except Exception as e:
         print(f"[Similar] Thất bại (bỏ qua): {e}")
     finally:
