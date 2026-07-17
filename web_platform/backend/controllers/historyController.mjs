@@ -86,18 +86,35 @@ export const exportPDF = async (req, res) => {
                 const sentText = r.sentiment === 'positive' ? 'Tích cực' : r.sentiment === 'negative' ? 'Tiêu cực' : 'Trung lập';
                 const lblText = r.label === 'intact' ? 'Nguyên vẹn' : r.label === 'damaged' ? 'Hỏng/Móp' : r.label === 'wrong_item' ? 'Sai hàng' : 'Không l.quan';
                 
+                let imgLblBg = '#e2e8f0';
+                let imgLblColor = '#334';
+                if (r.label === 'intact') {
+                    imgLblBg = '#d1fae5'; // green-100
+                    imgLblColor = '#065f46'; // green-800
+                } else if (r.label === 'damaged') {
+                    imgLblBg = '#ffe4e6'; // red-100
+                    imgLblColor = '#be123c'; // red-800
+                } else if (r.label === 'wrong_item') {
+                    imgLblBg = '#ffedd5'; // orange-100
+                    imgLblColor = '#9a3412'; // orange-800
+                } else if (r.label === 'irrelevant') {
+                    imgLblBg = '#fee2e2'; // warning red-100 (irrelevant)
+                    imgLblColor = '#991b1b'; // warning red-800
+                }
+                
                 reviewsHtml += `
                     <tr>
                         <td><div style="color:#f59e0b;font-size:11px;">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>${r.review_text}</td>
                         <td><span class="badge ${sentClass}">${sentText}</span></td>
-                        <td><span class="badge" style="background:#e2e8f0;color:#334">${lblText}</span></td>
+                        <td><span class="badge" style="background:${imgLblBg};color:${imgLblColor}">${lblText}</span></td>
                     </tr>
                 `;
             }
             
             if (r.image_path) {
                 const lblText = r.label === 'intact' ? 'Nguyên vẹn' : r.label === 'damaged' ? 'Hỏng/Móp' : r.label === 'wrong_item' ? 'Sai hàng' : 'Không l.quan';
-                const lblColor = r.label === 'intact' ? '#10b981' : r.label === 'damaged' ? '#ef4444' : r.label === 'wrong_item' ? '#f59e0b' : '#64748b';
+                // Professional solid background colors for image labels
+                const lblColor = r.label === 'intact' ? '#10b981' : r.label === 'damaged' ? '#be123c' : r.label === 'wrong_item' ? '#f59e0b' : '#dc2626';
                 imagesHtml += `
                     <div class="image-card">
                         <img src="${r.image_path}" alt="Review image">
@@ -110,15 +127,23 @@ export const exportPDF = async (req, res) => {
         const totalReviews = reviews.length || 1;
         const totalImages = reviews.filter(r => r.image_path).length || 1;
 
-        const aspectsHtml = Object.entries(metadata.aspects || {}).map(([key, val]) => `
-            <div class="stat-row">
-                <div style="flex:1;">${key}</div>
-                <div style="width: 150px;">
-                    <div class="progress-bar"><div class="progress-fill" style="width: ${(val/5)*100}%; background: #d946ef;"></div></div>
+        const aspectNames = {
+            'Product': 'Sản phẩm',
+            'Packaging': 'Đóng gói',
+            'Shipping': 'Vận chuyển'
+        };
+        const aspectsHtml = Object.entries(metadata.aspectSentiment || {}).map(([key, val]) => {
+            const displayName = aspectNames[key] || key;
+            return `
+                <div class="stat-row">
+                    <div style="flex:1;">${displayName}</div>
+                    <div style="width: 150px;">
+                        <div class="progress-bar"><div class="progress-fill" style="width: ${(val/5)*100}%; background: #d946ef;"></div></div>
+                    </div>
+                    <div style="width: 40px; text-align:right; font-weight:bold;">${val}/5</div>
                 </div>
-                <div style="width: 40px; text-align:right; font-weight:bold;">${val}/5</div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
 
         const keywordsHtmlPos = (metadata.keywords?.positive || []).map(k => `<span class="kw pos">${k.text || k}</span>`).join('');
         const keywordsHtmlNeg = (metadata.keywords?.negative || []).map(k => `<span class="kw neg">${k.text || k}</span>`).join('');
@@ -136,8 +161,13 @@ export const exportPDF = async (req, res) => {
             <html lang="vi">
             <head>
                 <meta charset="UTF-8">
+                <title>BÁO CÁO PHÂN TÍCH CHUYÊN SÂU</title>
                 <style>
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; line-height: 1.5; padding: 20px 40px; background: #fff; font-size: 14px; }
+                    @page {
+                        size: auto;
+                        margin: 0mm;
+                    }
+                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; line-height: 1.5; padding: 20mm 15mm; background: #fff; font-size: 14px; }
                     .header { text-align: center; border-bottom: 3px solid #3b82f6; padding-bottom: 15px; margin-bottom: 25px; }
                     .title { font-size: 28px; color: #1e40af; margin: 0; font-weight: 800; }
                     .subtitle { color: #64748b; font-size: 13px; margin-top: 5px; }
@@ -167,7 +197,7 @@ export const exportPDF = async (req, res) => {
                     .kw { background: #fff; border: 1px solid #cbd5e1; padding: 3px 8px; border-radius: 15px; font-size: 12px; }
                     .kw.pos { border-color: #10b981; color: #10b981; }
                     .kw.neg { border-color: #ef4444; color: #ef4444; }
-
+ 
                     .image-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
                     .image-card { border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; position: relative; }
                     .image-card img { width: 100%; height: 90px; object-fit: cover; display: block; }
@@ -178,7 +208,7 @@ export const exportPDF = async (req, res) => {
             </head>
             <body>
                 <div class="header">
-                    <h1 class="title">Báo Cáo Phân Tích Chuyên Sâu</h1>
+                    <h1 class="title">BÁO CÁO PHÂN TÍCH CHUYÊN SÂU</h1>
                     <div class="subtitle">Sản phẩm: <strong>${product.name}</strong><br>Trích xuất lúc: ${new Date().toLocaleString('vi-VN')}</div>
                 </div>
                 
@@ -242,6 +272,11 @@ export const exportPDF = async (req, res) => {
                             <div style="width: 80px;">Sai hàng</div>
                             <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.wrong_item/totalImages)*100}%; background: #f59e0b;"></div></div></div>
                             <div style="width: 30px; text-align:right;">${l.wrong_item}</div>
+                        </div>
+                        <div class="stat-row">
+                            <div style="width: 80px;">Không l.quan</div>
+                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.irrelevant/totalImages)*100}%; background: #dc2626;"></div></div></div>
+                            <div style="width: 30px; text-align:right;">${l.irrelevant}</div>
                         </div>
                     </div>
                     
