@@ -361,11 +361,7 @@ export const exportPDF = async (req, res) => {
                             <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.damaged / totalImages) * 100}%; background: #ef4444;"></div></div></div>
                             <div style="width: 30px; text-align:right;">${l.damaged}</div>
                         </div>
-                        <div class="stat-row">
-                            <div style="width: 80px;">Sai hàng</div>
-                            <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.wrong_item / totalImages) * 100}%; background: #f59e0b;"></div></div></div>
-                            <div style="width: 30px; text-align:right;">${l.wrong_item}</div>
-                        </div>
+
                         <div class="stat-row">
                             <div style="width: 80px;">Không l.quan</div>
                             <div style="flex:1; margin: 0 10px;"><div class="progress-bar"><div class="progress-fill" style="width: ${(l.irrelevant / totalImages) * 100}%; background: #dc2626;"></div></div></div>
