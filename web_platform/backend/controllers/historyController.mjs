@@ -148,14 +148,31 @@ export const exportPDF = async (req, res) => {
         const keywordsHtmlPos = (metadata.keywords?.positive || []).map(k => `<span class="kw pos">${k.text || k}</span>`).join('');
         const keywordsHtmlNeg = (metadata.keywords?.negative || []).map(k => `<span class="kw neg">${k.text || k}</span>`).join('');
 
-        const altProductsHtml = (metadata.alternativeProducts || []).map(alt => `
-            <div class="box alt-product" style="position: relative;">
+        const altProductsHtml = (metadata.alternativeProducts || []).map(alt => {
+            const reason = alt.reason || '';
+            let badgeBg = '#dbeafe'; let badgeColor = '#1d4ed8';
+            if (reason.includes('tương tự') || reason.includes('Tương tự')) { badgeBg = '#ede9fe'; badgeColor = '#6d28d9'; }
+            else if (reason.includes('Đánh giá') || reason.includes('Uy tín') || reason.includes('Mua nhiều')) { badgeBg = '#d1fae5'; badgeColor = '#065f46'; }
+            else if (reason.includes('Giá')) { badgeBg = '#f3e8ff'; badgeColor = '#7c3aed'; }
+            const rerankPct = alt.rerank_score ? Math.round(alt.rerank_score * 100) : null;
+            return `
+            <div class="box alt-product" style="position: relative; display:flex; flex-direction:column; align-items:center;">
                 <img src="${alt.thumbnail}" alt="product">
-                ${alt.reason ? `<span class="badge" style="background:#e0f2fe;color:#0369a1;position:absolute;top:10px;right:10px;font-size:9px;padding:2px 5px;border-radius:4px;">${alt.reason}</span>` : ''}
-                <h4 style="font-size:12px; margin:10px 0 5px; height: 36px; overflow:hidden;">${alt.name}</h4>
-                <div style="color:#10b981; font-size:11px; margin-top:5px; font-weight:bold;">Trust Score: ${alt.trustScore || 0}/100</div>
+                ${reason ? `<span style="background:${badgeBg};color:${badgeColor};font-size:8px;font-weight:700;padding:2px 6px;border-radius:4px;margin-bottom:4px;display:inline-block;">${reason}</span>` : ''}
+                <h4 style="font-size:11px; margin:6px 0 4px; text-align:center; overflow:hidden; max-height:34px;">${alt.name}</h4>
+                <div style="color:#10b981; font-size:10px; margin-top:2px; font-weight:bold;">Trust: ${alt.trustScore || 0}/100</div>
+                ${rerankPct !== null ? `
+                <div style="width:100%;margin-top:4px;">
+                    <div style="display:flex;justify-content:space-between;font-size:8px;color:#94a3b8;margin-bottom:1px;">
+                        <span>AI Score</span><span style="color:#6366f1;font-weight:bold;">${rerankPct}%</span>
+                    </div>
+                    <div style="background:#e2e8f0;border-radius:3px;height:3px;overflow:hidden;">
+                        <div style="background:linear-gradient(to right,#6366f1,#60a5fa);height:100%;width:${rerankPct}%;"></div>
+                    </div>
+                </div>` : ''}
             </div>
-        `).join('');
+        `}).join('');
+
 
         const htmlContent = `
             <!DOCTYPE html>
