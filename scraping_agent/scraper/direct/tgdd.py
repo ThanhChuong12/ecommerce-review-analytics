@@ -60,13 +60,8 @@ def _normalize_url(url: str) -> str:
 
 
 def _extract_slug(url: str) -> str:
-	"""Lấy phần slug sản phẩm từ URL TGDD.
-
-	  /dtdd/samsung-galaxy-a06-5g-6gb-128gb  →  samsung-galaxy-a06-5g-6gb-128gb
-	  /dt/iphone-16-pro-i-16612391          →  iphone-16-pro-i-16612391
-	  /dong-ho-deo-tay/casio-mtp-vd03d-7audf-nam  →  casio-mtp-vd03d-7audf-nam
-	"""
-	# Ưu tiên: các danh mục điện tử đã biết
+	"""Get product slug from TGDD URL."""
+	# Check electronic categories
 	m = re.search(
 		r'thegioididong\.com/(?:dtdd|dt|dien-thoai|laptop|tablet|may-tinh-bang)'
 		r'/([^/?#\s]+)',
@@ -74,7 +69,7 @@ def _extract_slug(url: str) -> str:
 	)
 	if m:
 		return m.group(1)
-	# Mở rộng: bất kỳ path 2 cấp /danh-muc/slug trên TGDD
+	# Fallback match for subcategories
 	m2 = re.search(r'thegioididong\.com/[^/?#\s]+/([^/?#\s]+)', url)
 	if m2:
 		return m2.group(1)
@@ -86,7 +81,7 @@ def _extract_slug(url: str) -> str:
 
 
 def _parse_cmt_blocks(html: str, product_url: str, product_name: str = '') -> list[Review]:
-	"""Parse tất cả .cmt-top blocks trong HTML fragment."""
+	"""Parse cmt-top blocks in HTML fragment."""
 	blocks = re.split(r'(?=<div class="cmt-top")', html)
 	reviews: list[Review] = []
 
@@ -104,7 +99,7 @@ def _parse_cmt_blocks(html: str, product_url: str, product_name: str = '') -> li
 
 
 def _parse_one_block(block: str, product_url: str, product_name: str = '') -> Review | None:
-	# ----- Review ID: lấy từ data-id hoặc data-reviewid (nếu có) để dedup chính xác -----
+	# -- Review ID extraction for deduping
 	review_id = ''
 	rid_m = (
 		re.search(r'data-(?:review)?id="(\d+)"', block)
@@ -113,13 +108,13 @@ def _parse_one_block(block: str, product_url: str, product_name: str = '') -> Re
 	if rid_m:
 		review_id = rid_m.group(1)
 
-	# ----- Rating: đếm iconcmt-starbuy -----
+	# -- Count star rating
 	rating = len(re.findall(r'iconcmt-starbuy(?!")', block))
 	if rating == 0:
 		rating = len(re.findall(r'class="[^"]*starbuy[^"]*"', block))
 	rating = max(1, min(5, rating)) if rating else 5
 
-	# ----- Date: dd/MM/yyyy -----
+	# -- Date extraction
 	date_str = ''
 	date_m = re.search(r'(\d{2}/\d{2}/\d{4})', block)
 	if date_m:
@@ -129,7 +124,7 @@ def _parse_one_block(block: str, product_url: str, product_name: str = '') -> Re
 		except Exception:
 			date_str = date_m.group(1)
 
-	# ----- Text: cmt-content div -----
+	# -- Text extraction
 	text = ''
 	cm = re.search(r'class="cmt-content[^"]*">(.*?)</(?:div|p)>', block, re.DOTALL)
 	if cm:
@@ -137,7 +132,7 @@ def _parse_one_block(block: str, product_url: str, product_name: str = '') -> Re
 		text = re.sub(r'\s+', ' ', text).strip()
 		text = unescape(text)
 
-	# ----- Images -----
+	# -- Image extraction
 	raw_imgs = re.findall(
 		r'(?:src|data-src|href)="([^"]+\.(?:jpg|jpeg|png|webp))"',
 		block,
@@ -233,7 +228,7 @@ class TGDDScraper(BaseScraper):
 		self._object_type = otype.group(1) if otype else '2'
 		self._site_id     = sid.group(1)   if sid   else '1'
 
-		# Product name — lấy từ thẻ <h1>, decode HTML entities thành Unicode
+		# Extract and decode product name
 		h1 = re.search(r'<h1[^>]*>\s*(.*?)\s*</h1>', html, re.IGNORECASE | re.DOTALL)
 		if h1:
 			raw_name = re.sub(r'<[^>]+>', '', h1.group(1)).strip()
@@ -241,7 +236,7 @@ class TGDDScraper(BaseScraper):
 
 		print(f'  objectId={self._object_id} | type={self._object_type} | site={self._site_id}')
 
-		# Tìm tổng số review từ nhiều nguồn
+		# Get total review counts
 		total = self._extract_total_from_html(html)
 		if total == 0:
 			total = await self._fetch_total_from_danh_gia(client, product_id)
@@ -252,13 +247,13 @@ class TGDDScraper(BaseScraper):
 			print(f'  Total reviews detected: {total} -> {pages} pages')
 			return pages
 
-		return None  # không biết tổng, dừng khi trống
+		return None # Unknown, stop on empty
 
 	def _extract_total_from_html(self, html: str) -> int:
-		"""Trích tổng review từ HTML sản phẩm hoặc /danh-gia."""
+		"""Extract total reviews from product HTML or /danh-gia page."""
 		for pattern in [
-			r'(\d+)\s*đánh giá',  # danh gia (broad)
-			r'(\d+)\s*nhận xét',  # nhan xet
+			r'(\d+)\s*đánh giá',
+			r'(\d+)\s*nhận xét',
 			r'"total"\s*:\s*(\d+)',
 			r'rating_total[":\s]+(\d+)',
 		]:
@@ -272,7 +267,7 @@ class TGDDScraper(BaseScraper):
 	async def _fetch_total_from_danh_gia(
 		self, client: httpx.AsyncClient, product_id: str
 	) -> int:
-		"""Lấy tổng từ trang /danh-gia (có nhiều hint hơn)."""
+		"""Fetch total count from /danh-gia page."""
 		danh_gia_url = self._product_url_clean.rstrip('/') + '/danh-gia'
 		try:
 			r = await client.get(danh_gia_url, headers=_HEADERS_HTML)
@@ -281,7 +276,7 @@ class TGDDScraper(BaseScraper):
 			return 0
 
 	# ------------------------------------------------------------------
-	# Step 2: POST comment API → HTML với .cmt-top blocks
+	# Step 2: POST comment API -> HTML with .cmt-top blocks
 	# ------------------------------------------------------------------
 
 	async def _fetch_page(

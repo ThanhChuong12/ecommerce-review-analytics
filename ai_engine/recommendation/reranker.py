@@ -37,27 +37,27 @@ logger = logging.getLogger(__name__)
 ALPHA: float = 0.50   # Cosine similarity weight
 BETA:  float = 0.35   # Trust score weight
 GAMMA: float = 0.15   # Price deviation penalty weight
-SCORE_THRESHOLD: float = 0.30  # Sản phẩm có Score < này sẽ bị loại
+SCORE_THRESHOLD: float = 0.30  # Remove candidates with score below threshold
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _parse_price(price_raw: Any) -> float:
-    """Chuyển chuỗi giá bất kỳ ('₫120.000', '120000', '1.2tr') thành float."""
+    """Parse raw price string into float."""
     if not price_raw:
         return 0.0
     price_str = str(price_raw).lower().strip()
-    # Xử lý 'tr' (triệu)
+    # Handle million indicator (tr)
     if "tr" in price_str or "triệu" in price_str:
         digits = re.findall(r"[\d,\.]+", price_str)
         if digits:
             return float(digits[0].replace(",", ".")) * 1_000_000
-    # Xóa ký tự không phải số
+    # Strip non-digit characters
     clean = re.sub(r"[^\d]", "", price_str)
     return float(clean) if clean else 0.0
 
 
 def _parse_sold(sold_raw: Any) -> int:
-    """Chuyển 'Đã bán 1.2k', '1200', '500' thành int."""
+    """Parse sold counts like 'Đã bán 1.2k' into int."""
     if not sold_raw:
         return 0
     sold_str = str(sold_raw).lower().strip()
@@ -73,23 +73,23 @@ def _parse_sold(sold_raw: Any) -> int:
 
 def _compute_trust(rating: Any, sold: int) -> float:
     """
-    Tính Trust Score chuẩn hóa về [0, 1].
+    Calculate normalized trust score in [0, 1].
     
-    Công thức:
+    Formula:
         trust_raw = rating_norm * 0.6 + sold_norm * 0.4
     
-    rating_norm : [1,5] → [0,1] bằng min-max  (min=1, max=5)
-    sold_norm   : Sigmoidal saturation tại 2000 đơn  
+    rating_norm : min-max scale [1, 5] -> [0, 1]
+    sold_norm   : sigmoid saturation at 2000 units
     """
     try:
         rating_val = float(rating) if rating else 3.0
     except (ValueError, TypeError):
         rating_val = 3.0
     
-    # Chuẩn hóa rating từ [1, 5] sang [0, 1]
+    # Scale rating from [1, 5] to [0, 1]
     rating_norm = max(0.0, min(1.0, (rating_val - 1.0) / 4.0))
     
-    # Chuẩn hóa lượng bán: sigmoid bão hòa tại 2000 sold → 1.0
+    # Scale sold counts: sigmoid saturation at 2000 -> 1.0
     sold_norm = 1.0 - math.exp(-sold / 500.0) if sold > 0 else 0.0
     sold_norm = max(0.0, min(1.0, sold_norm))
     
@@ -97,7 +97,7 @@ def _compute_trust(rating: Any, sold: int) -> float:
 
 
 def _cosine_sim(vec_a: torch.Tensor, vec_b: torch.Tensor) -> float:
-    """Cosine similarity giữa hai vector 1-D."""
+    """Cosine similarity between two 1-D vectors."""
     sim = F.cosine_similarity(vec_a.unsqueeze(0), vec_b.unsqueeze(0), dim=1)
     return float(sim.item())
 
@@ -112,9 +112,8 @@ def _embed_text(
     max_length: int = 64,
 ) -> torch.Tensor:
     """
-    Trích xuất vector ngữ nghĩa [hidden_dim] bằng PhoBERT Mean Pooling.
-    Sử dụng mean pooling trên toàn bộ token (trừ padding) để tạo sentence embedding
-    ổn định hơn so với chỉ dùng [CLS] token.
+    Extract semantic vector [hidden_dim] using PhoBERT Mean Pooling.
+    Uses mean pooling across non-padding tokens for stable sentence embedding.
     """
     inputs = tokenizer(
         text,
@@ -129,14 +128,14 @@ def _embed_text(
     with torch.no_grad():
         outputs = backbone(input_ids=input_ids, attention_mask=attention_mask)
     
-    # Lấy hidden states của tất cả tokens (last_hidden_state)
+    # Get hidden states (last_hidden_state)
     if hasattr(outputs, "last_hidden_state"):
         hidden = outputs.last_hidden_state  # [1, seq_len, hidden_dim]
     else:
-        # Một số models trả về tuple
+        # Some models return tuple
         hidden = outputs[0]
     
-    # Mean Pooling: trung bình chỉ trên các token không phải padding
+    # Mean Pooling
     mask_expanded = attention_mask.unsqueeze(-1).float()  # [1, seq_len, 1]
     sum_hidden = (hidden * mask_expanded).sum(dim=1)      # [1, hidden_dim]
     count = mask_expanded.sum(dim=1).clamp(min=1e-9)      # [1, 1]
@@ -149,9 +148,9 @@ def _embed_text(
 
 class ZeroShotReranker:
     """
-    Zero-Shot Content-Based Reranker sử dụng PhoBERT để xếp hạng sản phẩm.
+    Zero-Shot Content-Based Reranker using PhoBERT.
     
-    Không yêu cầu training thêm — tận dụng hoàn toàn backbone PhoBERT đã load sẵn.
+    No training required, leverages pre-loaded PhoBERT backbone.
     """
     
     def __init__(
@@ -181,25 +180,25 @@ class ZeroShotReranker:
         sold_val: int,
     ) -> str:
         """
-        Xác định reasoning badge dựa trên yếu tố đóng góp cao nhất vào Score.
+        Determine reasoning badge based on highest score contributor.
         """
         if cosine_contrib >= trust_contrib and cosine_contrib >= 0.25:
-            # Tương đồng ngữ nghĩa là yếu tố chính
+            # Semantic similarity dominant factor
             if rating_val >= 4.7 and sold_val >= 500:
                 return "Tương tự & Bán chạy"
             return "Sản phẩm tương tự"
         elif trust_contrib >= cosine_contrib and trust_contrib >= 0.25:
-            # Trust score là yếu tố chính
+            # Trust score dominant factor
             if sold_val >= 1000:
                 return "Mua nhiều nhất"
             elif rating_val >= 4.8:
                 return "Đánh giá cực tốt"
             return "Đánh giá cao"
         elif price_penalty < 0.05:
-            # Giá rất hợp lý (penalty gần 0)
+            # Price penalty is close to 0
             return "Giá hợp lý"
         else:
-            # Fallback theo rating/sold
+            # Fallback based on rating/sold
             if rating_val >= 4.5 and sold_val >= 200:
                 return "Bán chạy & Uy tín"
             elif rating_val >= 4.0:
@@ -213,39 +212,33 @@ class ZeroShotReranker:
         candidates: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         """
-        Sắp xếp lại danh sách sản phẩm đề xuất theo công thức:
+        Rerank candidate recommendations based on:
             Score(pᵢ) = α·CosineSim(E(p₀),E(pᵢ)) + β·Trust(pᵢ) - γ·|PriceDeviation|
         
         Args:
-            origin_name    : Tên sản phẩm gốc.
-            origin_price   : Giá sản phẩm gốc (có thể là chuỗi).
-            candidates     : Danh sách dict sản phẩm đề xuất (name, price, rating, sold, ...).
+            origin_name    : Original product name
+            origin_price   : Original product price
+            candidates     : Candidate dictionaries
         
         Returns:
-            Danh sách đã được sắp xếp giảm dần theo Score, đã lọc nhiễu (Score < threshold).
-            Mỗi item được bổ sung thêm các trường:
-                - `rerank_score`   : Tổng điểm xếp hạng [0, 1]
-                - `cosine_score`   : Độ tương đồng cosine [0, 1]
-                - `trust_score_norm`: Trust score đã chuẩn hóa [0, 1]
-                - `trustScore`     : Trust score hiển thị [0, 100]
-                - `reason`         : Badge reasoning label
+            Reranked list sorted by score descending
         """
         if not candidates:
             return []
         
         logger.info("[Reranker] Bắt đầu zero-shot reranking với %d ứng viên", len(candidates))
         
-        # ── 1. Embed sản phẩm gốc ─────────────────────────────────────────────
+        # -- 1. Embed original product
         try:
             origin_vec = _embed_text(origin_name, self.tokenizer, self.backbone, self.device)
         except Exception as e:
             logger.warning("[Reranker] Không embed được sản phẩm gốc: %s", e)
-            # Fallback: trả về candidates chưa thay đổi
+            # Fallback: return unchanged candidates
             return candidates
         
         origin_price_float = _parse_price(origin_price)
         
-        # ── 2. Tính Score cho từng ứng viên ───────────────────────────────────
+        # -- 2. Compute Score for each candidate
         scored: List[Tuple[float, Dict[str, Any]]] = []
         
         for cand in candidates:
@@ -259,7 +252,7 @@ class ZeroShotReranker:
                 cosine = max(0.0, _cosine_sim(origin_vec, cand_vec))  # clamp to [0,1]
             except Exception as e:
                 logger.debug("[Reranker] Embed thất bại cho '%s': %s", name_cand[:40], e)
-                cosine = 0.3  # Giá trị mặc định trung bình khi lỗi
+                cosine = 0.3  # Default value on error
             
             # 2b. Trust score (normalized)
             sold_int = _parse_sold(cand.get("sold", 0))
@@ -283,9 +276,7 @@ class ZeroShotReranker:
             final_score = max(0.0, min(1.0, final_score))  # clamp [0,1]
             
             # 2e. Trust score display (0-100)
-            # Quan trọng: dùng cùng logic trung hòa như _compute_trust:
-            # rating=0 (chưa có đánh giá) → mặc định 3.0 sao (trung lập)
-            # để tránh 0*20=0 làm trust display cực thấp so với trust_norm thực.
+            # Use default rating of 3.0 when there are no ratings
             try:
                 rating_raw = float(cand.get("rating") or 0)
             except (ValueError, TypeError):
@@ -297,7 +288,7 @@ class ZeroShotReranker:
                 1
             )
 
-            # 2f. Reasoning badge (dùng cùng rating đã chuẩn hoá)
+            # 2f. Reasoning badge
             reason_badge = self._get_dominant_badge(
                 cosine_contrib=alpha_contrib,
                 trust_contrib=beta_contrib,
@@ -306,7 +297,7 @@ class ZeroShotReranker:
                 sold_val=sold_int,
             )
             
-            # 2g. Lọc nhiễu theo threshold
+            # 2g. Filter by score threshold
             if final_score < self.threshold:
                 logger.debug(
                     "[Reranker] Loại '%s' vì Score=%.3f < threshold=%.3f",
@@ -324,7 +315,7 @@ class ZeroShotReranker:
             }
             scored.append((final_score, enriched_cand))
         
-        # ── 3. Sắp xếp giảm dần theo Score ───────────────────────────────────
+        # -- 3. Sort candidates descending by score
         scored.sort(key=lambda x: x[0], reverse=True)
         
         result = [item for _, item in scored]
@@ -338,7 +329,7 @@ class ZeroShotReranker:
         return result
 
 
-# ─── Standalone helper (for direct use from main.py) ──────────────────────────
+# -- Standalone helper
 
 def rerank_candidates(
     origin_name: str,
@@ -353,9 +344,7 @@ def rerank_candidates(
     threshold: float = SCORE_THRESHOLD,
 ) -> List[Dict[str, Any]]:
     """
-    Helper wrapper — gọi trực tiếp từ main.py.
-    
-    Trả về danh sách sản phẩm đã rerank và lọc nhiễu.
+    Helper wrapper to rerank candidates directly from main.py.
     """
     reranker = ZeroShotReranker(
         tokenizer=tokenizer,

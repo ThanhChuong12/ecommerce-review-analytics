@@ -1,26 +1,15 @@
 """
-dispatcher.py — Routes product URL đến đúng scraper engine.
+dispatcher.py — Routes product URL to the correct scraper engine.
 
-Lớp 1 — Direct API (nhanh, không cần browser, không cần LLM):
-  tiki.vn           → TikiScraper   (Tiki internal API v2)
-  thegioididong.com → TGDDScraper   (webapi.thegioididong.com)
-
-Lớp 2 — Playwright network interception (browser, không LLM):
-  lazada.vn         → LazadaScraper  (dynamic tokens, cần browser)
-  shopee.vn         → ShopeeScraper  (session + anti-bot, cần browser)
-  bất kỳ site nào   → GenericPlaywrightScraper (auto-detect review API)
-
-Lớp 3 — LLM browser agent (chậm, tốn tiền, chỉ dùng khi bắt buộc):
-  bất kỳ site nào   → scraper/agent.py (browser_use.Agent)
-
-Quy trình cho site lạ (không thuộc Lớp 1 hoặc 2 đã biết):
-  Thử GenericPlaywrightScraper trước → nếu thất bại → LLM agent
+Level 1 — Direct API (Tiki, TGDD)
+Level 2 — Playwright network interception (Lazada, Shopee, Generic)
+Level 3 — LLM browser agent (Fallback for other sites)
 """
 
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Lớp 1: Direct API scrapers (no browser, no LLM)
+# Level 1: Direct API scrapers (no browser, no LLM)
 # ---------------------------------------------------------------------------
 
 _DIRECT_SITES = {
@@ -30,7 +19,7 @@ _DIRECT_SITES = {
 
 
 def _get_direct_scraper(url: str):
-    """Trả về direct scraper class nếu URL khớp site đã biết, ngược lại None."""
+    """Return direct scraper class if URL matches a known site, otherwise None."""
     import importlib
     for domain, cls_path in _DIRECT_SITES.items():
         if domain in url:
@@ -54,58 +43,52 @@ async def scrape(
     filter_mode: str  = "max",
     progress_callback = None
 ) -> int:
-    """Route URL đến đúng scraper. Trả về số review đã lưu."""
+    """Route URL to correct scraper. Returns saved review count."""
 
-    # ── Lớp 1: Direct API (nhanh nhất) ─────────────────────────────────
+    # -- Level 1: Direct API (fastest)
     ScraperClass = _get_direct_scraper(url)
     if ScraperClass is not None:
         scraper = ScraperClass()
         return await scraper.run(url, output_path, fmt, max_reviews, progress_callback=progress_callback)
 
-    # ── Lớp 2a: Lazada — Playwright interception ─────────────────────────
+    # -- Level 2a: Lazada - Playwright interception
     if "lazada.vn" in url:
         from scraper.direct.lazada import LazadaScraper
         scraper = LazadaScraper(headless=headless)
         return await scraper.run(url, output_path, fmt, max_reviews, progress_callback=progress_callback)
 
-    # ── Lớp 2b: Shopee — httpx parallel + multi-type (v5) ───────────────
+    # -- Level 2b: Shopee - Parallel HTTPX API fetch
     if "shopee.vn" in url:
         from scraper.direct.shopee_fast import ShopeeParallelScraper
         scraper = ShopeeParallelScraper(
             concurrency  = 30,
             api_limit    = 59,
             headless     = headless,
-            humanize     = headless,  # Tắt humanize khi hiện UI để user click tay đăng nhập
+            humanize     = headless,  # Disable humanize in non-headless mode to allow manual login
             human_preset = "careful",
             filter_mode  = filter_mode,
         )
         return await scraper.run(url, output_path, fmt, max_reviews, progress_callback=progress_callback)
 
-    # ── Lớp 2c: Site lạ — Generic Playwright (tự detect API) ────────────
-    # Ưu tiên thử trước khi tốn tiền LLM
+    # -- Level 2c: Unknown sites - Generic Playwright (auto-detect API)
     try:
         from scraper.direct.generic_playwright import GenericPlaywrightScraper
         generic = GenericPlaywrightScraper(headless=headless)
         count = await generic.run(url, output_path, fmt, max_reviews, progress_callback=progress_callback)
         if count > 0:
             return count
-        # count == 0 → không detect được → fallthrough sang LLM
-        print(
-            "  [Dispatcher] Generic scraper trả về 0 reviews → "
-            "thử LLM agent..."
-        )
+        # Fallback to LLM agent if no reviews detected
+        print("  [Dispatcher] Generic scraper returned 0 reviews. Falling back to LLM agent.")
     except RuntimeError as exc:
-        # GenericPlaywrightScraper raise RuntimeError khi không detect được API
-        print(f"  [Dispatcher] Generic scraper thất bại: {exc}")
-        print("  [Dispatcher] Chuyển sang LLM agent...")
+        print(f"  [Dispatcher] Generic scraper failed: {exc}")
+        print("  [Dispatcher] Falling back to LLM agent...")
 
-    # ── Lớp 3: LLM browser agent — fallback cuối cùng ───────────────────
+    # -- Level 3: LLM browser agent (final fallback)
     try:
         from scraper.agent import scrape_reviews
     except ModuleNotFoundError as e:
         print(f"\n  [Dispatcher] LLM Agent unavailable: {e}")
-        print("  Site nay khong co review API duoc nhan dien.")
-        print("  Can: pip install browser-use  hoac  viet scraper rieng cho site nay.")
+        print("  Site not recognized and LLM agent not available.")
         return 0
 
     return await scrape_reviews(

@@ -45,15 +45,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 4 nhãn khớp với schema trong DB (Review.label)
+# 4 labels mapping to schema DB (Review.label)
 CLASS_NAMES = ["intact", "damaged", "wrong_item", "irrelevant"]
 NUM_CLASSES = len(CLASS_NAMES)
 
-# ImageNet mean/std dùng để normalize — bắt buộc khi dùng pretrained backbone
+# ImageNet mean/std used for normalization
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
-# Kích thước ảnh input chuẩn của cả 2 backbone
+# Standard input image size for backbones
 IMAGE_SIZE = 224
 
 
@@ -109,32 +109,32 @@ def _build_backbone(backbone: str, num_classes: int = 4) -> Tuple[nn.Module, int
 
     if backbone == "mobilenet_v3":
         net = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.IMAGENET1K_V2)
-        # Freeze TOÀN BỘ features trước
+        # Freeze all features first
         for param in net.features.parameters():
             param.requires_grad = False
-        # FIX #1: Đọc in_features từ classifier[0].in_features (960 — output của features)
-        # classifier[0] là Linear(960, 1280), [1] Hardswish, [2] Dropout, [3] Linear(1280,1000)
+        # Get input features from classifier[0].in_features (960)
+        # classifier[0] is Linear(960, 1280), [1] Hardswish, [2] Dropout, [3] Linear(1280,1000)
         in_features = net.classifier[0].in_features  # 960
-        # FIX #2: Thay TOÀN BỘ classifier block (không chỉ [-1])
-        # Thêm bottleneck 512 để có thêm capacity cho 4-class head
+        # Replace the entire classifier block
+        # Add bottleneck 512 for capacity
         net.classifier = nn.Sequential(
             nn.Linear(in_features, 512),
             nn.Hardswish(),
             nn.Dropout(p=0.4),
             nn.Linear(512, num_classes),
         )
-        # FIX #2 (cont): Đảm bảo classifier luôn trainable
+        # Ensure classifier is trainable
         for param in net.classifier.parameters():
             param.requires_grad = True
         return net, in_features
 
     if backbone == "efficientnet_b0":
         net = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1)
-        # Freeze toàn bộ features
+        # Freeze all features
         for param in net.features.parameters():
             param.requires_grad = False
         in_features = net.classifier[1].in_features  # 1280
-        # Thay classifier: Linear(1280→512)→SiLU→Dropout→Linear(512→4)
+        # Replace classifier
         net.classifier = nn.Sequential(
             nn.Dropout(p=0.2),
             nn.Linear(in_features, 512),
@@ -153,10 +153,9 @@ def _build_backbone(backbone: str, num_classes: int = 4) -> Tuple[nn.Module, int
 
 
 def _unfreeze_last_block(net: nn.Module, backbone: str) -> list:
-    """Unfreeze last conv block de model adapt voi domain anh san pham.
+    """Unfreeze last conv block.
 
-    Returns danh sach params cua backbone block de dung differential LR.
-    Backbone params dung LR nho hon head 10 lan.
+    Returns the list of parameter groups for differential learning rate.
     """
     backbone_params = []
     if backbone == "resnet50":
@@ -166,10 +165,9 @@ def _unfreeze_last_block(net: nn.Module, backbone: str) -> list:
             backbone_params.append(param)
         logger.info("Unfroze ResNet50 layer4 (%d param groups)", len(backbone_params))
     elif backbone == "mobilenet_v3":
-        # FIX #3: Dùng index slice thay vì .children() để unfreeze đúng block
-        # MobileNetV3-Large features có 17 blocks (index 0-16).
-        # Block 16 là expansion Conv (1×1 → 960), 13-15 là InvertedResidual cuối.
-        # Dùng net.features[13:] để unfreeze chính xác 4 blocks cuối.
+        # MobileNetV3-Large features has 17 blocks (index 0-16).
+        # Block 16 is expansion Conv (1x1 -> 960), 13-15 is final InvertedResidual.
+        # Use net.features[13:] to unfreeze last 4 blocks.
         features = net.features  # type: ignore[attr-defined]
         for block in features[13:]:  # type: ignore[index]
             for param in block.parameters():
@@ -177,7 +175,7 @@ def _unfreeze_last_block(net: nn.Module, backbone: str) -> list:
                 backbone_params.append(param)
         logger.info("Unfroze MobileNetV3 features[13:] (%d params)", len(backbone_params))
     elif backbone == "efficientnet_b0":
-        # EfficientNet-B0 có 9 blocks (0-8), unfreeze 2 blocks cuối
+        # EfficientNet-B0 has 9 blocks (0-8), unfreeze last 2 blocks
         features = net.features  # type: ignore[attr-defined]
         for block in features[7:]:  # type: ignore[index]
             for param in block.parameters():
@@ -187,12 +185,10 @@ def _unfreeze_last_block(net: nn.Module, backbone: str) -> list:
     return backbone_params
 
 
-# ---------------------------------------------------------------------------
-# Helper functions cho báo cáo
-# ---------------------------------------------------------------------------
+# -- Helper functions
 
 def _count_params(net: nn.Module, backbone: str) -> dict:
-    """In và trả về thống kê số lượng tham số của model."""
+    """Print and return model parameter statistics."""
     total = sum(p.numel() for p in net.parameters())
     trainable = sum(p.numel() for p in net.parameters() if p.requires_grad)
     frozen = total - trainable
@@ -327,7 +323,7 @@ def _save_error_analysis(
     with open(os.path.join(error_dir, "error_summary.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
 
-    # Copy ảnh sai (tên file = true_pred_originalname)
+    # Copy error images
     copied = 0
     for err in errors[:max_samples]:
         src = Path(err["image"])
@@ -348,14 +344,7 @@ def _save_error_analysis(
 
 
 class ImageBaselineModel:
-    """Transfer Learning model nhận diện tình trạng hộp sản phẩm.
-
-    Attributes:
-        backbone (str): 'resnet50' hoặc 'mobilenet_v3'.
-        device (torch.device): CPU hoặc CUDA — tự phát hiện.
-        model (nn.Module): Pretrained backbone với custom head.
-        class_names (list[str]): Danh sách nhãn theo đúng thứ tự output.
-    """
+    """Transfer Learning model for product packaging condition detection."""
 
     def __init__(
         self,
@@ -363,7 +352,7 @@ class ImageBaselineModel:
         device: Optional[str] = None,
     ) -> None:
         self.backbone = backbone
-        # Tự chọn GPU nếu có, fallback về CPU
+        # Select GPU if available, fallback to CPU
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.class_names = CLASS_NAMES
         self.model: Optional[nn.Module] = None
@@ -371,7 +360,7 @@ class ImageBaselineModel:
         logger.info("ImageBaselineModel khởi tạo — backbone=%s | device=%s | threshold=%.3f", backbone, self.device, self.threshold)
 
     def _get_model(self, num_classes: int = 4) -> nn.Module:
-        """Khởi tạo model nếu chưa có, load lên device."""
+        """Initialize model if not present and send to device."""
         if self.model is None:
             net, _ = _build_backbone(self.backbone, num_classes=num_classes)
             self.model = net.to(self.device)
@@ -387,7 +376,7 @@ class ImageBaselineModel:
         val_split: float = 0.2,
         patience: int = 3,
         subset_ratio: float = 1.0,
-        results_dir: str = "ai_engine/models/results",  # thư mục lưu plots + history
+        results_dir: str = "ai_engine/models/results",  # output directory for plots and history
         class_weight_mode: str = "sqrt",
         use_sampler: bool = False,
         threshold_mode: str = "maximize_macro_f1_subject_to_recall",
@@ -481,12 +470,12 @@ class ImageBaselineModel:
                 )
 
         train_set = Subset(train_dataset, train_idx)  # augmented transforms
-        val_set = Subset(val_dataset, val_idx)         # eval transforms (riêng biệt!)
+        val_set = Subset(val_dataset, val_idx)         # eval transforms (separate!)
 
         n_train = len(train_idx)
         n_val = len(val_idx)
 
-        # --- FIX: pin_memory và num_workers theo platform ---
+        # -- Adjust pin_memory and num_workers by platform
         use_pin = torch.cuda.is_available()
         n_workers = 0 if os.name == 'nt' else 2
 
@@ -539,41 +528,41 @@ class ImageBaselineModel:
             num_workers=n_workers, pin_memory=use_pin,
         )
 
-        # Lưu đường dẫn ảnh val cho error analysis
+        # Store val paths for error analysis
         val_paths = [val_dataset.imgs[i][0] for i in val_idx]
 
         net = self._get_model(num_classes=num_classes)
 
-        # In số lượng tham số
+        # Count parameters
         param_info = _count_params(net, self.backbone)
 
-        # Khởi tạo history để vẽ Learning Curves
+        # Initialize training history
         history: dict = {
             "train_loss": [], "val_loss": [],
             "train_acc":  [], "val_acc":  [],
             "val_f1": [], "lr": [],
         }
 
-        # Giai đoạn 1: chỉ train head (backbone vẫn frozen)
+        # Stage 1: train head only (backbone frozen)
         head_params = list(filter(lambda p: p.requires_grad, net.parameters()))
         optimizer = torch.optim.Adam(head_params, lr=lr)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=0.5, patience=2
         )
         
-        # Train criterion: CrossEntropyLoss với class weights
+        # Train criterion: CrossEntropyLoss with class weights
         weight_tensor = loss_weights.to(self.device) if loss_weights is not None else None
         criterion = nn.CrossEntropyLoss(
             weight=weight_tensor, label_smoothing=0.05
         )
-        # FIX #4: Val criterion KHÔNG có class weights → early stopping công bằng
+        # Val criterion does not use class weights for fair evaluation
         val_criterion = nn.CrossEntropyLoss()
 
         backbone_unfrozen = False
         best_val_loss = float("inf")
         best_val_f1 = 0.0
         epochs_no_improve = 0
-        # Tăng patience: val_loss với imbalanced data không đơn điệu
+        # Set patience (loss can fluctuate with imbalanced data)
         effective_patience = max(patience, 5)
         import tempfile
         best_weights_path = os.path.join(tempfile.gettempdir(), f"{self.backbone}_best.pt")

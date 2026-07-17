@@ -72,11 +72,11 @@ class TikiScraper(BaseScraper):
 			)
 			resp.raise_for_status()
 			data = resp.json()
-			# Tiki API mới dùng 'paging', cũ dùng 'paginationInfo'
+			# Handle Tiki pagination fields
 			paging = data.get('paging') or data.get('paginationInfo') or {}
 			total = paging.get('last_page') or paging.get('totalPage')
 			
-			# Lấy tên sản phẩm từ product API (gọi song song vì đã có client)
+			# Fetch product name from API
 			try:
 				prod_resp = await client.get(
 					f'https://tiki.vn/api/v2/products/{product_id}',
@@ -109,7 +109,7 @@ class TikiScraper(BaseScraper):
 				'product_id': product_id,
 				'page': page,
 				'limit': self.PAGE_SIZE,
-				# sort by id|desc để đảm bảo thứ tự ổn định giữa các trang (không bị overlap)
+				# Sort by id|desc to ensure stable pagination
 				'sort': 'id|desc',
 			},
 			headers=_HEADERS,
@@ -120,11 +120,10 @@ class TikiScraper(BaseScraper):
 
 		for item in data.get('data', []):
 			try:
-				# Native review ID — dùng làm dedup key chính xác hơn hash nội dung
+				# Native review ID for deduping
 				review_id = str(item.get('id') or '')
 
-				# Product name — ưu tiên dùng cache từ _get_total_pages,
-				# fallback sang item.get('product') nếu vẫn chưa có
+				# Product name cache with fallback
 				if not self._product_name:
 					product_info = item.get('product') or {}
 					self._product_name = (

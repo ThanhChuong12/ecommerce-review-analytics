@@ -8,7 +8,7 @@ export const initSocket = (server) => {
     io.on('connection', (socket) => {
         console.log('Client connected:', socket.id);
 
-        // Frontend sẽ gửi event 'join-room' truyền kèm productId
+        // Join room for real-time progress updates
         socket.on('join-room', (productId) => {
             socket.join(`room-${productId}`);
             console.log(`Socket ${socket.id} đã join room: room-${productId}`);

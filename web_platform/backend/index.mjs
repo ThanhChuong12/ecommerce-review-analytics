@@ -9,7 +9,7 @@ import webhookRoutes from './routes/webhookRoutes.mjs';
 import authRoutes from './routes/authRoutes.mjs';
 import historyRoutes from './routes/historyRoutes.mjs';
 
-// Kích hoạt worker chạy ngầm bằng cách import nó vào server
+// Initialize background worker
 import './queue/worker.mjs';
 
 dotenv.config();
@@ -18,7 +18,7 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' })); // Tăng limit vì webhook gửi data mảng 2000 reviews có thể khá nặng
+app.use(express.json({ limit: '50mb' })); // Increase limit for large webhook payloads
 
 initSocket(server);
 
