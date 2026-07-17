@@ -316,7 +316,7 @@ def _save_confusion_matrix_plot(
         )
         ax.set_xlabel("Predicted Label", fontsize=12)
         ax.set_ylabel("Actual Label", fontsize=12)
-        ax.set_title(f"Confusion Matrix - {model_name}", fontsize=14, fontweight="bold", pad=15)
+        ax.set_title(f"Confusion Matrix - {model_name}", fontsize=14, fontweight="bold", pad=15, loc="center")
         plt.tight_layout()
 
         out_dir = Path(plot_dir)

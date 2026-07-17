@@ -9,7 +9,7 @@ from ai_engine.llm_integration.llm_client import LLMFallbackClient
 
 class TestLLMFallbackClientParsing(unittest.TestCase):
     def setUp(self) -> None:
-        self.client = LLMFallbackClient(provider="unknown") 
+        self.client = LLMFallbackClient(provider_chain=["unknown"]) 
 
     def test_parse_valid_json(self) -> None:
         raw = '{"sentiment": "tích cực"}'
@@ -24,7 +24,7 @@ class TestLLMFallbackClientParsing(unittest.TestCase):
     def test_parse_label_in_text(self) -> None:
         raw = "Kết quả phân tích là: tích cực."
         result = self.client._parse_response(raw)
-        self.assertEqual(result, {"sentiment": "trung lập"})
+        self.assertEqual(result, {"sentiment": "tích cực"})
 
     def test_parse_invalid_default(self) -> None:
         raw = "unknown"

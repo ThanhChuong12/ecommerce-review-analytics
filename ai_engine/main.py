@@ -352,6 +352,61 @@ def _build_smart_advice(trust_score: float, spam_pct: float, reviews: List[dict]
     return " ".join(parts)
 
 
+def _heuristic_score(candidates: List[dict]) -> List[dict]:
+    """
+    Fallback heuristic scoring khi PhoBERT chưa sẵn sàng.
+    Tính mini_trust từ rating và sold, gắn nhãn lý do đề xuất, lọc < 50 điểm.
+    """
+    import re as _re
+    import math as _math
+
+    result = []
+    for cand in candidates:
+        name = cand.get("name", "")
+        if not name:
+            continue
+        try:
+            rating_val = float(cand.get("rating") or 4.0)
+        except (ValueError, TypeError):
+            rating_val = 4.0
+
+        sold_str = str(cand.get("sold", "")).lower().strip()
+        sold_val = 0
+        try:
+            if "k" in sold_str:
+                digits = _re.findall(r"[\d\.]+", sold_str)
+                sold_val = int(float(digits[0]) * 1000) if digits else 0
+            else:
+                digits = _re.findall(r"\d+", sold_str.replace(".", "").replace(",", ""))
+                sold_val = int(digits[0]) if digits else 0
+        except Exception:
+            sold_val = 0
+
+        # Sigmoid-normalized trust [0,1] → [0,100]
+        rating_norm = max(0.0, min(1.0, (rating_val - 1.0) / 4.0))
+        sold_norm   = 1.0 - _math.exp(-sold_val / 500.0) if sold_val > 0 else 0.0
+        trust_norm  = rating_norm * 0.6 + sold_norm * 0.4
+        mini_trust  = round(trust_norm * 100, 1)
+
+        if mini_trust < 50:
+            continue
+
+        if rating_val >= 4.7 and sold_val >= 500:
+            reason = "Bán chạy & Uy tín"
+        elif rating_val >= 4.8:
+            reason = "Đánh giá cực tốt"
+        elif sold_val >= 1000:
+            reason = "Mua nhiều nhất"
+        elif rating_val >= 4.0:
+            reason = "Khách mua hài lòng"
+        else:
+            reason = "Cùng phân khúc"
+
+        result.append({**cand, "trustScore": mini_trust, "reason": reason})
+
+    return result
+
+
 # ─── Main AI Pipeline ─────────────────────────────────────────────────────────
 
 def heavy_ai_process(product_id: int, url: str) -> None:
@@ -371,14 +426,32 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     """
     print(f"\n[AI Engine] ===== START")
 
-    def _fail(reason: str):
+    # Start fetching similar products concurrently in a background thread to reduce total pipeline latency
+    import concurrent.futures
+    import asyncio
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    def run_scrape():
+        try:
+            from scraping_agent.similar_products_fetcher import scrape_similar_products
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            res = loop.run_until_complete(scrape_similar_products(url, limit=5))
+            loop.close()
+            return res
+        except Exception as exc:
+            print(f"[Concurrent Scrape] Error fetching similar products: {exc}")
+            return []
+
+    similar_future = executor.submit(run_scrape)
+
+    def _fail(reason: str, p_name: str = "Không xác định", p_thumb: str = ""):
         """Gửi lỗi về webhook và thoát."""
         safe_reason = reason.encode('ascii', errors='replace').decode('ascii')
         print(f"[AI Engine] FATAL: {safe_reason}")
         try:
             requests.post(WEBHOOK_FINISHED, json={
                 "productId":   product_id,
-                "productData": {"name": "Không xác định", "thumbnail": ""},
+                "productData": {"name": p_name, "thumbnail": p_thumb},
                 "reviews":     [],
                 "summary":     f"Lỗi xử lý: {reason}",
                 "metadata": {
@@ -398,6 +471,81 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     scraped_rows: List[dict] = []   # [{text, rating, image_urls, date}, ...]
     product_name  = "Sản phẩm"
     thumbnail_url = ""
+
+    # ── Pre-fetch product metadata từ API nền tảng ──────────────────────────
+    # Chạy độc lập với scraper nhưng dùng lightweight API, đảm bảo có
+    # tên + thumbnail dù sản phẩm chưa có đánh giá nào.
+    def _fetch_product_meta(product_url: str):
+        """Trả về (name, thumbnail_url) từ API sàn TMDT."""
+        import re as _re_meta, requests as _req_meta
+        name_out = ""
+        thumb_out = ""
+        try:
+            if "tiki.vn" in product_url:
+                # URL dạng: /...-p279365497.html
+                m = _re_meta.search(r"-p(\d+)(?:\.html)?(?:\?|$)", product_url)
+                if m:
+                    pid = m.group(1)
+                    resp = _req_meta.get(
+                        f"https://tiki.vn/api/v2/products/{pid}",
+                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                              "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                              "Chrome/120.0.0.0 Safari/537.36"},
+                        timeout=10
+                    )
+                    if resp.ok:
+                        d = resp.json()
+                        name_out  = d.get("name", "")
+                        thumb_out = d.get("thumbnail_url", "")
+                        if not thumb_out:
+                            imgs = d.get("images", [])
+                            thumb_out = imgs[0].get("base_url", "") if imgs else ""
+
+            elif "shopee.vn" in product_url:
+                # URL dạng: /shop_id.i.item_id
+                m = _re_meta.search(r"\.(\d+)\.(\d+)(?:\?|$)", product_url)
+                if m:
+                    shop_id, item_id = m.group(1), m.group(2)
+                    resp = _req_meta.get(
+                        f"https://shopee.vn/api/v4/item/get?itemid={item_id}&shopid={shop_id}",
+                        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://shopee.vn"},
+                        timeout=10
+                    )
+                    if resp.ok:
+                        d = resp.json().get("data", {}).get("item", {})
+                        name_out  = d.get("name", "")
+                        img_hash  = d.get("image", "")
+                        thumb_out = f"https://cf.shopee.vn/file/{img_hash}_tn" if img_hash else ""
+
+            elif "lazada.vn" in product_url:
+                # Fallback: parse Open Graph via HTTP GET (Lazada chưa có public API)
+                resp = _req_meta.get(
+                    product_url,
+                    headers={"User-Agent": "Mozilla/5.0"},
+                    timeout=10
+                )
+                if resp.ok:
+                    import re as _rlz
+                    m_title = _rlz.search(r'<meta property="og:title" content="([^"]+)"', resp.text)
+                    m_img   = _rlz.search(r'<meta property="og:image" content="([^"]+)"', resp.text)
+                    if m_title: name_out  = m_title.group(1)
+                    if m_img:   thumb_out = m_img.group(1)
+
+        except Exception as _meta_err:
+            print(f"[MetaFetch] Không lấy được metadata: {_meta_err}")
+
+        # Fallback: trích xuất từ slug URL nếu các API đều thất bại
+        if not name_out:
+            slug = product_url.split("?")[0].rstrip("/").split("/")[-1]
+            slug = _re_meta.sub(r"-p\d+.*$", "", slug)  # bỏ -p{id}.*
+            name_out = slug.replace("-", " ").strip().title()
+
+        return name_out, thumb_out
+
+    _pre_name, _pre_thumb = _fetch_product_meta(url)
+    if _pre_name:  product_name  = _pre_name
+    if _pre_thumb: thumbnail_url = _pre_thumb
+    print(f"[MetaFetch] name='{product_name[:60]}', thumb={'YES' if thumbnail_url else 'NO'}")
 
     try:
         from scraper.dispatcher import scrape as _scrape
@@ -462,16 +610,113 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                 if name_col and not df_raw[name_col].dropna().empty:
                     product_name = str(df_raw[name_col].dropna().iloc[0])
 
+                # Cố gắng lấy thumbnail từ CSV (nếu scraper lưu cột ảnh sản phẩm)
+                thumb_col = next(
+                    (c for c in df_raw.columns if c in
+                     ("thumbnail", "product_thumbnail", "thumbnail_url", "product_image", "product_img")),
+                    None
+                )
+                if thumb_col and not df_raw[thumb_col].dropna().empty:
+                    _t_url = str(df_raw[thumb_col].dropna().iloc[0]).strip()
+                    if _t_url.startswith("http"):
+                        thumbnail_url = _t_url
+
             os.unlink(tmp_csv)
 
     except Exception as e:
         tb = traceback.format_exc()
         print(f"[Scraper] EXCEPTION TRACEBACK:\n{tb}")
-        _fail(f"Scraping that bai: {type(e).__name__}: {str(e)[:200]}")
+        _fail(f"Scraping that bai: {type(e).__name__}: {str(e)[:200]}", product_name, thumbnail_url)
         return
 
     if not scraped_rows:
-        _fail("Khong tim thay danh gia nao cho san pham nay.")
+        # ── Sản phẩm tồn tại nhưng chưa có đánh giá nào ────────────────────
+        # Không báo lỗi — trả về payload đầy đủ với metrics = 0 và gợi ý
+        # sản phẩm tương tự để tab Đề xuất vẫn có dữ liệu hữu ích.
+        print(f"[AI Engine] Sản phẩm '{product_name}' chưa có đánh giá. Trả về no-reviews payload.")
+        _report_progress(product_id, 95, "Đang tìm sản phẩm tương tự...")
+
+        import re as _re_nrev
+        no_rev_alts: List[dict] = []
+        try:
+            similar_items_nr = similar_future.result(timeout=30)
+            for p in similar_items_nr:
+                if not p.name:
+                    continue
+                try:
+                    _rv = float(p.rating) if p.rating else 3.0
+                except (ValueError, TypeError):
+                    _rv = 3.0
+                _sv_str = str(p.sold or "").lower()
+                _sv = 0
+                try:
+                    if "k" in _sv_str:
+                        _digits = _re_nrev.findall(r"[\d\.]+", _sv_str)
+                        _sv = int(float(_digits[0]) * 1000) if _digits else 0
+                    else:
+                        _digits = _re_nrev.findall(r"\d+", _sv_str.replace(".","").replace(",",""))
+                        _sv = int(_digits[0]) if _digits else 0
+                except Exception:
+                    _sv = 0
+                import math as _math_nrev
+                _rn = max(0.0, min(1.0, (_rv - 1.0) / 4.0)) if _rv > 0 else 0.5
+                _sn = 1.0 - _math_nrev.exp(-_sv / 500.0) if _sv > 0 else 0.0
+                _tn = _rn * 0.6 + _sn * 0.4
+                _mt = round(min(100.0, (_rv if _rv > 0 else 3.0) * 20.0 + min(20.0, _tn * 20.0)), 1)
+                if _mt < 50:
+                    continue
+                _reason = ("Bán chạy & Uy tín" if _rv >= 4.7 and _sv >= 500
+                           else "Đánh giá cực tốt" if _rv >= 4.8
+                           else "Mua nhiều nhất" if _sv >= 1000
+                           else "Khách mua hài lòng" if _rv >= 4.0
+                           else "Cùng phân khúc")
+                no_rev_alts.append({
+                    "name": p.name, "thumbnail": p.image_url,
+                    "url": p.url, "rating": p.rating,
+                    "price": p.price, "sold": p.sold,
+                    "trustScore": _mt, "reason": _reason,
+                })
+        except Exception as _e_nr:
+            print(f"[NoReviews] Lấy sản phẩm tương tự thất bại: {_e_nr}")
+        finally:
+            try:
+                executor.shutdown(wait=False)
+            except Exception:
+                pass
+
+        _report_progress(product_id, 99, "Đang lưu kết quả...")
+        try:
+            requests.post(WEBHOOK_FINISHED, json={
+                "productId":   product_id,
+                "productData": {"name": product_name, "thumbnail": thumbnail_url},
+                "reviews":     [],
+                "summary":     (
+                    "Sản phẩm này chưa có đánh giá nào từ người mua. "
+                    "Hệ thống AI không thể thực hiện phân tích cảm xúc, phát hiện spam "
+                    "hay đánh giá chất lượng hình ảnh. "
+                    "Tuy nhiên bạn có thể xem các sản phẩm tương tự bên tab Đề xuất."
+                ),
+                "metadata": {
+                    "spamPercentage":      0,
+                    "trustScore":          0,
+                    "aspectSentiment":     {},
+                    "sentimentTimeSeries": [],
+                    "keywords":            {"positive": [], "negative": []},
+                    "smartAdvice": (
+                        "⚠️ Sản phẩm chưa có đánh giá — không đủ dữ liệu để AI tính điểm tin cậy. "
+                        "Hãy tham khảo các sản phẩm tương tự bên tab Đề xuất hoặc "
+                        "quay lại sau khi sản phẩm có đủ đánh giá từ người mua thực."
+                    ),
+                    "alternativeProducts": no_rev_alts,
+                    "noReviewsYet":        True,
+                }
+            }, timeout=30)
+            print(f"[AI Engine] No-reviews payload đã gửi cho productId={product_id}")
+        except Exception as _we:
+            print(f"[NoReviews] Webhook thất bại: {_we}")
+
+        shutil.rmtree(img_temp_dir, ignore_errors=True)
+        print(f"[AI Engine] ===== DONE (no reviews) | productId={product_id} =====\n")
         return
 
     print(f"[Scraper] Parsed {len(scraped_rows)} reviews")
@@ -1076,27 +1321,75 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         else:
             llm_summary = f"Sản phẩm đánh giá trung bình ({pos_count} tích cực, {neg_count} tiêu cực, Trust Score: {overall_trust}/100)."
 
-    # ── STEP 8: Similar Products ──────────────────────────────────────────────
-    _report_progress(product_id, 95, "Đang tìm đề xuất sản phẩm tương tự...")
+    # ── STEP 8: Similar Products + Zero-Shot Semantic Reranking ──────────────
+    _report_progress(product_id, 95, "Đang xếp hạng đề xuất thông minh (PhoBERT Reranker)...")
+
+    import re as _re
 
     alternative_products: List[dict] = []
     try:
-        from similar_products_fetcher import scrape_similar_products
-        similar_items = asyncio.run(scrape_similar_products(url, limit=5))
-        alternative_products = [
+        # 8a. Thu kết quả từ background thread
+        similar_items = similar_future.result(timeout=30)
+
+        # 8b. Chuyển sang raw candidate dicts để reranker xử lý
+        raw_candidates: List[dict] = [
             {
-                "name":       p.name,
-                "thumbnail":  p.image_url,
-                "url":        p.url,
-                "rating":     p.rating,
-                "price":      p.price,
-                "sold":       p.sold,
+                "name":      p.name,
+                "thumbnail": p.image_url,
+                "url":       p.url,
+                "rating":    p.rating,
+                "price":     p.price,
+                "sold":      p.sold,
             }
             for p in similar_items if p.name
         ]
-        print(f"[Similar] {len(alternative_products)} sản phẩm tương tự")
+        print(f"[Similar] Thu được {len(raw_candidates)} sản phẩm thô từ background thread")
+
+        # 8c. Zero-Shot Semantic Reranking bằng PhoBERT backbone đã có trong RAM
+        if raw_candidates and _phobert_backbone_cache is not None and _phobert_tokenizer_cache is not None:
+            try:
+                from recommendation.reranker import rerank_candidates
+                _device = next(_phobert_backbone_cache.parameters()).device
+
+                # Ước tính giá sản phẩm gốc từ trung vị giá ứng viên (scraper không lấy giá gốc)
+                _prices = []
+                for c in raw_candidates:
+                    _raw_p = str(c.get("price", "")).lower()
+                    _clean = _re.sub(r"[^\d]", "", _raw_p)
+                    if _clean:
+                        _prices.append(int(_clean))
+                origin_price_estimate = sorted(_prices)[len(_prices) // 2] if _prices else 0
+
+                alternative_products = rerank_candidates(
+                    origin_name=product_name,
+                    origin_price=origin_price_estimate,
+                    candidates=raw_candidates,
+                    tokenizer=_phobert_tokenizer_cache,
+                    backbone=_phobert_backbone_cache,
+                    device=_device,
+                    # Weights: semantic=50%, trust=35%, price=15%
+                    alpha=0.50,
+                    beta=0.35,
+                    gamma=0.15,
+                    threshold=0.30,
+                )
+                print(f"[Reranker] Kết quả sau reranking: {len(alternative_products)} sản phẩm đề xuất")
+
+            except Exception as rerank_err:
+                print(f"[Reranker] Reranking thất bại — fallback heuristic: {rerank_err}")
+                alternative_products = _heuristic_score(raw_candidates)
+        else:
+            # Fallback khi PhoBERT chưa load xong
+            print("[Reranker] PhoBERT chưa sẵn sàng, dùng heuristic scoring")
+            alternative_products = _heuristic_score(raw_candidates)
+
     except Exception as e:
         print(f"[Similar] Thất bại (bỏ qua): {e}")
+    finally:
+        try:
+            executor.shutdown(wait=False)
+        except Exception:
+            pass
 
     # ── Xây dựng aspectSentiment từ kết quả embedding thực ───────────────────
     # NextGenReviewAnalyzer.extract_aspects trả về keys: "shipping", "product", "price", "service"
