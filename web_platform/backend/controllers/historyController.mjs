@@ -149,10 +149,11 @@ export const exportPDF = async (req, res) => {
         const keywordsHtmlNeg = (metadata.keywords?.negative || []).map(k => `<span class="kw neg">${k.text || k}</span>`).join('');
 
         const altProductsHtml = (metadata.alternativeProducts || []).map(alt => `
-            <div class="box alt-product">
+            <div class="box alt-product" style="position: relative;">
                 <img src="${alt.thumbnail}" alt="product">
+                ${alt.reason ? `<span class="badge" style="background:#e0f2fe;color:#0369a1;position:absolute;top:10px;right:10px;font-size:9px;padding:2px 5px;border-radius:4px;">${alt.reason}</span>` : ''}
                 <h4 style="font-size:12px; margin:10px 0 5px; height: 36px; overflow:hidden;">${alt.name}</h4>
-                <div style="color:#10b981; font-size:11px; margin-top:5px; font-weight:bold;">Trust Score: ${alt.trustScore}</div>
+                <div style="color:#10b981; font-size:11px; margin-top:5px; font-weight:bold;">Trust Score: ${alt.trustScore || 0}/100</div>
             </div>
         `).join('');
 

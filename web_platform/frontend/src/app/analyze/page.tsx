@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Loader2, CheckCircle, AlertTriangle, MessageSquare, TrendingUp, Bot, Sparkles,
   ShieldAlert, ShieldCheck, AlertOctagon, Filter, Image as ImageIcon, List, ShoppingCart,
-  X, ArrowLeftIcon, Download, Smile, Frown
+  X, ArrowLeftIcon, Download, Smile, Frown, Shield
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
@@ -788,27 +788,61 @@ function AnalyzeContent() {
             {mainTab === 'recommendations' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
                 {/* UC8 Alternative Products */}
-                {metadata.alternativeProducts && metadata.alternativeProducts.length > 0 ? (
-                  <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-200 dark:border-slate-700/50 p-8 overflow-hidden relative">
-                    <h3 className="text-xl font-bold mb-2 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
-                      <ShieldAlert className="w-6 h-6 text-blue-500" /> Đề xuất sản phẩm tương tự
-                    </h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Danh sách các sản phẩm tương tự cùng danh mục bạn có thể tham khảo thêm:</p>
+                {metadata.alternativeProducts && metadata.alternativeProducts.length > 0 ? (() => {
+                  const isSaferAlternative = (metadata.trustScore || 0) < 70;
+                  return (
+                    <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-200 dark:border-slate-700/50 p-8 overflow-hidden relative">
+                      <h3 className="text-xl font-bold mb-2 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
+                        {isSaferAlternative ? (
+                          <ShieldCheck className="w-6 h-6 text-emerald-500" />
+                        ) : (
+                          <Sparkles className="w-6 h-6 text-blue-500 dark:text-indigo-400" />
+                        )}
+                        {isSaferAlternative ? "Lựa chọn thay thế an toàn hơn" : "Sản phẩm tương tự chất lượng cao"}
+                      </h3>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 font-quicksand">
+                        {isSaferAlternative
+                          ? "Sản phẩm hiện tại có điểm tin cậy thấp. Hệ thống khuyến nghị các sản phẩm thay thế cùng phân khúc có lượng mua cao và uy tín hơn:"
+                          : "Sản phẩm hiện tại có chất lượng tốt. Gợi ý thêm các lựa chọn tương tự chất lượng cao hoặc sản phẩm nâng cấp bạn có thể quan tâm:"}
+                      </p>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                      {metadata.alternativeProducts.map((alt: any, idx: number) => (
-                        <div key={idx} className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 rounded-2xl p-4 hover:shadow-md transition-shadow cursor-default group flex flex-col">
-                          <img src={alt.thumbnail} alt={alt.name} className="w-full aspect-square object-cover rounded-xl mb-3 group-hover:scale-[1.03] transition-transform" />
-                          <h4 className="font-semibold text-sm line-clamp-2 mb-1 dark:text-slate-200 flex-1">{alt.name}</h4>
-                          <div className="grid grid-cols-2 gap-2 mt-auto pt-3">
-                            <button onClick={(e) => { e.stopPropagation(); window.open(alt.url, '_blank'); }} className="cursor-pointer flex items-center justify-center text-xs font-semibold bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 py-2 rounded-xl transition-colors w-full">Truy cập</button>
-                            <button onClick={(e) => { e.stopPropagation(); router.push('/analyze?url=' + encodeURIComponent(alt.url)); }} className="cursor-pointer flex items-center justify-center text-xs font-semibold bg-blue-100 dark:bg-blue-500/20 hover:bg-blue-200 dark:hover:bg-blue-500/30 text-blue-700 dark:text-blue-400 py-2 rounded-xl transition-colors w-full">Phân tích</button>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                        {metadata.alternativeProducts.map((alt: any, idx: number) => (
+                          <div key={idx} className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/80 rounded-2xl p-4 hover:shadow-lg transition-all duration-300 cursor-default group flex flex-col relative overflow-hidden">
+                            {alt.reason && (
+                              <span className="absolute top-2 left-2 bg-blue-600/90 text-white text-[9px] font-bold px-2 py-0.5 rounded-md z-10 shadow-sm backdrop-blur-sm font-quicksand">
+                                {alt.reason}
+                              </span>
+                            )}
+                            <div className="w-full aspect-square rounded-xl overflow-hidden mb-3 relative bg-white border border-slate-100 dark:border-slate-800/40">
+                              <img src={alt.thumbnail} alt={alt.name} className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300" />
+                            </div>
+                            <h4 className="font-semibold text-sm line-clamp-2 mb-2 dark:text-slate-200 flex-1 leading-snug font-quicksand">{alt.name}</h4>
+                            
+                            <div className="space-y-1.5 mb-3">
+                              {/* Rating & Sold */}
+                              <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-quicksand">
+                                <span className="flex items-center gap-0.5 text-amber-500 font-bold">★ {alt.rating || '0'}</span>
+                                {alt.sold && <span className="opacity-80">Đã bán: {alt.sold}</span>}
+                              </div>
+
+                              {/* Mini Trust Score badge */}
+                              <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900/60 p-1 px-2 rounded-lg border border-slate-100 dark:border-slate-800/40 w-fit">
+                                <Shield className={`w-3.5 h-3.5 ${alt.trustScore >= 70 ? 'text-emerald-500' : 'text-amber-500'}`} />
+                                <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 font-quicksand">Trust: {alt.trustScore || 0}/100</span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60 mt-auto">
+                              <button onClick={(e) => { e.stopPropagation(); window.open(alt.url, '_blank'); }} className="cursor-pointer flex items-center justify-center text-xs font-semibold bg-slate-200/80 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 py-2 rounded-xl transition-colors w-full">Truy cập</button>
+                              <button onClick={(e) => { e.stopPropagation(); router.push('/analyze?url=' + encodeURIComponent(alt.url)); }} className="cursor-pointer flex items-center justify-center text-xs font-semibold bg-blue-100 dark:bg-blue-500/20 hover:bg-blue-200 dark:hover:bg-blue-500/30 text-blue-700 dark:text-blue-400 py-2 rounded-xl transition-colors w-full">Phân tích</button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ) : (
+                  );
+                })() : (
                   <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-16 text-center text-slate-500 dark:text-slate-400 font-quicksand flex flex-col items-center justify-center">
                     <CheckCircle className="w-16 h-16 text-slate-400 mb-4 opacity-50" />
                     <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">Chưa có đề xuất</h3>

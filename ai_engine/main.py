@@ -371,6 +371,24 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     """
     print(f"\n[AI Engine] ===== START")
 
+    # Start fetching similar products concurrently in a background thread to reduce total pipeline latency
+    import concurrent.futures
+    import asyncio
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    def run_scrape():
+        try:
+            from scraping_agent.similar_products_fetcher import scrape_similar_products
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            res = loop.run_until_complete(scrape_similar_products(url, limit=5))
+            loop.close()
+            return res
+        except Exception as exc:
+            print(f"[Concurrent Scrape] Error fetching similar products: {exc}")
+            return []
+
+    similar_future = executor.submit(run_scrape)
+
     def _fail(reason: str):
         """Gửi lỗi về webhook và thoát."""
         safe_reason = reason.encode('ascii', errors='replace').decode('ascii')
@@ -1051,26 +1069,84 @@ def heavy_ai_process(product_id: int, url: str) -> None:
             llm_summary = f"Sản phẩm đánh giá trung bình ({pos_count} tích cực, {neg_count} tiêu cực, Trust Score: {overall_trust}/100)."
 
     # ── STEP 8: Similar Products ──────────────────────────────────────────────
-    _report_progress(product_id, 95, "Đang tìm đề xuất sản phẩm tương tự...")
+    _report_progress(product_id, 95, "Đang hoàn tất đề xuất sản phẩm...")
 
     alternative_products: List[dict] = []
     try:
-        from similar_products_fetcher import scrape_similar_products
-        similar_items = asyncio.run(scrape_similar_products(url, limit=5))
-        alternative_products = [
-            {
+        # Wait for the background scraping task to complete
+        similar_items = similar_future.result(timeout=30)
+        for p in similar_items:
+            if not p.name:
+                continue
+
+            # Tính toán Mini Trust-Score sơ bộ
+            rating_val = float(p.rating) if p.rating else 4.0
+            sold_val = 0
+            try:
+                sold_str = str(p.sold).lower().strip()
+                if "k" in sold_str:
+                    import re
+                    digits = re.findall(r"[\d\.]+", sold_str)
+                    if digits:
+                        sold_val = int(float(digits[0]) * 1000)
+                else:
+                    import re
+                    digits = re.findall(r"\d+", sold_str.replace(".", "").replace(",", ""))
+                    if digits:
+                        sold_val = int(digits[0])
+            except Exception:
+                sold_val = 0
+
+            # Base score từ rating (tối đa 80 điểm)
+            base_score = rating_val * 20.0
+
+            # Bonus từ lượng bán (tối đa 20 điểm)
+            sales_bonus = 0.0
+            if sold_val >= 1000:
+                sales_bonus = 20.0
+            elif sold_val >= 500:
+                sales_bonus = 15.0
+            elif sold_val >= 100:
+                sales_bonus = 10.0
+            elif sold_val >= 10:
+                sales_bonus = 5.0
+
+            mini_trust = round(min(100.0, max(10.0, base_score + sales_bonus - (5.0 if rating_val < 3.5 else 0.0))), 1)
+
+            # Nhãn lý do đề xuất dựa trên phân tích dữ liệu bề mặt
+            if rating_val >= 4.7 and sold_val >= 500:
+                reason_label = "Bán chạy & Uy tín"
+            elif rating_val >= 4.8:
+                reason_label = "Đánh giá cực tốt"
+            elif sold_val >= 1000:
+                reason_label = "Mua nhiều nhất"
+            elif rating_val >= 4.0:
+                reason_label = "Khách mua hài lòng"
+            else:
+                reason_label = "Cùng phân khúc"
+
+            # Chỉ giữ lại các sản phẩm có chất lượng tương đối ổn trở lên
+            if mini_trust < 50:
+                continue
+
+            alternative_products.append({
                 "name":       p.name,
                 "thumbnail":  p.image_url,
                 "url":        p.url,
                 "rating":     p.rating,
                 "price":      p.price,
                 "sold":       p.sold,
-            }
-            for p in similar_items if p.name
-        ]
-        print(f"[Similar] {len(alternative_products)} sản phẩm tương tự")
+                "trustScore": mini_trust,
+                "reason":     reason_label
+            })
+        print(f"[Similar] Đã nhận {len(alternative_products)} sản phẩm đề xuất từ background thread")
     except Exception as e:
         print(f"[Similar] Thất bại (bỏ qua): {e}")
+    finally:
+        try:
+            executor.shutdown(wait=False)
+        except Exception:
+            pass
 
     # ── Xây dựng aspectSentiment từ kết quả embedding thực ───────────────────
     # NextGenReviewAnalyzer.extract_aspects trả về keys: "shipping", "product", "price", "service"
