@@ -401,35 +401,6 @@ function AnalyzeContent() {
 
             {mainTab === 'overview' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
-                {/* ── No Reviews Yet Banner ─────────────────────────────────────── */}
-                {metadata.noReviewsYet && (
-                  <div className="bg-gradient-to-r from-sky-50 to-indigo-50 dark:from-sky-950/40 dark:to-indigo-950/40 border border-sky-200 dark:border-sky-700/50 rounded-3xl p-6 flex flex-col sm:flex-row items-center sm:items-start gap-5 shadow-md">
-                    <div className="w-14 h-14 rounded-2xl bg-sky-100 dark:bg-sky-800/50 flex items-center justify-center flex-shrink-0 shadow-sm">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-sky-500 dark:text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10" />
-                      </svg>
-                    </div>
-                    <div className="flex-1 text-center sm:text-left">
-                      <h4 className="font-bold text-sky-700 dark:text-sky-300 text-lg font-quicksand mb-1">Sản phẩm chưa có đánh giá</h4>
-                      <p className="text-sm text-sky-700/80 dark:text-sky-300/70 font-quicksand leading-relaxed">
-                        Sản phẩm này chưa được người mua đánh giá. Hệ thống AI không thể tính Trust Score,
-                        phát hiện spam hay phân tích cảm xúc. Tuy nhiên bạn có thể xem các sản phẩm tương tự
-                        đã được xác minh bên tab <strong>Đề xuất</strong>.
-                      </p>
-                      <button
-                        onClick={() => setMainTab('recommendations')}
-                        className="cursor-pointer mt-3 inline-flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-bold px-4 py-2 rounded-xl transition-colors font-quicksand shadow-sm"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
-                        Xem sản phẩm tương tự
-                      </button>
-                    </div>
-                    <div className="hidden sm:flex flex-col items-end gap-1 text-xs font-quicksand text-sky-500/60 dark:text-sky-400/40 select-none">
-                      <span>Trust Score</span>
-                      <span className="text-3xl font-black text-sky-200 dark:text-sky-900/80">N/A</span>
-                    </div>
-                  </div>
-                )}
                 {/* Smart Alerts Row */}
                 {(crossModalAlerts > 0 || metadata.smartAdvice) && (
                   <div className={`grid grid-cols-1 ${crossModalAlerts > 0 && metadata.smartAdvice ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-6`}>
@@ -443,11 +414,22 @@ function AnalyzeContent() {
                     )}
 
                     {metadata.smartAdvice && (
-                      <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-500/10 dark:to-orange-500/10 border border-amber-200 dark:border-amber-500/30 rounded-2xl p-5 flex items-center gap-4 text-amber-800 dark:text-amber-300 shadow-sm">
-                        <Sparkles className="w-8 h-8 flex-shrink-0" />
-                        <p className="text-sm font-quicksand leading-relaxed m-0">
-                          {metadata.smartAdvice.replace('💡 Gợi ý mua hàng: ', '')}
-                        </p>
+                      <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-500/10 dark:to-orange-500/10 border border-amber-200 dark:border-amber-500/30 rounded-2xl p-5 flex flex-col sm:flex-row items-center sm:items-start gap-4 text-amber-800 dark:text-amber-300 shadow-sm">
+                        <Sparkles className="w-8 h-8 flex-shrink-0 mt-1" />
+                        <div className="flex-1 text-center sm:text-left">
+                          <p className="text-sm font-quicksand leading-relaxed m-0">
+                            {metadata.smartAdvice.replace('💡 Gợi ý mua hàng: ', '')}
+                          </p>
+                          {metadata.noReviewsYet && (
+                            <button
+                              onClick={() => setMainTab('recommendations')}
+                              className="cursor-pointer mt-3 inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold px-4 py-2 rounded-xl transition-colors font-quicksand shadow-sm"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                              Xem sản phẩm tương tự
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -528,136 +510,140 @@ function AnalyzeContent() {
                   </div>
                 </div>
 
-                {/* CHARTS ROW 1 */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Sentiment Pie */}
-                  <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-8">
-                    <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
-                      <TrendingUp className="w-6 h-6 text-blue-500 dark:text-indigo-400" /> Cảm Xúc Chung (PhoBERT)
-                    </h3>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={chartData.sentimentData} innerRadius={60} outerRadius={90} paddingAngle={8} dataKey="value" stroke="none">
-                            {chartData.sentimentData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.color} />
-                            ))}
-                          </Pie>
-                          <Tooltip contentStyle={{ backgroundColor: isDark ? '#0f172a' : '#ffffff', border: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0', borderRadius: '12px' }} itemStyle={{ color: isDark ? '#e2e8f0' : '#0f172a' }} />
-                          <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-
-                  {/* ABSA Radar Chart UC4.1 */}
-                  <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-8">
-                    <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
-                      <Bot className="w-6 h-6 text-fuchsia-500 dark:text-fuchsia-400" /> Phân Tích Khía Cạnh (ABSA)
-                    </h3>
-                    <div className="h-64">
-                      {aspectData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <RadarChart cx="50%" cy="50%" outerRadius="70%" data={aspectData}>
-                            <PolarGrid stroke={isDark ? "#334155" : "#e2e8f0"} />
-                            <PolarAngleAxis dataKey="subject" tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 13 }} />
-                            <PolarRadiusAxis angle={90} domain={[0, 5]} axisLine={false} tick={false} />
-                            <Radar name="Điểm Đánh Giá" dataKey="A" stroke="#d946ef" fill="#d946ef" fillOpacity={0.5} />
-                            <Tooltip contentStyle={{ backgroundColor: isDark ? '#0f172a' : '#ffffff', border: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0', borderRadius: '12px' }} itemStyle={{ color: isDark ? '#e2e8f0' : '#0f172a' }} />
-                          </RadarChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <div className="flex items-center justify-center h-full text-slate-500">Chưa có dữ liệu khía cạnh</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* CHARTS ROW 2 */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Image Labels Bar Chart */}
-                  <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-8">
-                    <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
-                      <AlertTriangle className="w-6 h-6 text-orange-500 dark:text-rose-400" /> Tình Trạng Hình Ảnh (ResNet)
-                    </h3>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData.labelData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e2e8f0"} vertical={false} />
-                          <XAxis dataKey="name" stroke="#94a3b8" fontSize={13} tickLine={false} axisLine={false} />
-                          <YAxis stroke="#94a3b8" fontSize={13} tickLine={false} axisLine={false} />
-                          <Tooltip cursor={{ fill: isDark ? '#1e293b' : '#f8fafc' }} contentStyle={{ backgroundColor: isDark ? '#0f172a' : '#ffffff', border: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0', borderRadius: '12px' }} itemStyle={{ color: isDark ? '#e2e8f0' : '#0f172a' }} />
-                          <Bar dataKey="value" fill={isDark ? "#6366f1" : "#3b82f6"} radius={[6, 6, 0, 0]}>
-                            {chartData.labelData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={['#10b981', '#ef4444', '#f59e0b', '#64748b'][index % 4]} />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-
-                  {/* Time Series UC4.2 */}
-                  <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-8">
-                    <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
-                      <TrendingUp className="w-6 h-6 text-cyan-500 dark:text-cyan-400" /> Biến Động Cảm Xúc
-                    </h3>
-                    <div className="h-64">
-                      {metadata.sentimentTimeSeries && metadata.sentimentTimeSeries.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={metadata.sentimentTimeSeries}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e2e8f0"} vertical={false} />
-                            <XAxis dataKey="date" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
-                            <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
-                            <Tooltip contentStyle={{ backgroundColor: isDark ? '#0f172a' : '#ffffff', border: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0', borderRadius: '12px' }} />
-                            <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
-                            <Bar dataKey="positive" name="Tích cực" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
-                            <Bar dataKey="negative" name="Tiêu cực" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <div className="flex items-center justify-center h-full text-slate-500">Chưa có dữ liệu chuỗi thời gian</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* UC4.3 Word Cloud / Keywords */}
-                {metadata.keywords && (
-                  <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 pt-6 overflow-hidden">
-                    <div className="px-6 border-b border-slate-100 dark:border-slate-800 pb-4">
-                      <h3 className="text-xl font-bold flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
-                        <MessageSquare className="w-5 h-5 text-blue-500" /> Từ Khóa Nổi Bật
-                      </h3>
-                    </div>
-                    <div className="flex flex-col md:flex-row overflow-hidden border border-slate-100 dark:border-slate-800 shadow-sm">
-                      {/* Left: Tích cực */}
-                      <div className="flex-1 bg-gradient-to-br from-slate-50 to-blue-50/80 dark:from-slate-800/50 dark:to-blue-900/20">
-                        <div className="flex justify-center items-center pt-6 pb-2">
-                          <div className="inline-flex items-center gap-2 px-6 py-2.5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-md border border-blue-200 dark:border-blue-500/30 shadow-[0_4px_12px_rgba(59,130,246,0.15)] rounded-full hover:scale-105 transition-transform cursor-default">
-                            <Smile className="w-5 h-5 text-blue-500" />
-                            <span className="font-bold text-blue-700 dark:text-blue-400 text-lg font-quicksand tracking-wide">Tích cực</span>
-                          </div>
-                        </div>
-                        <div className="px-2 pb-3">
-                          <WordCloudSVG words={metadata.keywords.positive} colors={BLUE_SHADES} />
+                {!metadata.noReviewsYet && (
+                  <>
+                    {/* CHARTS ROW 1 */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                      {/* Sentiment Pie */}
+                      <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-8">
+                        <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
+                          <TrendingUp className="w-6 h-6 text-blue-500 dark:text-indigo-400" /> Cảm Xúc Chung (PhoBERT)
+                        </h3>
+                        <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie data={chartData.sentimentData} innerRadius={60} outerRadius={90} paddingAngle={8} dataKey="value" stroke="none">
+                                {chartData.sentimentData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={entry.color} />
+                                ))}
+                              </Pie>
+                              <Tooltip contentStyle={{ backgroundColor: isDark ? '#0f172a' : '#ffffff', border: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0', borderRadius: '12px' }} itemStyle={{ color: isDark ? '#e2e8f0' : '#0f172a' }} />
+                              <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                            </PieChart>
+                          </ResponsiveContainer>
                         </div>
                       </div>
 
-                      {/* Right: Tiêu cực */}
-                      <div className="flex-1 bg-gradient-to-br from-slate-50 to-rose-50/80 dark:from-slate-800/50 dark:to-rose-900/20 border-t md:border-t-0 md:border-l border-white dark:border-slate-800">
-                        <div className="flex justify-center items-center pt-6 pb-2">
-                          <div className="inline-flex items-center gap-2 px-6 py-2.5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-md border border-rose-200 dark:border-rose-500/30 shadow-[0_4px_12px_rgba(244,63,94,0.15)] rounded-full hover:scale-105 transition-transform cursor-default">
-                            <Frown className="w-5 h-5 text-rose-500" />
-                            <span className="font-bold text-rose-700 dark:text-rose-400 text-lg font-quicksand tracking-wide">Tiêu cực</span>
-                          </div>
-                        </div>
-                        <div className="px-2 pb-3">
-                          <WordCloudSVG words={metadata.keywords.negative} colors={RED_SHADES} />
+                      {/* ABSA Radar Chart UC4.1 */}
+                      <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-8">
+                        <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
+                          <Bot className="w-6 h-6 text-fuchsia-500 dark:text-fuchsia-400" /> Phân Tích Khía Cạnh (ABSA)
+                        </h3>
+                        <div className="h-64">
+                          {aspectData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <RadarChart cx="50%" cy="50%" outerRadius="70%" data={aspectData}>
+                                <PolarGrid stroke={isDark ? "#334155" : "#e2e8f0"} />
+                                <PolarAngleAxis dataKey="subject" tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 13 }} />
+                                <PolarRadiusAxis angle={90} domain={[0, 5]} axisLine={false} tick={false} />
+                                <Radar name="Điểm Đánh Giá" dataKey="A" stroke="#d946ef" fill="#d946ef" fillOpacity={0.5} />
+                                <Tooltip contentStyle={{ backgroundColor: isDark ? '#0f172a' : '#ffffff', border: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0', borderRadius: '12px' }} itemStyle={{ color: isDark ? '#e2e8f0' : '#0f172a' }} />
+                              </RadarChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="flex items-center justify-center h-full text-slate-500">Chưa có dữ liệu khía cạnh</div>
+                          )}
                         </div>
                       </div>
                     </div>
-                  </div>
+
+                    {/* CHARTS ROW 2 */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                      {/* Image Labels Bar Chart */}
+                      <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-8">
+                        <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
+                          <AlertTriangle className="w-6 h-6 text-orange-500 dark:text-rose-400" /> Tình Trạng Hình Ảnh (ResNet)
+                        </h3>
+                        <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={chartData.labelData}>
+                              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e2e8f0"} vertical={false} />
+                              <XAxis dataKey="name" stroke="#94a3b8" fontSize={13} tickLine={false} axisLine={false} />
+                              <YAxis stroke="#94a3b8" fontSize={13} tickLine={false} axisLine={false} />
+                              <Tooltip cursor={{ fill: isDark ? '#1e293b' : '#f8fafc' }} contentStyle={{ backgroundColor: isDark ? '#0f172a' : '#ffffff', border: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0', borderRadius: '12px' }} itemStyle={{ color: isDark ? '#e2e8f0' : '#0f172a' }} />
+                              <Bar dataKey="value" fill={isDark ? "#6366f1" : "#3b82f6"} radius={[6, 6, 0, 0]}>
+                                {chartData.labelData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={['#10b981', '#ef4444', '#f59e0b', '#64748b'][index % 4]} />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+
+                      {/* Time Series UC4.2 */}
+                      <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-8">
+                        <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
+                          <TrendingUp className="w-6 h-6 text-cyan-500 dark:text-cyan-400" /> Biến Động Cảm Xúc
+                        </h3>
+                        <div className="h-64">
+                          {metadata.sentimentTimeSeries && metadata.sentimentTimeSeries.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={metadata.sentimentTimeSeries}>
+                                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e2e8f0"} vertical={false} />
+                                <XAxis dataKey="date" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
+                                <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
+                                <Tooltip contentStyle={{ backgroundColor: isDark ? '#0f172a' : '#ffffff', border: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0', borderRadius: '12px' }} />
+                                <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
+                                <Bar dataKey="positive" name="Tích cực" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
+                                <Bar dataKey="negative" name="Tiêu cực" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="flex items-center justify-center h-full text-slate-500">Chưa có dữ liệu chuỗi thời gian</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* UC4.3 Word Cloud / Keywords */}
+                    {metadata.keywords && (
+                      <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 pt-6 overflow-hidden">
+                        <div className="px-6 border-b border-slate-100 dark:border-slate-800 pb-4">
+                          <h3 className="text-xl font-bold flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
+                            <MessageSquare className="w-5 h-5 text-blue-500" /> Từ Khóa Nổi Bật
+                          </h3>
+                        </div>
+                        <div className="flex flex-col md:flex-row overflow-hidden border border-slate-100 dark:border-slate-800 shadow-sm">
+                          {/* Left: Tích cực */}
+                          <div className="flex-1 bg-gradient-to-br from-slate-50 to-blue-50/80 dark:from-slate-800/50 dark:to-blue-900/20">
+                            <div className="flex justify-center items-center pt-6 pb-2">
+                              <div className="inline-flex items-center gap-2 px-6 py-2.5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-md border border-blue-200 dark:border-blue-500/30 shadow-[0_4px_12px_rgba(59,130,246,0.15)] rounded-full hover:scale-105 transition-transform cursor-default">
+                                <Smile className="w-5 h-5 text-blue-500" />
+                                <span className="font-bold text-blue-700 dark:text-blue-400 text-lg font-quicksand tracking-wide">Tích cực</span>
+                              </div>
+                            </div>
+                            <div className="px-2 pb-3">
+                              <WordCloudSVG words={metadata.keywords.positive} colors={BLUE_SHADES} />
+                            </div>
+                          </div>
+
+                          {/* Right: Tiêu cực */}
+                          <div className="flex-1 bg-gradient-to-br from-slate-50 to-rose-50/80 dark:from-slate-800/50 dark:to-rose-900/20 border-t md:border-t-0 md:border-l border-white dark:border-slate-800">
+                            <div className="flex justify-center items-center pt-6 pb-2">
+                              <div className="inline-flex items-center gap-2 px-6 py-2.5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-md border border-rose-200 dark:border-rose-500/30 shadow-[0_4px_12px_rgba(244,63,94,0.15)] rounded-full hover:scale-105 transition-transform cursor-default">
+                                <Frown className="w-5 h-5 text-rose-500" />
+                                <span className="font-bold text-rose-700 dark:text-rose-400 text-lg font-quicksand tracking-wide">Tiêu cực</span>
+                              </div>
+                            </div>
+                            <div className="px-2 pb-3">
+                              <WordCloudSVG words={metadata.keywords.negative} colors={RED_SHADES} />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </motion.div>
             )}
@@ -849,53 +835,53 @@ function AnalyzeContent() {
                           const cosinePct = alt.cosine_score ? Math.round(alt.cosine_score * 100) : null;
 
                           return (
-                          <div key={idx} className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/80 rounded-2xl p-4 hover:shadow-lg transition-all duration-300 cursor-default group flex flex-col relative overflow-hidden">
-                            {alt.reason && (
-                              <span className={`absolute top-2 left-2 ${badgeColor} text-white text-[9px] font-bold px-2 py-0.5 rounded-md z-10 shadow-sm backdrop-blur-sm font-quicksand`}
-                                title={cosinePct ? `Độ tương đồng ngữ nghĩa: ${cosinePct}%` : undefined}>
-                                {alt.reason}
-                              </span>
-                            )}
-                            <div className="w-full aspect-square rounded-xl overflow-hidden mb-3 relative bg-white border border-slate-100 dark:border-slate-800/40">
-                              <img src={alt.thumbnail} alt={alt.name} className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300" />
-                            </div>
-                            <h4 className="font-semibold text-sm line-clamp-2 mb-2 dark:text-slate-200 flex-1 leading-snug font-quicksand">{alt.name}</h4>
-
-                            <div className="space-y-1.5 mb-3">
-                              {/* Rating & Sold */}
-                              <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-quicksand">
-                                <span className="flex items-center gap-0.5 text-amber-500 font-bold">★ {alt.rating || '0'}</span>
-                                {alt.sold && <span className="opacity-80">Đã bán: {alt.sold}</span>}
-                              </div>
-
-                              {/* Mini Trust Score badge */}
-                              <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900/60 p-1 px-2 rounded-lg border border-slate-100 dark:border-slate-800/40 w-fit">
-                                <Shield className={`w-3.5 h-3.5 ${alt.trustScore >= 70 ? 'text-emerald-500' : 'text-amber-500'}`} />
-                                <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 font-quicksand">Trust: {alt.trustScore || 0}/100</span>
-                              </div>
-
-                              {/* AI Rerank Score bar — chỉ hiển thị khi có dữ liệu từ PhoBERT reranker */}
-                              {rerankPct !== null && (
-                                <div title={`AI Relevance Score: ${rerankPct}% (α·CosineSim + β·Trust - γ·ΔPrice)`}>
-                                  <div className="flex items-center justify-between mb-0.5">
-                                    <span className="text-[9px] text-slate-400 dark:text-slate-500 font-quicksand">AI Score</span>
-                                    <span className="text-[9px] font-bold text-indigo-500 dark:text-indigo-400 font-quicksand">{rerankPct}%</span>
-                                  </div>
-                                  <div className="w-full h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                                    <div
-                                      className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-blue-400 transition-all duration-500"
-                                      style={{ width: `${rerankPct}%` }}
-                                    />
-                                  </div>
-                                </div>
+                            <div key={idx} className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/80 rounded-2xl p-4 hover:shadow-lg transition-all duration-300 cursor-default group flex flex-col relative overflow-hidden">
+                              {alt.reason && (
+                                <span className={`absolute top-2 left-2 ${badgeColor} text-white text-[9px] font-bold px-2 py-0.5 rounded-md z-10 shadow-sm backdrop-blur-sm font-quicksand`}
+                                  title={cosinePct ? `Độ tương đồng ngữ nghĩa: ${cosinePct}%` : undefined}>
+                                  {alt.reason}
+                                </span>
                               )}
-                            </div>
+                              <div className="w-full aspect-square rounded-xl overflow-hidden mb-3 relative bg-white border border-slate-100 dark:border-slate-800/40">
+                                <img src={alt.thumbnail} alt={alt.name} className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300" />
+                              </div>
+                              <h4 className="font-semibold text-sm line-clamp-2 mb-2 dark:text-slate-200 flex-1 leading-snug font-quicksand">{alt.name}</h4>
 
-                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60 mt-auto">
-                              <button onClick={(e) => { e.stopPropagation(); window.open(alt.url, '_blank'); }} className="cursor-pointer flex items-center justify-center text-xs font-semibold bg-slate-200/80 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 py-2 rounded-xl transition-colors w-full">Truy cập</button>
-                              <button onClick={(e) => { e.stopPropagation(); router.push('/analyze?url=' + encodeURIComponent(alt.url)); }} className="cursor-pointer flex items-center justify-center text-xs font-semibold bg-blue-100 dark:bg-blue-500/20 hover:bg-blue-200 dark:hover:bg-blue-500/30 text-blue-700 dark:text-blue-400 py-2 rounded-xl transition-colors w-full">Phân tích</button>
+                              <div className="space-y-1.5 mb-3">
+                                {/* Rating & Sold */}
+                                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-quicksand">
+                                  <span className="flex items-center gap-0.5 text-amber-500 font-bold">★ {alt.rating || '0'}</span>
+                                  {alt.sold && <span className="opacity-80">Đã bán: {alt.sold}</span>}
+                                </div>
+
+                                {/* Mini Trust Score badge */}
+                                <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900/60 p-1 px-2 rounded-lg border border-slate-100 dark:border-slate-800/40 w-fit">
+                                  <Shield className={`w-3.5 h-3.5 ${alt.trustScore >= 70 ? 'text-emerald-500' : 'text-amber-500'}`} />
+                                  <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 font-quicksand">Uy tín sơ bộ: {alt.trustScore || 0}/100</span>
+                                </div>
+
+                                {/* AI Rerank Score bar — chỉ hiển thị khi có dữ liệu từ PhoBERT reranker */}
+                                {rerankPct !== null && (
+                                  <div title={`AI Relevance Score: ${rerankPct}% (α·CosineSim + β·Trust - γ·ΔPrice)`}>
+                                    <div className="flex items-center justify-between mb-0.5">
+                                      <span className="text-[9px] text-slate-400 dark:text-slate-500 font-quicksand">AI Score</span>
+                                      <span className="text-[9px] font-bold text-indigo-500 dark:text-indigo-400 font-quicksand">{rerankPct}%</span>
+                                    </div>
+                                    <div className="w-full h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                      <div
+                                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-blue-400 transition-all duration-500"
+                                        style={{ width: `${rerankPct}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60 mt-auto">
+                                <button onClick={(e) => { e.stopPropagation(); window.open(alt.url, '_blank'); }} className="cursor-pointer flex items-center justify-center text-xs font-semibold bg-slate-200/80 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 py-2 rounded-xl transition-colors w-full">Truy cập</button>
+                                <button onClick={(e) => { e.stopPropagation(); router.push('/analyze?url=' + encodeURIComponent(alt.url)); }} className="cursor-pointer flex items-center justify-center text-xs font-semibold bg-blue-100 dark:bg-blue-500/20 hover:bg-blue-200 dark:hover:bg-blue-500/30 text-blue-700 dark:text-blue-400 py-2 rounded-xl transition-colors w-full">Phân tích</button>
+                              </div>
                             </div>
-                          </div>
                           );
                         })}
                       </div>

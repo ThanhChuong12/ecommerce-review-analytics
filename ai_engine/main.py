@@ -517,18 +517,18 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                         img_hash  = d.get("image", "")
                         thumb_out = f"https://cf.shopee.vn/file/{img_hash}_tn" if img_hash else ""
 
-            elif "lazada.vn" in product_url:
-                # Fallback: parse Open Graph via HTTP GET (Lazada chưa có public API)
+            else:
+                # Fallback: parse Open Graph via HTTP GET (Cho Lazada, TGDD, DMX...)
                 resp = _req_meta.get(
                     product_url,
-                    headers={"User-Agent": "Mozilla/5.0"},
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
                     timeout=10
                 )
                 if resp.ok:
                     import re as _rlz
-                    m_title = _rlz.search(r'<meta property="og:title" content="([^"]+)"', resp.text)
-                    m_img   = _rlz.search(r'<meta property="og:image" content="([^"]+)"', resp.text)
-                    if m_title: name_out  = m_title.group(1)
+                    m_title = _rlz.search(r'<meta\s+(?:property|name)="og:title"\s+content="([^"]+)"', resp.text)
+                    m_img   = _rlz.search(r'<meta\s+(?:property|name)="og:image"\s+content="([^"]+)"', resp.text)
+                    if m_title: name_out  = m_title.group(1).replace("&#x27;", "'").replace("&quot;", '"')
                     if m_img:   thumb_out = m_img.group(1)
 
         except Exception as _meta_err:
@@ -703,9 +703,9 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                     "sentimentTimeSeries": [],
                     "keywords":            {"positive": [], "negative": []},
                     "smartAdvice": (
-                        "⚠️ Sản phẩm chưa có đánh giá — không đủ dữ liệu để AI tính điểm tin cậy. "
-                        "Hãy tham khảo các sản phẩm tương tự bên tab Đề xuất hoặc "
-                        "quay lại sau khi sản phẩm có đủ đánh giá từ người mua thực."
+                        "Sản phẩm này chưa được người mua đánh giá. Hệ thống AI không thể tính Trust Score, "
+                        "phát hiện spam hay phân tích cảm xúc. Tuy nhiên bạn có thể xem các sản phẩm tương tự "
+                        "đã được xác minh bên tab Đề xuất."
                     ),
                     "alternativeProducts": no_rev_alts,
                     "noReviewsYet":        True,

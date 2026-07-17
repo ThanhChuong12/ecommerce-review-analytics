@@ -52,6 +52,7 @@ def extract_structural_features(texts: List[str], ratings: List) -> np.ndarray:
             get_special_char_ratio(text_str),
             get_uppercase_ratio(text_str),
             get_type_token_ratio(text_str),
+            get_digit_ratio(text_str),
         ])
     return np.array(features, dtype=np.float32)
 

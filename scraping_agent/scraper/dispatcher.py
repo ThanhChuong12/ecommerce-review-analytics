@@ -75,7 +75,7 @@ async def scrape(
             concurrency  = 30,
             api_limit    = 59,
             headless     = headless,
-            humanize     = True,
+            humanize     = headless,  # Tắt humanize khi hiện UI để user click tay đăng nhập
             human_preset = "careful",
             filter_mode  = filter_mode,
         )
