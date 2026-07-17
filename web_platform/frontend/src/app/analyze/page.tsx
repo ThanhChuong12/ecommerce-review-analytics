@@ -401,6 +401,35 @@ function AnalyzeContent() {
 
             {mainTab === 'overview' && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+                {/* ── No Reviews Yet Banner ─────────────────────────────────────── */}
+                {metadata.noReviewsYet && (
+                  <div className="bg-gradient-to-r from-sky-50 to-indigo-50 dark:from-sky-950/40 dark:to-indigo-950/40 border border-sky-200 dark:border-sky-700/50 rounded-3xl p-6 flex flex-col sm:flex-row items-center sm:items-start gap-5 shadow-md">
+                    <div className="w-14 h-14 rounded-2xl bg-sky-100 dark:bg-sky-800/50 flex items-center justify-center flex-shrink-0 shadow-sm">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-sky-500 dark:text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 text-center sm:text-left">
+                      <h4 className="font-bold text-sky-700 dark:text-sky-300 text-lg font-quicksand mb-1">Sản phẩm chưa có đánh giá</h4>
+                      <p className="text-sm text-sky-700/80 dark:text-sky-300/70 font-quicksand leading-relaxed">
+                        Sản phẩm này chưa được người mua đánh giá. Hệ thống AI không thể tính Trust Score,
+                        phát hiện spam hay phân tích cảm xúc. Tuy nhiên bạn có thể xem các sản phẩm tương tự
+                        đã được xác minh bên tab <strong>Đề xuất</strong>.
+                      </p>
+                      <button
+                        onClick={() => setMainTab('recommendations')}
+                        className="cursor-pointer mt-3 inline-flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white text-sm font-bold px-4 py-2 rounded-xl transition-colors font-quicksand shadow-sm"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                        Xem sản phẩm tương tự
+                      </button>
+                    </div>
+                    <div className="hidden sm:flex flex-col items-end gap-1 text-xs font-quicksand text-sky-500/60 dark:text-sky-400/40 select-none">
+                      <span>Trust Score</span>
+                      <span className="text-3xl font-black text-sky-200 dark:text-sky-900/80">N/A</span>
+                    </div>
+                  </div>
+                )}
                 {/* Smart Alerts Row */}
                 {(crossModalAlerts > 0 || metadata.smartAdvice) && (
                   <div className={`grid grid-cols-1 ${crossModalAlerts > 0 && metadata.smartAdvice ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-6`}>

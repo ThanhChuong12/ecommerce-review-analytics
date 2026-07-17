@@ -5,25 +5,25 @@
 ### 1.1 Bối cảnh thực tiễn tại Việt Nam
 Thị trường Thương mại Điện tử (TMĐT) Việt Nam đang trải qua thời kỳ bùng nổ mạnh mẽ với sự thống trị của các nền tảng lớn như Shopee, Tiki, Lazada và Thế Giới Di Động (TGDD). Theo các báo cáo thường niên, hàng chục triệu giao dịch được thực hiện mỗi ngày, kéo theo khối lượng khổng lồ các đánh giá (reviews) từ người tiêu dùng. Đánh giá sản phẩm đã trở thành nguồn thông tin tham khảo quan trọng nhất ảnh hưởng trực tiếp đến hành vi và quyết định mua sắm của khách hàng.
 
-Mặc dù khối lượng dữ liệu này chứa đựng giá trị thông tin khổng lồ, người tiêu dùng thực tế tại Việt Nam lại gặp rất nhiều khó khăn trong việc ra quyết định do chất lượng thông tin đánh giá không đồng đều, bị nhiễu loạn nghiêm trọng bởi nhiều yếu tố.
+Mặc dù khối lượng dữ liệu này chứa đựng giá trị thông tin lớn, người tiêu dùng thực tế tại Việt Nam lại gặp rất nhiều khó khăn trong việc ra quyết định do chất lượng thông tin đánh giá không đồng đều, bị nhiễu loạn nghiêm trọng bởi nhiều yếu tố.
 
 ### 1.2 Các thách thức cốt lõi và Thực trạng dữ liệu
-Dự án này tập trung giải quyết bốn thách thức lớn đang tồn tại trên các sàn TMĐT tại Việt Nam:
+Dự án này tập trung giải quyết năm thách thức lớn đang tồn tại trên các sàn TMĐT tại Việt Nam:
 
 1. **Đánh giá giả mạo (Spam/Seeding Reviews):** 
-   Sự xuất hiện dày đặc của các đánh giá do bot hoặc người dùng ảo (ảo/seeding) được thuê để viết nhằm thao túng điểm số sản phẩm (nâng điểm cho shop mình hoặc hạ uy tín shop đối thủ). Các đánh giá này thường có độ trùng lặp cao hoặc mang các đặc trưng hành vi bất thường.
+   Sự xuất hiện dày đặc của các đánh giá do bot hoặc người dùng ảo (seeding) được thuê để viết nhằm thao túng điểm số sản phẩm (nâng điểm cho shop mình hoặc hạ uy tín shop đối thủ). Các đánh giá này thường có độ trùng lặp cao hoặc mang các đặc trưng hành vi bất thường.
 2. **Hình ảnh đính kèm mang tính đối phó (Irrelevant Image Spam):** 
    Các sàn TMĐT tại Việt Nam thường có cơ chế tặng điểm thưởng hoặc xu khi người dùng tải lên hình ảnh kèm đánh giá. Do đó, một lượng lớn người dùng tải lên các hình ảnh hoàn toàn không liên quan (ảnh selfie, ảnh phong cảnh, ảnh screenshot điện thoại, ảnh meme,...) chỉ để đối phó nhận xu. Điều này làm loãng thông tin thẩm định thực tế của sản phẩm.
 3. **Hiện tượng nhiễu đặc trưng (Feature Noise) trong học máy:** 
    Các mô hình AI khi sử dụng các mạng trích xuất đặc trưng được huấn luyện sẵn (Pre-trained Models như PhoBERT, ResNet50) thường gặp vấn đề nhiễu đặc trưng do sự lệch pha tác vụ (task mismatch) và nhãn dữ liệu bị gán sai trong thực tế. Nếu không có cơ chế khử nhiễu (Denoising) trước khi đưa vào bộ phân loại, chất lượng dự đoán của mô hình sẽ bị suy giảm đáng kể.
 4. **Sự thiếu hụt phân tích đa chiều:** 
    Hệ thống hiển thị của các sàn hiện tại chỉ cung cấp điểm sao trung bình tổng thể, không bóc tách được các khía cạnh cụ thể mà người mua quan tâm như: chất lượng sản phẩm thực tế, dịch vụ chăm sóc khách hàng, tình trạng đóng gói hộp hàng, hay tốc độ vận chuyển.
-5. **Thiếu cơ chế gợi ý hỗ trợ quyết định:** 
-   Khi người dùng tiếp cận một sản phẩm có rủi ro cao (chứa nhiều đánh giá giả mạo hoặc phản ánh hàng hư hỏng), luồng mua sắm của họ thường bị gián đoạn. Hiện tại chưa có hệ thống nào tự động cảnh báo và gợi ý ngay các sản phẩm tương tự có độ tin cậy cao hơn để hỗ trợ luồng quyết định mua sắm của khách hàng.
+5. **Đề xuất sản phẩm thiếu ngữ cảnh và rủi ro mua sắm:** 
+   Khi người dùng xem một sản phẩm kém chất lượng hoặc chứa nhiều đánh giá giả mạo/seeding, họ thường phải tự tìm kiếm sản phẩm khác thay thế, gây gián đoạn trải nghiệm. Hầu hết các sàn hiện nay chỉ gợi ý sản phẩm dựa trên thuật toán so khớp thô (naive scraping) mà không tối ưu hóa theo độ tin cậy và ngữ cảnh thực tế của sản phẩm hiện tại.
 
 ### 1.3 Tính cấp thiết và Ý nghĩa thực tiễn
-Việc xây dựng một hệ thống tự động thu thập, phân tích đa phương thức (kết hợp cả văn bản tiếng Việt và hình ảnh thực tế), khử nhiễu đặc trưng, và đưa ra cảnh báo thông minh là vô cùng cấp thiết nhằm:
-* **Đối với người tiêu dùng:** Bảo vệ người mua khỏi các bẫy mua sắm, tiết kiệm thời gian lọc review rác, hỗ trợ đưa ra quyết định mua hàng thông thái dựa trên điểm tin cậy thực tế (Trust Score).
+Việc xây dựng một hệ thống tự động thu thập, phân tích đa phương thức (kết hợp cả văn bản tiếng Việt và hình ảnh thực tế), khử nhiễu đặc trưng, và đưa ra cảnh báo/đề xuất thông minh là vô cùng cấp thiết nhằm:
+* **Đối với người tiêu dùng:** Bảo vệ người mua khỏi các bẫy mua sắm, tiết kiệm thời gian lọc review rác, hỗ trợ đưa ra quyết định mua hàng thông thái dựa trên điểm tin cậy thực tế (Trust Score) và gợi ý lựa chọn thay thế an toàn.
 * **Đối với doanh nghiệp/Nhà bán hàng uy tín:** Tôn vinh các sản phẩm thực chất, hạn chế tác động tiêu cực từ các chiến dịch seeding bôi nhọ của đối thủ cạnh tranh.
 * **Đối với nghiên cứu khoa học:** Thu hẹp khoảng cách giữa lý thuyết học máy đa phương thức và nhu cầu thực tiễn của ngôn ngữ tiếng Việt cũng như thói quen tiêu dùng đặc thù tại Việt Nam.
 
@@ -35,13 +35,13 @@ Việc xây dựng một hệ thống tự động thu thập, phân tích đa p
 
 ### 2.1 Các mục tiêu cụ thể
 1. **Về Dữ liệu:** 
-   Xây dựng luồng thu thập dữ liệu đa nguồn (Shopee, Tiki, Lazada, TGDD) hoạt động tự động và ổn định, có khả năng xử lý bất đồng bộ và trích xuất dữ liệu thô bao gồm văn bản tiếng Việt, số sao đánh giá và hình ảnh thực tế từ các URL sản phẩm.
+   Xây dựng luồng thu thập dữ liệu đa nguồn (Shopee, Tiki, Lazada, TGDD) hoạt động tự động và ổn định, có khả năng xử lý bất đồng bộ và trích xuất dữ liệu thô bao gồm văn bản tiếng Việt, số sao đánh giá, hình ảnh thực tế và thông tin sản phẩm liên quan từ các URL sản phẩm.
 2. **Về Lọc nhiễu hình ảnh:** 
    Phát triển pipeline xử lý ảnh 2 tầng. Tầng 1 sử dụng mô hình học không giám sát/zero-shot (CLIP) để nhận diện và loại bỏ hoàn toàn các hình ảnh rác không liên quan. Tầng 2 sử dụng mô hình học sâu ResNet50 kết hợp với bộ lọc khử nhiễu đặc trưng để phát hiện tình trạng hư hỏng vật lý của sản phẩm/hộp hàng.
 3. **Về Phân tích Văn bản & Cảm xúc:** 
    Phát triển hệ thống phát hiện hành vi seeding/spam (dựa trên thuật toán Isolation Forest kết hợp Rule-based). Huấn luyện và tối ưu hóa mô hình học sâu chuyên biệt cho tiếng Việt (PhoBERT) kết hợp với MLP classification head để phân loại cảm xúc văn bản theo ba nhãn (tích cực, tiêu cực, trung lập).
 4. **Về Khớp nối Đa phương thức & Đề xuất:** 
-   Xây dựng thuật toán tính toán **Điểm tin cậy (Trust Score)** thông qua việc đối chiếu logic chéo giữa nhánh văn bản và nhánh hình ảnh. Tích hợp Mô hình ngôn ngữ lớn (Gemini LLM) để sinh báo cáo tóm tắt rủi ro và gợi ý top 5 sản phẩm thay thế có Trust Score cao nhất.
+   Xây dựng thuật toán tính toán **Điểm tin cậy (Trust Score)** thông qua việc đối chiếu logic chéo giữa nhánh văn bản và nhánh hình ảnh. Tích hợp Mô hình ngôn ngữ lớn (Gemini LLM) để sinh báo cáo tóm tắt rủi ro và xây dựng module đề xuất thông minh bằng thuật toán **Zero-Shot Content-Based Reranking** dựa trên PhoBERT embeddings.
 5. **Về Triển khai hệ thống:** 
    Xây dựng và đóng gói toàn bộ giải pháp thành một ứng dụng Web hoàn chỉnh hoạt động theo thời gian thực (Real-time Web App) hỗ trợ theo dõi tiến trình xử lý và truy xuất lịch sử phân tích.
 
@@ -53,7 +53,7 @@ Việc xây dựng một hệ thống tự động thu thập, phân tích đa p
 ### 2.3 Câu hỏi nghiên cứu (Research Questions)
 * **RQ1:** Việc áp dụng mô hình ngôn ngữ chuyên biệt cho tiếng Việt (PhoBERT) kết hợp MLP Classifier mang lại sự cải thiện hiệu năng như thế nào so với các mô hình học máy truyền thống trên tập dữ liệu đánh giá bị mất cân bằng lớp?
 * **RQ2:** Quy trình khử nhiễu đặc trưng (Feature Denoising) dựa trên khuếch tán Gaussian (Gaussian Diffusion) giúp nâng cao độ chính xác của mô hình phân loại hình ảnh (ResNet50) như thế nào so với việc phân loại trực tiếp từ đặc trưng thô?
-* **RQ3:** Việc đối chiếu chéo thông tin đa phương thức (văn bản & hình ảnh) giúp giảm thiểu tỷ lệ nhận diện sai lệch và nâng cao độ chính xác của Điểm tin cậy (Trust Score) ra sao so với việc chỉ phân tích đơn phương thức?
+* **RQ3:** Việc đối chiếu chéo thông tin đa phương thức (văn bản & hình ảnh) và tái xếp hạng zero-shot (Zero-Shot Content-Based Reranking) giúp giảm thiểu tỷ lệ nhận diện sai lệch và nâng cao độ phù hợp của đề xuất ra sao so với việc chỉ phân tích đơn phương thức?
 
 ---
 
@@ -90,9 +90,13 @@ graph TD
     E9 --> F
     E3 --> F
     
+    %% Đề xuất và xuất bản
     F --> G[Tính toán Điểm tin cậy - Trust Score]
-    G --> H[Gemini LLM: Tổng hợp Báo cáo AI Insights & Gợi ý 5 Sản phẩm Thay thế]
-    H --> I[Giao diện Next.js Web Dashboard - Real-time via Socket.io]
+    G --> H[Gemini LLM: Tổng hợp Báo cáo AI Insights]
+    G --> J[PhoBERT Rerank Engine: Tái xếp hạng Zero-Shot]
+    B --> J
+    J --> I[Giao diện Next.js Web Dashboard - Real-time via Socket.io]
+    H --> I
 ```
 
 ### 3.1 Quy trình hoạt động chi tiết của các thành phần
@@ -111,7 +115,7 @@ Do dữ liệu ảnh đính kèm trên các sàn TMĐT Việt Nam chứa rất n
   Sử dụng mô hình `openai/clip-vit-base-patch32` thực hiện phân loại zero-shot nhằm lọc bỏ ảnh không liên quan. Ảnh được so khớp độ tương đồng với 2 nhóm prompts: nhóm *Product* (ví dụ: "a photo of a product package",...) và nhóm *Irrelevant* (ví dụ: "a selfie of people", "a screenshot of phone app",...). Các ảnh thuộc nhóm Irrelevant sẽ được đánh nhãn ngay là "Không liên quan" và không được truyền tiếp xuống Tầng 2 để tiết kiệm chi phí tính toán và tránh gây nhiễu cho mô hình phân loại lỗi.
 * **Tầng 2 - Trích xuất đặc trưng với ResNet50:** 
   Các ảnh được xác định là ảnh sản phẩm thật sẽ đi qua mạng **ResNet50 (frozen encoder)** để trích xuất vector đặc trưng 2048 chiều đại diện cho hình ảnh sản phẩm.
-* **Khử nhiễu đặc trưng (Feature Denoising - MDSBR):** 
+* **Khử nhiễu đặc trưng (Feature Denoising):** 
   Để loại bỏ nhiễu trong không gian vector biểu diễn do lỗi nhãn hoặc nhiễu môi trường chụp ảnh, hệ thống tích hợp module **FeatureDenoiser** phỏng theo kiến trúc **MDSBR (RecSys'25)**. Module này sử dụng quá trình **Khuếch tán Gaussian (Gaussian Diffusion)**. 
   * *Quá trình khuếch tán thuận (Forward Diffusion):* Thêm nhiễu Gaussian vào đặc trưng sạch theo một lịch trình beta cosine/linear qua các bước thời gian $t$.
   * *Quá trình khuếch tán ngược (Reverse Diffusion - Denoising MLP):* Một mạng MLP nhận đặc trưng bị nhiễu kết hợp với embedding bước thời gian (sinusoidal timestep embedding) để học cách khôi phục lại đặc trưng sạch ban đầu.
@@ -123,12 +127,25 @@ Kết quả từ nhánh văn bản và nhánh hình ảnh được kết hợp t
 * **Đồng thuận tích cực:** Văn bản tích cực + Ảnh nguyên vẹn (Intact) $\Rightarrow$ Sản phẩm có độ tin cậy rất cao.
 * **Đồng thuận tiêu cực:** Văn bản tiêu cực + Ảnh hộp hàng hư hỏng (Damaged) $\Rightarrow$ Ghi nhận lỗi vật lý thực tế, giảm điểm Trust Score.
 * **Mâu thuẫn logic:** Văn bản khen ngợi nhưng ảnh đi kèm lại cho thấy hộp hàng bị bẹp nát $\Rightarrow$ Cảnh báo "Khen ngợi đáng ngờ" (nghi ngờ seeding lộ liễu), trừ điểm Trust Score nặng.
-* **Bổ trợ:** Văn bản tiêu cực (chê giao hàng chậm, thiếu phụ kiện) nhưng ảnh nguyên vẹn $\Rightarrow$ Phân loại đúng lỗi dịch vụ thay vì lỗi sản phẩm.
+* **Bổ trợ:** Văn bản tiêu cực (chê giao hàng chậm, thiếu phụ kiện) nhưng ảnh nguyên vẹn $\Rightarrow$ Phân loại đúng lỗi dịch vụ thay việc đổ lỗi cho sản phẩm.
 * **Chống nhiễu:** Đánh giá có ảnh không liên quan (Irrelevant) $\Rightarrow$ Loại bỏ trọng số ảnh ra khỏi quá trình chấm điểm, chỉ chấm điểm dựa trên văn bản.
 
-#### 3.1.5 Báo cáo AI Insights và Gợi ý Thông minh
-* **Gemini LLM Integration:** Toàn bộ kết quả phân tích cảm xúc khía cạnh, tình trạng lỗi hình ảnh, và các bình luận bất thường được định dạng thành payload gửi tới Gemini API để tạo báo cáo phân tích tổng hợp trực quan (AI Insights) và mức độ rủi ro (Risk Level).
-* **Đề xuất thay thế:** Nếu Trust Score của sản phẩm hiện tại thấp dưới ngưỡng an toàn, hệ thống sẽ tự động kích hoạt module gợi ý để tìm kiếm và đề xuất 5 sản phẩm tương tự trên cùng hệ thống có điểm Trust Score cao nhất, đảm bảo luồng trải nghiệm mua sắm của người dùng không bị gián đoạn.
+#### 3.1.5 Hệ thống gợi ý thông minh và Dynamic Recommendation Context
+Hệ thống sử dụng các tiêu chí từ kết quả phân tích chất lượng của sản phẩm gốc để thay đổi linh hoạt thông điệp đề xuất và thực hiện tái sắp xếp sản phẩm liên quan thông qua thuật toán **Zero-Shot Content-Based Reranking**:
+
+1. **Phân loại Ngữ cảnh Đề xuất Động (Dynamic Recommendation Context):**
+   * *Nếu Trust Score cao (Sản phẩm tốt):* Đổi tiêu đề tab thành **"Sản phẩm tương tự chất lượng cao"** nhằm gợi ý các sản phẩm nâng cấp (upsell) hoặc tương đương nhưng có giá tốt hơn.
+   * *Nếu Trust Score thấp (Sản phẩm kém chất lượng/Spam):* Đổi tiêu đề tab thành **"Lựa chọn thay thế an toàn hơn"** nhằm đưa ra các sản phẩm thay thế đã được kiểm chứng tin cậy.
+2. **Thuật toán Tái xếp hạng Zero-Shot (Zero-Shot Content-Based Reranking):**
+   Tái sử dụng mô hình PhoBERT backbone đã tải sẵn trong RAM để thực hiện Mean Pooling trên tiêu đề sản phẩm gốc ($p_0$) và các sản phẩm ứng viên ($p_i$) nhằm trích xuất embedding ngữ nghĩa. Điểm tổng hợp xếp hạng được tính theo công thức:
+   $$Score(p_i) = \alpha \cdot CosineSim(E(p_0), E(p_i)) + \beta \cdot Trust(p_i) - \gamma \cdot PriceDeviation$$
+   Trong đó:
+   * $CosineSim$: Độ tương đồng ngữ nghĩa vector tiêu đề sản phẩm qua PhoBERT.
+   * $Trust(p_i)$: Điểm tin cậy được chuẩn hóa của ứng viên dựa trên rating và lượng đã bán (sold).
+   * $PriceDeviation$: Mức độ lệch giá vật lý nhằm phạt các sản phẩm có giá chênh lệch quá xa so với sản phẩm gốc:
+     $$PriceDeviation = \min\left(1.0, \frac{|Price(p_i) - Price(p_0)|}{Price(p_0)}\right)$$
+   * $\alpha, \beta, \gamma$: Các trọng số tương ứng (mặc định: $\alpha=0.5$, $\beta=0.35$, $\gamma=0.15$). Các sản phẩm có tổng điểm dưới $0.30$ sẽ bị lọc bỏ.
+3. **Dynamic Reasoning Badge:** Mỗi sản phẩm đề xuất sẽ đi kèm một nhãn lý do động dựa trên yếu tố đóng góp điểm cao nhất: **"Tương tự nhất"** (ưu tiên CosineSim), **"Đánh giá cực tốt / Uy tín"** (ưu tiên Trust), hoặc **"Giá hợp lý nhất"** (ưu tiên Price penalty thấp).
 
 #### 3.1.6 Kiến trúc Triển khai Phần mềm (System Deployment)
 * **Frontend:** Next.js (App Router) xây dựng giao diện đẹp mắt, tương tác mượt mà.
@@ -156,3 +173,27 @@ Trong quá trình nghiên cứu và phát triển học máy của đồ án, vi
      * Cung cấp một nghiên cứu so sánh thực nghiệm chi tiết (về F1-score, Recall, Latency) với mạng ResNet50. MobileNetV3 đại diện cho hướng thiết kế tối ưu hóa tốc độ và tài nguyên phần cứng (Mobile/Embedded-friendly), trong khi ResNet50 đại diện cho hướng ưu tiên dung lượng mô hình lớn để đạt độ chính xác tối đa.
      * Thực hiện các kiểm nghiệm xuất bản mô hình sang định dạng **ONNX** nhằm đánh giá khả năng tăng tốc suy luận trực tiếp trên máy chủ web mà không cần phần cứng GPU chuyên dụng.
 
+## 4. Quản Lý Mô Hình Vật Lý (Model Artifacts Registry)
+Trong quá trình nghiên cứu và phát triển học máy của đồ án, việc xây dựng và huấn luyện các mô hình cơ sở (Baseline Models) đóng vai trò vô cùng quan trọng nhằm đối chiếu và kiểm nghiệm hiệu năng thực tế của các giải pháp đề xuất. Hệ thống duy trì việc huấn luyện và thử nghiệm hai mô hình cơ sở chính:
+Để đảm bảo tính nhất quán 100% giữa lý thuyết nghiên cứu và sản phẩm phần mềm thực tế, toàn bộ trọng số mô hình đã huấn luyện được lưu trữ và quản lý tập trung tại thư mục [`artifacts/models/`](file:///d:/3rdY_HCMUS/Machine_Learning/PROJECT_LT/ecommerce-review-analytics/artifacts/models) với cấu trúc phân cấp rõ ràng:
+1. **Text Baseline Model (Weighted Soft-Voting Ensemble):**
+   * **Kiến trúc:** Mô hình sử dụng phương pháp trích xuất đặc trưng TF-IDF (với `max_features=15,000` và cụm từ ghép song song `ngram_range=(1,2)`) kết hợp thuật toán cân bằng lớp SMOTE để cân bằng dữ liệu huấn luyện. Module phân loại là một mô hình Ensemble tích hợp biểu quyết mềm (Soft-Voting) giữa 3 thuật toán học máy truyền thống: Logistic Regression (LR), Calibrated LinearSVC (SVM tuyến tính đã được hiệu chỉnh xác suất), và Random Forest (RF). Trọng số biểu quyết được tối ưu hóa tự động bằng thuật toán xác định độ chính xác trên tập kiểm thử validation.
+   * **Mục đích huấn luyện:** 
+     * Thiết lập một **mốc hiệu năng nền tảng** về thời gian suy luận và độ chính xác để làm tiêu chuẩn đối sánh trực tiếp với mô hình học sâu PhoBERT (nhằm trả lời câu hỏi nghiên cứu **RQ1**).
+     * Cung cấp phương án dự phòng (fallback) cực kỳ nhẹ cho hệ thống. Nhờ độ phức tạp tính toán thấp, mô hình này có khả năng suy luận trực tiếp trên CPU chỉ trong vài mili-giây, giúp tiết kiệm tài nguyên máy chủ.
+     * Làm công cụ đối chứng giúp đánh giá xem việc sử dụng mô hình học sâu Transformer phức tạp có thực sự mang lại lợi ích hiệu năng vượt trội so với chi phí tính toán hay không.
+1. **Nhánh Văn bản (Text Pipeline Models):**
+   * [`artifacts/models/phobert/`](file:///d:/3rdY_HCMUS/Machine_Learning/PROJECT_LT/ecommerce-review-analytics/artifacts/models/phobert):
+     * Chứa trọng số của MLP classification head kết hợp với PhoBERT phục vụ cho tác vụ Phân loại cảm xúc (Sentiment) và Phân tích khía cạnh (Aspect).
+   * [`artifacts/models/spam_iforest/`](file:///d:/3rdY_HCMUS/Machine_Learning/PROJECT_LT/ecommerce-review-analytics/artifacts/models/spam_iforest):
+     * Lưu trữ mô hình `spam_hybrid_weights.pkl` tích hợp thuật toán Isolation Forest kết hợp với các luật heuristic để phát hiện seeding/spam chính xác.
+2. **Nhánh Hình ảnh (Vision Pipeline Models):**
+   * [`artifacts/models/resnet50/`](file:///d:/3rdY_HCMUS/Machine_Learning/PROJECT_LT/ecommerce-review-analytics/artifacts/models/resnet50):
+     * Chứa trọng số của mô hình trích xuất đặc trưng ResNet50 và MLP head phân loại lỗi sản phẩm (`defect` vs `no-defect`).
+   * [`artifacts/models/denoiser/`](file:///d:/3rdY_HCMUS/Machine_Learning/PROJECT_LT/ecommerce-review-analytics/artifacts/models/denoiser):
+     * Lưu trữ trọng số của module **FeatureDenoiser** (`feature_denoiser.pth` và cấu hình `denoiser_config.json`) triển khai thuật toán Gaussian Diffusion để khử nhiễu không gian vector đặc trưng.
+3. **Mô hình Cơ sở đối sánh (Baseline Models):**
+   * [`artifacts/models/mobilenet/`](file:///d:/3rdY_HCMUS/Machine_Learning/PROJECT_LT/ecommerce-review-analytics/artifacts/models/mobilenet):
+     * Lưu trữ trọng số mô hình Image Baseline (MobileNetV3) phục vụ cho nghiên cứu đối so sánh hiệu năng và tài nguyên hệ thống.
+   * [`artifacts/models/baselines/`](file:///d:/3rdY_HCMUS/Machine_Learning/PROJECT_LT/ecommerce-review-analytics/artifacts/models/baselines):
+     * Chứa mô hình Text Baseline (Weighted Soft-Voting Ensemble kết hợp TF-IDF & SMOTE) làm tiêu chuẩn đối sánh hiệu năng với PhoBERT Transformer.

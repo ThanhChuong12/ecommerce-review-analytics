@@ -283,22 +283,26 @@ class ZeroShotReranker:
             final_score = max(0.0, min(1.0, final_score))  # clamp [0,1]
             
             # 2e. Trust score display (0-100)
+            # Quan trọng: dùng cùng logic trung hòa như _compute_trust:
+            # rating=0 (chưa có đánh giá) → mặc định 3.0 sao (trung lập)
+            # để tránh 0*20=0 làm trust display cực thấp so với trust_norm thực.
             try:
-                rating_val = float(cand.get("rating") or 0)
+                rating_raw = float(cand.get("rating") or 0)
             except (ValueError, TypeError):
-                rating_val = 0.0
-            
+                rating_raw = 0.0
+            rating_val_display = rating_raw if rating_raw > 0 else 3.0
+
             mini_trust_display = round(
-                min(100.0, rating_val * 20.0 + min(20.0, trust_norm * 20.0)),
+                min(100.0, rating_val_display * 20.0 + min(20.0, trust_norm * 20.0)),
                 1
             )
-            
-            # 2f. Reasoning badge
+
+            # 2f. Reasoning badge (dùng cùng rating đã chuẩn hoá)
             reason_badge = self._get_dominant_badge(
                 cosine_contrib=alpha_contrib,
                 trust_contrib=beta_contrib,
                 price_penalty=gamma_penalty,
-                rating_val=rating_val,
+                rating_val=rating_val_display,
                 sold_val=sold_int,
             )
             

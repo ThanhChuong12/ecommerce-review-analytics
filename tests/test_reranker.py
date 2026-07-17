@@ -183,6 +183,31 @@ class TestZeroShotReranker:
             assert "trustScore" in item
             assert "reason" in item
 
+    def test_zero_rating_trust_not_collapsed(self, reranker):
+        """Regression: rating=0 (unrated) must NOT produce ~6/100 trust score.
+        Previously, rating=0 was treated as 0*20=0 base, giving trust≈6.2/100.
+        After fix: rating=0 defaults to 3.0 (neutral), giving trust≥60/100."""
+        candidates = [
+            {"name": "Sách truyện manga mới", "rating": 0, "sold": "15", "price": "85000", "thumbnail": "", "url": ""},
+        ]
+        result = reranker.rerank("Sách truyện", 80000, candidates)
+        if result:
+            trust = result[0]["trustScore"]
+            assert trust >= 60.0, (
+                f"rating=0 should default to neutral (3.0 stars), expected trustScore ≥ 60 but got {trust}. "
+                "This was the '6.2/100 bug'."
+            )
+
+    def test_five_star_trust_near_max(self, reranker):
+        """★5 with decent sales should give trust score close to 100."""
+        candidates = [
+            {"name": "iPhone 15 Pro Max chính hãng", "rating": 5, "sold": "2000", "price": "30000000", "thumbnail": "", "url": ""},
+        ]
+        result = reranker.rerank("Điện thoại Apple", 30000000, candidates)
+        if result:
+            trust = result[0]["trustScore"]
+            assert trust >= 95.0, f"★5 + 2000 sold should yield trustScore ≥ 95, got {trust}"
+
     def test_score_in_valid_range(self, reranker):
         candidates = [
             {"name": "Laptop Asus VivoBook", "rating": 4.5, "sold": "300", "price": "15000000", "thumbnail": "", "url": ""},
