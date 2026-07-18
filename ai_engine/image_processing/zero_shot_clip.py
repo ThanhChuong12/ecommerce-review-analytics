@@ -53,19 +53,19 @@ _CLIP_MODEL_NAME = os.getenv(
 # v3 (hybrid): product=broad (giữ v1), irrelevant=targeted (giữ v2)
 PRODUCT_PROMPTS = [
     # Hộp hàng & đóng gói (quan trọng nhất — đây là input cho ResNet50)
-    "a photo of a product package or cardboard shipping box",
-    "an unboxing photo showing a delivered parcel or package",
-    "a close-up photo of product packaging condition or damage",
+    "a photo of a product package or cardboard shipping box clearly visible",
+    "an unboxing photo showing a delivered parcel or package with clear product",
+    "a close-up of a cardboard shipping box or product packaging with visible labels",
     # Sản phẩm thực tế (quần áo, điện tử, mỹ phẩm...)
     "a sealed or wrapped product ready for delivery",
-    "a consumer product sitting on a table for inspection",
-    "a product photographed for an online shopping review",
+    "a consumer product sitting on a table or surface for inspection",
+    "a product clearly photographed for an online shopping review",
     # Phụ kiện đi kèm & bao bì
-    "a photo of a shipping container with labels or barcodes",
-    "a product being examined or held up for quality check",
+    "a shipping container or box with labels or barcodes showing the product",
+    "a product being examined or held up showing its condition clearly",
     # Sách và văn phòng phẩm là sản phẩm TMĐT hợp lệ (không phải irrelevant)
-    "a book, notebook, or stationery product for sale or review",
-    "a book lying flat on a desk, table, or floor for review",
+    "a book, notebook, or stationery product clearly shown for sale or review",
+    "a book lying flat on a desk, table, or floor clearly shown for review",
 ]
 
 # ── Nhóm 2: IRRELEVANT — Cụ thể theo pattern dataset TMĐT Việt Nam ──
@@ -83,29 +83,36 @@ IRRELEVANT_PROMPTS = [
     "a selfie, portrait, or group photo of people without any product",
     "a photo of a K-pop idol, celebrity, or singer on stage",
     "a photo of a child or baby playing or smiling without any product",
-    # Thú cưng
-    "a photo of a pet, dog, or cat doing random things",
+    # Thú cưng — reinforced with multiple phrasings
+    "a photo of a dog, cat, or pet animal with no product present",
+    "an animal or pet resting or sitting with no product in frame",
+    "a close-up photo of a dog or cat with no shipping box or product",
     # Người đang dùng đồ (đồ gia dụng random, không phải review)
     "a person wearing, holding, or using an everyday household item not for sale",
     "a person trying on clothes or wearing an outfit without clear product focus",
-    # Thực phẩm & đồ uống đã được phục vụ (không có bao bì sản phẩm)
-    "cooked food, a meal plated on a dish, drinks in a glass or cup without packaging",
+    # Thực phẩm & đồ uống đã được phục vụ — reinforced
+    "cooked food or a meal served in a bowl, plate, or dish with no product packaging",
+    "a photo of shrimp, seafood, or cooked dish in a bowl with no product box",
     "a photo of street food, restaurant food, or home-cooked meal on a table",
-    # Screenshot / giao diện / video frame / text lyrics
+    "food or drinks without any e-commerce product packaging visible",
+    # Screenshot / giao diện / video frame — reinforced
+    "a screenshot of a TikTok, Instagram, or social media video with interface elements",
     "a digital screenshot showing a phone screen, UI elements, status bar, or social media feed",
     "a screenshot of a phone app, chat message, or video thumbnail",
     "a picture containing only text, song lyrics, quotes, or typography",
     "a screenshot of a website, social media post, or online order confirmation",
+    # Ảnh tối, nhòe, không rõ nội dung — reinforced
+    "a very dark or dimly lit photo where nothing is clearly visible",
+    "a completely black image, very dark photo, or fully white blank image",
+    "a very blurry, out-of-focus, or corrupted image with no recognizable content",
+    "a dark photo with no clear product or box visible",
     # Hoa / quà tặng / trang trí / lễ hội Tết
     "flowers, bouquets, gift baskets, festive decorations, or ornaments",
     # Thiếp cảm ơn / hóa đơn / tờ rơi
     "a thank you card, printed receipt, invoice, or promotional flyer",
-    # Xe / nội thất / cảnh ngoài trời / phòng ốc / trần nhà / sàn nhà / bàn trống
+    # Xe / nội thất / cảnh ngoài trời / phòng ốc
     "a room interior, furniture, vehicle, motorcycle, or outdoor scene",
     "an empty floor, ceiling, or empty table without any product",
-    # Ảnh nền đen / ảnh tối / ảnh bị nhòe / ảnh lỗi
-    "a completely black image, very dark photo, or fully white blank image",
-    "a very blurry, out-of-focus, or corrupted image with no recognizable content",
     # Abstract, màu sắc, nền trơn
     "an abstract background, solid color wall, or black and white pattern",
     "a plain colored background or gradient with no product visible",
@@ -125,6 +132,139 @@ _N_IRRELEVANT = len(IRRELEVANT_PROMPTS)
 _ALL_PROMPTS = PRODUCT_PROMPTS + IRRELEVANT_PROMPTS
 
 _GROUP_LABELS = ["product", "irrelevant"]
+
+# ── Defect Detection Prompts (DAMAGED vs INTACT) ────────────────────────────
+#
+# Engineered for Vietnamese e-commerce product review photos:
+#   - Covers book, electronics, cosmetics, clothing packaging
+#   - Focuses on physical deformation, not just cosmetic imperfections
+#   - "Intact" prompts emphasize structural integrity to avoid false positives
+#
+# Design: mean-logit per group → softmax binary → threshold at 0.5
+
+DEFECT_DAMAGED_PROMPTS = [
+    # ─── Hộp / Bao Bì — Hư Hỏng ───
+    "a product box that is visibly crushed, dented, or caved in from physical impact",
+    "a shipping box with deeply collapsed corners or a completely caved-in side",
+    "a cardboard package severely squeezed or compressed out of its original shape",
+    "a product package with large permanent dents caused by heavy impact during shipping",
+    "a shipping carton that arrived completely collapsed or heavily deformed",
+    "a product tube or cylindrical package that is severely dented or crushed",
+    # ─── Rách / Gãy / Vỡ — Hư Hỏng ───
+    "torn or ripped product packaging with clearly visible holes or large openings",
+    "a product box where a corner or edge has been broken off or physically split open",
+    # ─── Ẩm / Ướt — Hư Hỏng ───
+    "product packaging with large visible wet stains or signs of severe water damage",
+    # ─── Sách — Hư Hỏng (chỉ góc/gáy cụ thể) ───
+    "a book corner that is visibly bent, folded, or crushed from shipping impact",
+    "a book spine that has been compressed or crushed causing visible deformation at the edge",
+    "a close-up of a book showing a clearly bent or deformed corner due to physical damage",
+    # ─── Quần Áo / Thời Trang — Hư Hỏng ───
+    "a clothing item with torn fabric, ripped seams, or holes clearly visible from damage",
+    "a garment or bag with clearly torn, frayed edges, or broken zipper from damage",
+    "a fashion item or bag with broken strap, snapped clasp, or ripped material",
+    # ─── Đồ Gia Dụng / Cốc Bình — Hư Hỏng ───
+    "a cup, mug, or bowl with a clearly chipped or cracked rim from impact",
+    "a ceramic, glass, or porcelain product with visible cracks or broken pieces",
+    "a plastic container or bottle that is cracked, broken, or has missing parts",
+    # ─── Điện Tử / Ỏp Lưng / Phụ Kiện — Hư Hỏng ───
+    "a phone case, electronic device, or accessory with cracks, breaks, or snapped parts",
+    "an electronic product with a visibly cracked, shattered, or broken component",
+    # ─── Mỹ Phẩm / Lọ / Hủ — Hư Hỏng ───
+    "a cosmetic product with a shattered or broken glass jar or bottle",
+    "a beauty product container that is cracked, leaked, or severely deformed",
+    # ─── Giày Dép — Hư Hỏng ───
+    "a shoe with a sole separating from the upper or with ripped, torn material",
+    "footwear showing visible structural damage such as broken heel or torn stitching",
+    # ─── Đồ Chơi / Nhựa — Hư Hỏng ───
+    "a toy or plastic product with broken, snapped, or missing pieces",
+    "a plastic item that is visibly cracked, shattered, or structurally broken",
+    # ─── Tổng Quát — Hư Hỏng Nặng ───
+    "a product that is clearly destroyed, broken apart, or in completely unacceptable condition",
+    "a product severely crushed or deformed beyond its original intended shape",
+]
+
+DEFECT_INTACT_PROMPTS = [
+    # ─── Phổ Quát: Bất kỳ sản phẩm nào — Nguyên Vẹn ───
+    "a product in perfect mint condition with no visible physical damage whatsoever",
+    "a consumer product that appears completely undamaged and in its normal expected condition",
+    "a product showing no signs of crushing, tearing, denting, or any physical deformation",
+    "a product in the exact shape and form it was manufactured in, no defects visible",
+    "a product that is fully intact, structurally sound, and in ready-to-use condition",
+    "any object or item that is undamaged, whole, and in good condition",
+    # ─── Sản Phẩm Đang Trưng Bày / Được Review ───
+    "a product photographed for an online review showing it is in good and intact condition",
+    "a product being held in hand for a review photo, the item shows no damage at all",
+    "a product placed on any surface for display, completely intact and undamaged",
+    "a product after unboxing shown to the camera, item is in perfect expected condition",
+    "a product next to its original box or packaging, both items are undamaged",
+    "a product clearly shown for a shopping review with no visible defects or damage",
+    # ─── Phân Biệt Đặc Điểm Thiết Kế vs Hư Hỏng ───
+    "a product with normal design features such as handles, bumps, ridges, or protrusions that are part of its intended design",
+    "an item with a complex shape, texture, or geometry that is its normal undamaged form",
+    "a product where all visible surfaces are smooth, complete, and without any deformation",
+    "any everyday object in its correct intact shape, no structural failure or breakage",
+    # ─── Sách — Nguyên Vẹn ───
+    "a book in pristine condition with a flat, clean cover and no bending or creases",
+    "a book or notebook clearly intact with no spine damage or physical deformation",
+    "an open book showing its interior pages, the book itself is not physically damaged",
+    "a book lying open on a surface displaying its pages, no damage or deformation visible",
+    "several books arranged together on a shelf or in a stack, all in good condition",
+    "a book being held in hand clearly showing its undamaged cover for a review",
+    "a book wrapped in transparent protective plastic film, undamaged and intact",
+    "a book placed next to a Tiki or Shopee shipping box, book appears undamaged",
+    # ─── Quần Áo / Túi Xách / Thời Trang — Nguyên Vẹn ───
+    "a clothing item neatly folded, hung, or displayed with all seams and fabric intact",
+    "a garment or outfit laid flat or worn showing it is undamaged and in good condition",
+    "a bag, handbag, backpack, or wallet shown in perfect condition with no tears or defects",
+    "a fashion accessory or clothing item with all zippers, buttons, and seams intact",
+    # ─── Đồ Gia Dụng / Cốc Bình / Bát Dĩa — Nguyên Vẹn ───
+    "a cup, mug, tumbler, or water bottle with a perfectly smooth and unchipped rim",
+    "a glass, ceramic, or porcelain item in perfect condition with no cracks or chips",
+    "household drinkware, kitchenware, or tableware shown intact and undamaged for a review",
+    "a thermos, insulated bottle, or travel mug in mint condition with no dents or scratches",
+    "a plastic or stainless steel container shown clearly intact for a product review",
+    # ─── Điện Tử / Ỏp Lưng / Điện Thoại / Phụ Kiện — Nguyên Vẹn ───
+    "a phone case, smartphone case, or mobile phone accessory in perfect undamaged condition",
+    "a consumer electronics product shown in good intact condition for a review",
+    "a smartphone, tablet, or electronic gadget with no visible damage, cracks, or dents",
+    "an electronic device or accessory with all ports, buttons, and surfaces intact",
+    "a speaker, earphone, charger, or electronic peripheral in mint undamaged condition",
+    "a smartwatch, fitness tracker, or wearable device shown in good intact condition",
+    # ─── Mỹ Phẩm / Làm Đẹp — Nguyên Vẹn ───
+    "a cosmetic product, skincare cream, or beauty item in sealed intact condition",
+    "a perfume bottle, lotion tube, or makeup product with its container fully intact",
+    "beauty or personal care products displayed in good undamaged condition for review",
+    # ─── Giày Dép — Nguyên Vẹn ───
+    "a pair of shoes, sneakers, or sandals displayed in good condition with no damage",
+    "footwear shown clearly for a review, both shoes are undamaged and in good shape",
+    "a single shoe or sandal shown in intact condition with sole and upper fully attached",
+    # ─── Đồ Chơi / Đồ Nhựa — Nguyên Vẹn ───
+    "a toy, game set, or children's product in complete undamaged condition",
+    "a plastic product or household item in mint condition with no cracks or broken parts",
+    # ─── Thực Phẩm Đóng Gói / Thực Phẩm Chức Năng — Nguyên Vẹn ───
+    "a packaged food product, snack, or supplement in sealed intact original packaging",
+    "a canned, bottled, or boxed food or beverage product in undamaged condition",
+    # ─── Đồng Hồ / Trang Sức / Phụ Kiện — Nguyên Vẹn ───
+    "a watch, bracelet, necklace, or jewelry item in undamaged good condition for review",
+    "fashion accessories or jewelry displayed intact with no broken or missing parts",
+    # ─── Hộp / Bao Bì — Nguyên Vẹn ───
+    "product packaging or a shipping box that arrived in perfect undamaged condition",
+    "a sealed or opened box with all edges and corners intact, no crushing or tearing",
+    # ─── Tổng Quát — Nguyên Vẹn ───
+    "a product delivered in excellent condition with no signs of shipping damage",
+    "a product that arrived safely, undamaged, and in perfectly acceptable condition",
+    "a product reviewed positively with no complaints about physical damage or defects",
+    "an e-commerce product photo showing the item received is in good intact condition",
+]
+
+
+
+
+_N_DEFECT_DAMAGED = len(DEFECT_DAMAGED_PROMPTS)
+_N_DEFECT_INTACT  = len(DEFECT_INTACT_PROMPTS)
+_ALL_DEFECT_PROMPTS = DEFECT_DAMAGED_PROMPTS + DEFECT_INTACT_PROMPTS
+_DEFECT_LABELS = ["damaged", "intact"]
 
 # ── Singleton Cache ─────────────────────────────────────────────────────────
 
@@ -206,9 +346,15 @@ def _classify_single(image: Image.Image) -> dict:
         "irrelevant": round(group_probs[1].item(), 4),
     }
 
-    best_idx = group_probs.argmax().item()
-    label = _GROUP_LABELS[best_idx]
-    confidence = group_probs[best_idx].item()
+    # Require irrelevant_prob > 0.55 to label as irrelevant
+    # (default to product when uncertain — safer for defect pipeline)
+    _IRRELEVANT_THRESHOLD = 0.55
+    if group_probs[1].item() > _IRRELEVANT_THRESHOLD:
+        label = "irrelevant"
+        confidence = group_probs[1].item()
+    else:
+        label = "product"
+        confidence = group_probs[0].item()
 
     # Debug: prompt khớp nhất mỗi nhóm
     product_top = PRODUCT_PROMPTS[logits[:_N_PRODUCT].argmax().item()]
@@ -228,6 +374,112 @@ def _classify_single(image: Image.Image) -> dict:
 
 
 # ── Public API ──────────────────────────────────────────────────────────────
+
+def _classify_defect_single(image: Image.Image) -> dict:
+    """Core CLIP defect classification for one PIL image.
+
+    Returns probabilities for 'damaged' and 'intact' via mean-logit softmax.
+    """
+    model, processor, device = _load_clip_model()
+
+    inputs = processor(
+        text=_ALL_DEFECT_PROMPTS,
+        images=image,
+        return_tensors="pt",
+        padding=True,
+    ).to(device)
+
+    with torch.no_grad():
+        outputs = model(**inputs)
+        logits = outputs.logits_per_image[0]  # [N_damaged + N_intact]
+
+    damaged_logit = logits[:_N_DEFECT_DAMAGED].mean()
+    intact_logit  = logits[_N_DEFECT_DAMAGED:].mean()
+
+    group_logits = torch.stack([damaged_logit, intact_logit])
+    group_probs  = torch.softmax(group_logits, dim=0)  # [2]
+
+    probs = {
+        "damaged": round(group_probs[0].item(), 4),
+        "intact":  round(group_probs[1].item(), 4),
+    }
+
+    # Require damaged_prob > 0.65 to label as damaged (high-precision mode)
+    # When CLIP sees non-product images (food, animals, screenshots) that slipped
+    # through the irrelevant filter, it tends to weakly prefer 'damaged'.
+    # This threshold prevents those false positives.
+    _DAMAGED_THRESHOLD = 0.72
+    if group_probs[0].item() > _DAMAGED_THRESHOLD:
+        label = "damaged"
+        confidence = group_probs[0].item()
+    else:
+        label = "intact"
+        confidence = group_probs[1].item()
+
+    # Top matching prompt for debug
+    top_damaged = DEFECT_DAMAGED_PROMPTS[logits[:_N_DEFECT_DAMAGED].argmax().item()]
+    top_intact  = DEFECT_INTACT_PROMPTS[logits[_N_DEFECT_DAMAGED:].argmax().item()]
+
+    return {
+        "label":      label,
+        "confidence": round(confidence, 4),
+        "probs":      probs,
+        "top_prompts": {
+            "damaged": top_damaged,
+            "intact":  top_intact,
+        },
+    }
+
+
+def classify_defect_clip(image_path: str) -> Optional[dict]:
+    """Zero-shot CLIP defect classification for a single image.
+
+    Classifies a product review image as 'damaged' or 'intact' using
+    CLIP zero-shot similarity against carefully engineered prompt sets.
+    Reuses the singleton CLIP model cache (no extra memory cost).
+
+    Args:
+        image_path: Path to the image file.
+
+    Returns:
+        dict with keys:
+          - label (str): 'damaged' | 'intact'
+          - confidence (float): probability of the predicted label (0-1)
+          - probs (dict): {'damaged': float, 'intact': float}
+          - top_prompts (dict): best matching prompt per group (for debug)
+          - image_path (str): echoed back input path
+        None if the image cannot be opened.
+    """
+    if not os.path.exists(image_path):
+        _logger.warning("Image not found: %s", image_path)
+        return None
+
+    try:
+        image = Image.open(image_path).convert("RGB")
+    except Exception as exc:
+        _logger.warning("Cannot read image '%s': %s", image_path, exc)
+        return None
+
+    result = _classify_defect_single(image)
+    result["image_path"] = image_path
+    return result
+
+
+def classify_defect_clip_batch(
+    image_paths: List[str],
+) -> List[Optional[dict]]:
+    """Zero-shot CLIP defect classification for a batch of images.
+
+    Args:
+        image_paths: List of image file paths.
+
+    Returns:
+        List of dicts in the same order as image_paths.
+        None entries for images that cannot be opened.
+    """
+    _load_clip_model()
+    return [classify_defect_clip(p) for p in image_paths]
+
 
 def classify_image(image_path: str) -> Optional[dict]:
     """Phân loại 1 ảnh thành product / irrelevant.
