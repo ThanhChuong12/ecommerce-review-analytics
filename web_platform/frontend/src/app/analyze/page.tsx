@@ -286,8 +286,8 @@ function AnalyzeContent() {
       ],
       labelData: [
         { name: 'Nguyên vẹn', value: labels.intact },
-        { name: 'Móp méo', value: labels.damaged },
-        { name: 'Không L.Quan', value: labels.irrelevant }
+        { name: 'Móp méo/Hư hỏng', value: labels.damaged },
+        { name: 'Không liên quan', value: labels.irrelevant }
       ]
     };
   }, [result]);
@@ -316,8 +316,9 @@ function AnalyzeContent() {
     if (!metadata.aspectSentiment) return [];
     return [
       { subject: 'Sản phẩm', A: metadata.aspectSentiment.Product || 0, fullMark: 5 },
-      { subject: 'Đóng gói', A: metadata.aspectSentiment.Packaging || 0, fullMark: 5 },
       { subject: 'Vận chuyển', A: metadata.aspectSentiment.Shipping || 0, fullMark: 5 },
+      { subject: 'Dịch vụ', A: metadata.aspectSentiment.Service || 0, fullMark: 5 },
+      { subject: 'Giá cả', A: metadata.aspectSentiment.Price || 0, fullMark: 5 },
     ];
   }, [metadata]);
 
@@ -517,7 +518,7 @@ function AnalyzeContent() {
                       {/* Sentiment Pie */}
                       <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-8">
                         <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
-                          <TrendingUp className="w-6 h-6 text-blue-500 dark:text-indigo-400" /> Cảm Xúc Chung (PhoBERT)
+                          <TrendingUp className="w-6 h-6 text-blue-500 dark:text-indigo-400" /> Đánh Giá Tổng Quan
                         </h3>
                         <div className="h-64">
                           <ResponsiveContainer width="100%" height="100%">
@@ -537,7 +538,7 @@ function AnalyzeContent() {
                       {/* ABSA Radar Chart UC4.1 */}
                       <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-8">
                         <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
-                          <Bot className="w-6 h-6 text-fuchsia-500 dark:text-fuchsia-400" /> Phân Tích Khía Cạnh (ABSA)
+                          <Bot className="w-6 h-6 text-fuchsia-500 dark:text-fuchsia-400" /> Chất Lượng Dịch Vụ
                         </h3>
                         <div className="h-64">
                           {aspectData.length > 0 ? (
@@ -562,7 +563,7 @@ function AnalyzeContent() {
                       {/* Image Labels Bar Chart */}
                       <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-3xl shadow-lg border border-slate-100 dark:border-white/10 p-8">
                         <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800 dark:text-slate-100 font-quicksand">
-                          <AlertTriangle className="w-6 h-6 text-orange-500 dark:text-rose-400" /> Tình Trạng Hình Ảnh (ResNet)
+                          <AlertTriangle className="w-6 h-6 text-orange-500 dark:text-rose-400" /> Tình Trạng Hình Ảnh
                         </h3>
                         <div className="h-64">
                           <ResponsiveContainer width="100%" height="100%">
@@ -683,7 +684,7 @@ function AnalyzeContent() {
                         <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterLabel} onChange={e => { setFilterLabel(e.target.value); setCurrentPage(1); }}>
                           <option value="all">Mọi tình trạng ảnh</option>
                           <option value="intact">Nguyên vẹn</option>
-                          <option value="damaged">Móp méo</option>
+                          <option value="damaged">Móp méo/Hư hỏng</option>
                           <option value="irrelevant">Không liên quan</option>
                         </select>
                         <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterRating} onChange={e => { setFilterRating(e.target.value); setCurrentPage(1); }}>

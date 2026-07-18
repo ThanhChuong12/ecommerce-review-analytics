@@ -101,6 +101,11 @@ FEATURE_DENOISER_PATH = os.getenv("FEATURE_DENOISER_PATH", os.path.join(DENOISER
 TEXT_HEAD_PATH = os.getenv("TEXT_HEAD_PATH", os.path.join(DENOISER_DIR, "text_sentiment_head.pt"))
 IMAGE_HEAD_PATH = os.getenv("IMAGE_HEAD_PATH", os.path.join(DENOISER_DIR, "image_defect_head.pt"))
 
+# -- Image defect backend selector
+# Set USE_CLIP_FOR_DEFECT = True  → CLIP zero-shot (no extra model weights needed)
+# Set USE_CLIP_FOR_DEFECT = False → ResNet50 + Denoiser / old ResNet (original behaviour)
+USE_CLIP_FOR_DEFECT: bool = True
+
 # Map Vietnamese labels to English
 _SENTIMENT_VI_EN = {
     "tích cực": "positive",
@@ -883,7 +888,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                     extracted_aspects = [
                         list(aspect_anchors.keys())[idx]
                         for idx, score in enumerate(sim_scores)
-                        if score > 0.65
+                        if score > 0.45
                     ]
 
             aspects_list.append(extracted_aspects)
@@ -947,23 +952,25 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     try:
         from ai_engine.image_processing.zero_shot_clip import classify_image as clip_classify
 
-        total_clip = len(image_local_paths)
-        for i, path in enumerate(image_local_paths):
-            if i % max(1, total_clip // 10) == 0 or i == total_clip - 1:
-                _report_progress(product_id, 63 + int((i / total_clip) * 8), f"Đang lọc ảnh không liên quan ({i}/{total_clip})...")
-            if path and os.path.exists(str(path)):
-                clip_result = clip_classify(str(path))
-                if clip_result and clip_result["label"] == "irrelevant":
-                    clip_irrelevant_indices.add(i)
+        # Only iterate over valid paths — show correct count to frontend
+        valid_img_entries = [(i, p) for i, p in enumerate(image_local_paths) if p and os.path.exists(str(p))]
+        total_clip = len(valid_img_entries)
+        for enum_idx, (i, path) in enumerate(valid_img_entries):
+            if enum_idx % max(1, total_clip // 10) == 0 or enum_idx == total_clip - 1:
+                _report_progress(product_id, 63 + int((enum_idx / max(total_clip, 1)) * 8), f"Đang lọc ảnh không liên quan ({enum_idx}/{total_clip})...")
+            clip_result = clip_classify(str(path))
+            if clip_result and clip_result["label"] == "irrelevant":
+                clip_irrelevant_indices.add(i)
 
         clip_product_count = valid_count - len(clip_irrelevant_indices)
         print(f"[CLIP] {clip_product_count} product, {len(clip_irrelevant_indices)} irrelevant (tổng {valid_count})")
 
+
     except Exception as e:
         print(f"[CLIP] Filter thất bại (bỏ qua, giữ tất cả ảnh): {e}")
 
-    # -- STEP 5: ResNet50 Defect Detection
-    _report_progress(product_id, 72, "Đang nhận diện tình trạng hộp (ResNet50)...")
+    # -- STEP 5: Image Defect Detection
+    _report_progress(product_id, 72, "Đang nhận diện tình trạng hộp...")
 
     image_labels:     List[str]           = ["intact"] * len(scraped_rows)
     image_probs_dict: List[Optional[dict]] = [None]    * len(scraped_rows)
@@ -973,84 +980,60 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         image_labels[i] = "irrelevant"
         image_probs_dict[i] = {"irrelevant": 1.0, "intact": 0.0, "damaged": 0.0, "wrong_item": 0.0}
 
-    use_new_image_pipeline = False
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    try:
-        _load_new_models(device)
-        if _resnet_backbone_cache is not None and _denoiser_cache is not None and _image_head_cache is not None:
-            use_new_image_pipeline = True
-            print("[AI Engine] Using new ResNet50 + FeatureDenoiser + MLP Head image pipeline.")
-    except Exception as e:
-        print(f"[AI Engine] Error loading new image pipeline: {e}. Falling back to old model.")
-
-    if use_new_image_pipeline:
+    if USE_CLIP_FOR_DEFECT:
+        # ── CLIP zero-shot defect detection (USE_CLIP_FOR_DEFECT = True) ──
         try:
+            from ai_engine.image_processing.zero_shot_clip import classify_defect_clip
+
             valid_indices = [
                 i for i, p in enumerate(image_local_paths)
                 if p and os.path.exists(str(p))
                 and i not in clip_irrelevant_indices
             ]
-            valid_paths = [image_local_paths[i] for i in valid_indices]
 
-            if valid_paths:
-                import albumentations as A
-                from albumentations.pytorch import ToTensorV2
-                import cv2
-                
-                preprocess = A.Compose([
-                    A.Resize(224, 224),
-                    A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                    ToTensorV2(),
-                ])
-                
-                image_head, image_class_names = _image_head_cache
+            total_defect = len(valid_indices)
+            damaged_count = 0
+            for enum_idx, idx in enumerate(valid_indices):
+                if enum_idx % max(1, total_defect // 10) == 0 or enum_idx == total_defect - 1:
+                    _report_progress(product_id, 72 + int((enum_idx / max(total_defect, 1)) * 12), f"Đang phân tích tình trạng sản phẩm ({enum_idx}/{total_defect})...")
+                path = image_local_paths[idx]
+                clip_def = classify_defect_clip(str(path))
+                if clip_def is None:
+                    continue  # keep default "intact"
+                lbl = clip_def["label"]  # "damaged" | "intact"
+                image_labels[idx] = lbl
+                image_probs_dict[idx] = {
+                    "damaged":    clip_def["probs"].get("damaged", 0.0),
+                    "intact":     clip_def["probs"].get("intact",  0.0),
+                    "wrong_item": 0.0,
+                    "irrelevant": 0.0,
+                }
+                if lbl == "damaged":
+                    damaged_count += 1
 
-                total_resnet = len(valid_paths)
-                for enum_idx, (idx, path) in enumerate(zip(valid_indices, valid_paths)):
-                    if enum_idx % max(1, total_resnet // 10) == 0 or enum_idx == total_resnet - 1:
-                        _report_progress(product_id, 72 + int((enum_idx / total_resnet) * 12), f"Đang nhận diện hộp ({enum_idx}/{total_resnet})...")
-                    image_bgr = cv2.imread(str(path))
-                    if image_bgr is None:
-                        continue
-                    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-                    transformed = preprocess(image=image_rgb)
-                    img_tensor = transformed["image"].unsqueeze(0).to(device) # [1, 3, 224, 224]
-                    
-                    with torch.no_grad():
-                        raw_emb = _resnet_backbone_cache(img_tensor) # [1, 2048]
-                        dummy_text = torch.zeros(1, _denoiser_cache.text_dim, device=device)
-                        _, image_clean = _denoiser_cache(dummy_text, raw_emb)
-                        logits = image_head(image_clean)
-                        probs_tensor = torch.softmax(logits, dim=-1)[0].cpu().numpy()
-                        
-                    pred_idx = int(probs_tensor.argmax())
-                    lbl = image_class_names[pred_idx] # "defect" or "no-defect"
-                    
-                    if lbl == "defect":
-                        lbl_mapped = "damaged"
-                    else:
-                        lbl_mapped = "intact"
-                        
-                    image_labels[idx] = lbl_mapped
-                    
-                    mapped_probs = {
-                        "damaged": float(probs_tensor[1]) if len(probs_tensor) > 1 else 0.0,
-                        "intact": float(probs_tensor[0]) if len(probs_tensor) > 0 else 0.0,
-                    }
-                    image_probs_dict[idx] = mapped_probs
-
-                label_dist = Counter(image_labels[i] for i in valid_indices)
-                print(f"[New Image Pipeline] Label distribution: {dict(label_dist)}")
+            label_dist = Counter(image_labels[i] for i in valid_indices)
+            print(f"[CLIP Defect] Label distribution: {dict(label_dist)}")
         except Exception as e:
-            print(f"[New Image Pipeline] Failed: {e}. Falling back to old model.")
-            use_new_image_pipeline = False
+            print(f"[CLIP Defect] Failed: {e}. Falling back to ResNet.")
+            USE_CLIP_FOR_DEFECT_ACTIVE = False
+        else:
+            USE_CLIP_FOR_DEFECT_ACTIVE = True
+    else:
+        USE_CLIP_FOR_DEFECT_ACTIVE = False
 
-    if not use_new_image_pipeline:
-        if os.path.exists(RESNET_WEIGHTS):
+    if not USE_CLIP_FOR_DEFECT_ACTIVE:
+        use_new_image_pipeline = False
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        try:
+            _load_new_models(device)
+            if _resnet_backbone_cache is not None and _denoiser_cache is not None and _image_head_cache is not None:
+                use_new_image_pipeline = True
+                print("[AI Engine] Using new ResNet50 + FeatureDenoiser + MLP Head image pipeline.")
+        except Exception as e:
+            print(f"[AI Engine] Error loading new image pipeline: {e}. Falling back to old model.")
+
+        if use_new_image_pipeline:
             try:
-                from ai_engine.image_processing.defect_detection import detect_defect_resnet_batch
-
-                # Skip CLIP irrelevant images
                 valid_indices = [
                     i for i, p in enumerate(image_local_paths)
                     if p and os.path.exists(str(p))
@@ -1059,40 +1042,105 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                 valid_paths = [image_local_paths[i] for i in valid_indices]
 
                 if valid_paths:
-                    batch_results = detect_defect_resnet_batch(
-                        image_paths = valid_paths,
-                        model_path  = RESNET_WEIGHTS,
-                        threshold   = 0.85,
-                        batch_size  = 16,
-                    )
-                    # batch_results[j] = {"label": str, "confidence": float, "probabilities": {class:float}}
-                    for j, res in enumerate(batch_results):
-                        orig_i = valid_indices[j]
+                    import albumentations as A
+                    from albumentations.pytorch import ToTensorV2
+                    import cv2
+                    
+                    preprocess = A.Compose([
+                        A.Resize(224, 224),
+                        A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                        ToTensorV2(),
+                    ])
+                    
+                    image_head, image_class_names = _image_head_cache
+
+                    total_resnet = len(valid_paths)
+                    for enum_idx, (idx, path) in enumerate(zip(valid_indices, valid_paths)):
+                        if enum_idx % max(1, total_resnet // 10) == 0 or enum_idx == total_resnet - 1:
+                            _report_progress(product_id, 72 + int((enum_idx / total_resnet) * 12), f"Đang nhận diện hộp ({enum_idx}/{total_resnet})...")
+                        image_bgr = cv2.imread(str(path))
+                        if image_bgr is None:
+                            continue
+                        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+                        transformed = preprocess(image=image_rgb)
+                        img_tensor = transformed["image"].unsqueeze(0).to(device) # [1, 3, 224, 224]
                         
-                        # Map MobileNetV3 'defect'/'no-defect' to Web DB 'damaged'/'intact'
-                        lbl = res["label"]
-                        if lbl == "defect": lbl = "damaged"
-                        elif lbl == "no-defect": lbl = "intact"
-                        image_labels[orig_i] = lbl
-                        
-                        raw_probs = res.get("probabilities", {})
-                        mapped_probs = {}
-                        if "defect" in raw_probs:
-                            mapped_probs["damaged"] = raw_probs["defect"]
-                        if "no-defect" in raw_probs:
-                            mapped_probs["intact"] = raw_probs["no-defect"]
-                        if not mapped_probs:
-                            mapped_probs = raw_probs
+                        with torch.no_grad():
+                            raw_emb = _resnet_backbone_cache(img_tensor) # [1, 2048]
+                            dummy_text = torch.zeros(1, _denoiser_cache.text_dim, device=device)
+                            _, image_clean = _denoiser_cache(dummy_text, raw_emb)
+                            logits = image_head(image_clean)
+                            probs_tensor = torch.softmax(logits, dim=-1)[0].cpu().numpy()
                             
-                        image_probs_dict[orig_i] = mapped_probs
+                        pred_idx = int(probs_tensor.argmax())
+                        lbl = image_class_names[pred_idx] # "defect" or "no-defect"
+                        
+                        if lbl == "defect":
+                            lbl_mapped = "damaged"
+                        else:
+                            lbl_mapped = "intact"
+                            
+                        image_labels[idx] = lbl_mapped
+                        
+                        mapped_probs = {
+                            "damaged": float(probs_tensor[1]) if len(probs_tensor) > 1 else 0.0,
+                            "intact": float(probs_tensor[0]) if len(probs_tensor) > 0 else 0.0,
+                        }
+                        image_probs_dict[idx] = mapped_probs
 
                     label_dist = Counter(image_labels[i] for i in valid_indices)
-                    print(f"[ResNet50] Label distribution: {dict(label_dist)}")
-
+                    print(f"[New Image Pipeline] Label distribution: {dict(label_dist)}")
             except Exception as e:
-                print(f"[ResNet50] Inference thất bại (fallback intact): {e}")
-        else:
-            print(f"[ResNet50] Weights không tìm thấy tại {RESNET_WEIGHTS} → skip image classification")
+                print(f"[New Image Pipeline] Failed: {e}. Falling back to old model.")
+                use_new_image_pipeline = False
+
+        if not use_new_image_pipeline:
+            if os.path.exists(RESNET_WEIGHTS):
+                try:
+                    from ai_engine.image_processing.defect_detection import detect_defect_resnet_batch
+
+                    # Skip CLIP irrelevant images
+                    valid_indices = [
+                        i for i, p in enumerate(image_local_paths)
+                        if p and os.path.exists(str(p))
+                        and i not in clip_irrelevant_indices
+                    ]
+                    valid_paths = [image_local_paths[i] for i in valid_indices]
+
+                    if valid_paths:
+                        batch_results = detect_defect_resnet_batch(
+                            image_paths = valid_paths,
+                            model_path  = RESNET_WEIGHTS,
+                            threshold   = 0.85,
+                            batch_size  = 16,
+                        )
+                        for j, res in enumerate(batch_results):
+                            orig_i = valid_indices[j]
+                            
+                            lbl = res["label"]
+                            if lbl == "defect": lbl = "damaged"
+                            elif lbl == "no-defect": lbl = "intact"
+                            image_labels[orig_i] = lbl
+                            
+                            raw_probs = res.get("probabilities", {})
+                            mapped_probs = {}
+                            if "defect" in raw_probs:
+                                mapped_probs["damaged"] = raw_probs["defect"]
+                            if "no-defect" in raw_probs:
+                                mapped_probs["intact"] = raw_probs["no-defect"]
+                            if not mapped_probs:
+                                mapped_probs = raw_probs
+                                
+                            image_probs_dict[orig_i] = mapped_probs
+
+                        label_dist = Counter(image_labels[i] for i in valid_indices)
+                        print(f"[ResNet50] Label distribution: {dict(label_dist)}")
+
+                except Exception as e:
+                    print(f"[ResNet50] Inference thất bại (fallback intact): {e}")
+            else:
+                print(f"[ResNet50] Weights không tìm thấy tại {RESNET_WEIGHTS} → skip image classification")
+
 
     # -- STEP 6: Fusion Engine
     # Uses model probabilities: TextProbs from sentiment, ImageProbs from MobileNetV3
@@ -1211,8 +1259,8 @@ def heavy_ai_process(product_id: int, url: str) -> None:
             if not pool:
                 continue
             ratio = len(pool) / max(total_with_text, 1)
-            n = max(2, min(15, round(ratio * 40)))
-            long_picks = sorted(pool, key=len, reverse=True)[:5]
+            n = max(1, min(10, round(ratio * 25)))
+            long_picks = sorted(pool, key=len, reverse=True)[:4]
             rest = [x for x in pool if x not in long_picks]
             _rnd.shuffle(rest)
             sample_reviews.extend((long_picks + rest)[:n])
@@ -1238,27 +1286,28 @@ def heavy_ai_process(product_id: int, url: str) -> None:
                 self.response_format = None
                 self.system_prompt = (
                     "Bạn là trợ lý AI tổng hợp đánh giá sản phẩm thương mại điện tử Việt Nam.\n"
-                    "Dữ liệu bạn nhận được gồm: (1) Tần suất từ khóa từ TOÀN BỘ đánh giá, (2) Khía cạnh, (3) Review mẫu nhiều mức sao.\n\n"
-                    "NHIỆM VỤ: Đọc hiểu toàn bộ và viết tóm tắt CHÂN THỰC, TỰ NHIÊN như một người đã đọc hàng trăm bình luận thật.\n\n"
+                    "Dữ liệu bạn nhận được gồm: (1) Tần suất từ khóa tổng hợp từ TOÀN BỘ đánh giá, (2) Điểm khía cạnh, (3) Một vài review mẫu để tham khảo ngữ cảnh.\n\n"
+                    "NHIỆM VỤ: Dựa vào TẦN SUẤT TỪ KHÓA là chủ yếu, viết tóm tắt KHÁCH QUAN, SÚC TÍCH, MANG TÍNH KHÁI QUÁT như một báo cáo phân tích — KHÔNG như lời một cá nhân đang chia sẻ cảm xúc.\n\n"
                     "CẤU TRÚC BẮT BUỘC (copy y chang, chỉ điền nội dung vào):\n"
                     "Về sản phẩm:\n"
                     "+ [nhận xét tích cực phổ biến nhất]\n"
-                    "+ [nhận xét tích cực khác nếu thực sự khác biệt]\n"
+                    "+ [nhận xét tích cực khác nếu thực sự khác biệt về nội dung]\n"
                     "...\n"
-                    "- [điểm trừ nếu nhiều người đề cập]\n\n"
+                    "- [điểm trừ nếu xuất hiện nhiều trong đánh giá]\n\n"
                     "Về dịch vụ:\n"
-                    "+ [nhận xét giao hàng/đóng gói tốt]\n"
+                    "+ [nhận xét giao hàng/đóng gói/shop tích cực]\n"
                     "- [điểm trừ dịch vụ nếu có]\n\n"
                     "LUẬT TUYỆT ĐỐI PHẢI TUÂN THEO:\n"
-                    "1. KHÔNG đếm (không viết: 1 đánh giá, N lần, nhiều người, 206 đánh giá...). Hãy viết thành câu chủ động tự nhiên.\n"
+                    "1. KHÔNG đếm số lượng (không viết: 1 đánh giá, N lần, nhiều người, 206 đánh giá...). Hãy viết thành câu khái quát chủ động.\n"
                     "2. KHÔNG dùng **, markdown, hay in đậm bất kỳ thứ gì.\n"
                     "3. Dấu `+` CHỈ DÀNH CHO KHEN (ưu điểm). Dấu `-` CHỈ DÀNH CHO CHÊ (nhược điểm). Tuyệt đối không để ý chê vào phần dấu `+`.\n"
-                    "4. Mỗi dòng + hoặc - là một câu hoàn chỉnh từ 10-25 từ, diễn đạt tự nhiên như người thật.\n"
-                    "5. TỐI ĐA 4 dòng cho phần về sản phẩm, 3 dòng cho phần về dịch vụ. Ý ít thì viết ít dòng, không viết chỉ để cho đủ mức tối đa.\n"
-                    "6. Dùng TẦN SUẤT từ khóa để biết điểm nào phổ biến — từ khóa xuất hiện nhiều = ý nhiều người nói.\n"
-                    "7. GOM Ý TRIỆT ĐỂ: Gom các ý tương tự nhau thành 1 dòng duy nhất (Ví dụ: nội dung hay + đọc cuốn + ý nghĩa -> gộp thành 1 câu). Tránh tách các ý tương tự nhau thành nhiều dòng khác nhau.\n"
-                    "8. Đánh giá điểm trừ phải khách quan, nếu nhận xét của số ít thì nói là một số ít người gặp phải.\n"
-                    "9. KHÔNG NƯƠNG THEO ngôn từ cực đoan, từ lóng hoặc nói quá của khách hàng ở review mẫu (Ví dụ: khách chê 'dịch vụ tệ nhất tôi từng thấy' phải sửa thành tông giọng trung lập là 'một số người đánh giá dịch vụ chưa tốt'; khách khen 'cuốn dã man mng nên mua nha' phải sửa thành 'nội dung tác phẩm lôi cuốn và hấp dẫn')."
+                    "4. Mỗi dòng + hoặc - là một câu hoàn chỉnh từ 8-20 từ, diễn đạt KHÁCH QUAN, KHÁI QUÁT như ngôn ngữ báo cáo — KHÔNG mang cảm xúc cá nhân, KHÔNG dùng từ lóng, KHÔNG nói quá.\n"
+                    "5. TỐI ĐA 4 dòng cho phần về sản phẩm, 3 dòng cho phần về dịch vụ. Ý ít thì viết ít dòng, KHÔNG viết thêm chỉ để cho đủ mức tối đa.\n"
+                    "6. Dùng TẦN SUẤT từ khóa làm nguồn chính — từ khóa xuất hiện nhiều = điểm nhiều người đồng thuận. KHÔNG dựa chủ yếu vào review mẫu.\n"
+                    "7. GOM Ý TRIỆT ĐỂ: Các ý có nghĩa tương đồng PHẢI gộp thành 1 dòng duy nhất. Ví dụ: 'nội dung hay', 'đọc cuốn', 'ý nghĩa sâu sắc' → gộp thành 1 câu. TUYỆT ĐỐI không tách các ý tương tự thành nhiều dòng riêng biệt.\n"
+                    "8. Điểm trừ phải khách quan. Nếu chỉ một số ít người đề cập, diễn đạt là 'một số ít người dùng ghi nhận...' hoặc 'đôi khi... (chỉ dành cho điểm trừ)'.\n"
+                    "9. TUYỆT ĐỐI KHÔNG COPY ngôn từ, câu văn, hay cụm từ từ review mẫu. Review mẫu chỉ dùng để hiểu ngữ cảnh. Kết quả phải là câu văn do bạn DIỄN GIẢI LẠI theo tông khái quát (Ví dụ: 'cuốn dã man nha mng' → 'nội dung lôi cuốn và hấp dẫn'; 'giao hàng siêu nhanh quá trời' → 'thời gian giao hàng nhanh').\n"
+                    "10. KHÔNG dùng ngôn từ cảm xúc cực đoan hoặc từ lóng: không viết 'xuất sắc', 'tuyệt vời', 'cực kì', 'siêu', 'dã man', 'ưng cực kì'... Thay bằng ngôn ngữ trung tính: 'tốt', 'đáng tin cậy', 'hài lòng', 'nhanh chóng'."
                 )
 
             def summarize(self, text: str) -> str:
@@ -1371,8 +1420,8 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     # Map raw aspect keys to frontend display names.
     _aspect_map = {
         "product":  "Product",
-        "shipping": "Packaging",   # shipping aspect = packaging + delivery
-        "service":  "Shipping",    # service aspect = delivery service
+        "shipping": "Shipping",
+        "service":  "Service",
         "price":    "Price",
     }
     aspect_sentiment_result: dict = {}
@@ -1387,10 +1436,12 @@ def heavy_ai_process(product_id: int, url: str) -> None:
     
     if "Product" not in aspect_sentiment_result:
         aspect_sentiment_result["Product"] = round(avg_sentiment, 1)
-    if "Packaging" not in aspect_sentiment_result:
-        aspect_sentiment_result["Packaging"] = round(max(1.0, avg_sentiment - 0.3), 1)
     if "Shipping" not in aspect_sentiment_result:
         aspect_sentiment_result["Shipping"] = round(max(1.0, avg_sentiment - 0.2), 1)
+    if "Service" not in aspect_sentiment_result:
+        aspect_sentiment_result["Service"] = round(max(1.0, avg_sentiment - 0.1), 1)
+    if "Price" not in aspect_sentiment_result:
+        aspect_sentiment_result["Price"] = round(max(1.0, avg_sentiment - 0.3), 1)
 
     # -- Keyword extraction
     try:
