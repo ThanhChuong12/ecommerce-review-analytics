@@ -140,7 +140,7 @@ class BaseLLMClient:
         provider_chain: Optional[List[str]] = None,
         timeout: float = 15.0,
     ) -> None:
-        self.provider_chain = provider_chain or ["groq", "gemini", "openai"]
+        self.provider_chain = provider_chain or ["gemini", "groq", "openai"]
         self.timeout = timeout
         self.system_prompt = ""
         self.temperature = 0.0
@@ -173,7 +173,7 @@ class BaseLLMClient:
         if self.response_format == "json_object":
             generation_config["response_mime_type"] = "application/json"
 
-        model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        model_name = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
         model = genai.GenerativeModel(
             model_name=model_name,
             generation_config=generation_config,

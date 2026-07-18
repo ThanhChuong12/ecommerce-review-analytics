@@ -101,6 +101,9 @@ IRRELEVANT_PROMPTS = [
     "a screenshot of a phone app, chat message, or video thumbnail",
     "a picture containing only text, song lyrics, quotes, or typography",
     "a screenshot of a website, social media post, or online order confirmation",
+    "a screenshot of a shopping cart page, order list, or mobile checkout screen",
+    "a mobile screen capture showing product listings with price tags, checkboxes, and cart icon",
+    "a screenshot of a shopee or tiki cart with product prices and quantity selectors",
     # Ảnh tối, nhòe, không rõ nội dung — reinforced
     "a very dark or dimly lit photo where nothing is clearly visible",
     "a completely black image, very dark photo, or fully white blank image",
@@ -148,8 +151,12 @@ DEFECT_DAMAGED_PROMPTS = [
     "a shipping box with deeply collapsed corners or a completely caved-in side",
     "a cardboard package severely squeezed or compressed out of its original shape",
     "a product package with large permanent dents caused by heavy impact during shipping",
-    "a shipping carton that arrived completely collapsed or heavily deformed",
     "a product tube or cylindrical package that is severely dented or crushed",
+    # ─── Lon Sữa / Hộp Thiếc — Hư Hỏng ───
+    "a dented milk tin, metal can, or tin container showing a physical dent on its surface or rim",
+    "a metal cylinder or tin can with a collapsed edge or dented metal body",
+    "a milk can with a deformed rim, crushed metal lid, or dent on the side",
+    "a tin container or milk powder can with visible denting or deformation from shipping",
     # ─── Rách / Gãy / Vỡ — Hư Hỏng ───
     "torn or ripped product packaging with clearly visible holes or large openings",
     "a product box where a corner or edge has been broken off or physically split open",
@@ -245,6 +252,8 @@ DEFECT_INTACT_PROMPTS = [
     # ─── Thực Phẩm Đóng Gói / Thực Phẩm Chức Năng — Nguyên Vẹn ───
     "a packaged food product, snack, or supplement in sealed intact original packaging",
     "a canned, bottled, or boxed food or beverage product in undamaged condition",
+    "a milk tin, powder milk can, or metal tin container in perfect round shape with no dents",
+    "a cylindrical metal can or food tin with smooth, even edges and no physical deformation",
     # ─── Đồng Hồ / Trang Sức / Phụ Kiện — Nguyên Vẹn ───
     "a watch, bracelet, necklace, or jewelry item in undamaged good condition for review",
     "fashion accessories or jewelry displayed intact with no broken or missing parts",
@@ -346,9 +355,9 @@ def _classify_single(image: Image.Image) -> dict:
         "irrelevant": round(group_probs[1].item(), 4),
     }
 
-    # Require irrelevant_prob > 0.55 to label as irrelevant
-    # (default to product when uncertain — safer for defect pipeline)
-    _IRRELEVANT_THRESHOLD = 0.55
+    # Đặt threshold ở mức 0.35 (phù hợp với Mean Logit) để lọc chính xác screenshot giỏ hàng (43.4%)
+    # mà không chạm tới ảnh sản phẩm thực tế như sách vở (chỉ chiếm 0.2% - 2%).
+    _IRRELEVANT_THRESHOLD = 0.35
     if group_probs[1].item() > _IRRELEVANT_THRESHOLD:
         label = "irrelevant"
         confidence = group_probs[1].item()
@@ -404,11 +413,9 @@ def _classify_defect_single(image: Image.Image) -> dict:
         "intact":  round(group_probs[1].item(), 4),
     }
 
-    # Require damaged_prob > 0.65 to label as damaged (high-precision mode)
-    # When CLIP sees non-product images (food, animals, screenshots) that slipped
-    # through the irrelevant filter, it tends to weakly prefer 'damaged'.
-    # This threshold prevents those false positives.
-    _DAMAGED_THRESHOLD = 0.72
+    # Đặt threshold móp méo xuống 0.61 (thay vì 0.72 cũ) để phát hiện nhạy hơn các vết móp trên lon sữa
+    # mà không gây nhầm lẫn trên các ảnh sản phẩm nguyên vẹn bình thường.
+    _DAMAGED_THRESHOLD = 0.61
     if group_probs[0].item() > _DAMAGED_THRESHOLD:
         label = "damaged"
         confidence = group_probs[0].item()

@@ -1429,19 +1429,7 @@ def heavy_ai_process(product_id: int, url: str) -> None:
         display_name = _aspect_map.get(asp_key, asp_key.title())
         aspect_sentiment_result[display_name] = round(sum(asp_scores) / len(asp_scores), 1)
 
-    # Ensure default aspect scores if undetected
-    # Fallback to average sentiment score (5, 1, 3) instead of rating, to match the pie chart
-    sentiment_scores = [5 if s == "positive" else (1 if s == "negative" else 3) for s in sentiments]
-    avg_sentiment = sum(sentiment_scores) / max(len(sentiment_scores), 1)
-    
-    if "Product" not in aspect_sentiment_result:
-        aspect_sentiment_result["Product"] = round(avg_sentiment, 1)
-    if "Shipping" not in aspect_sentiment_result:
-        aspect_sentiment_result["Shipping"] = round(max(1.0, avg_sentiment - 0.2), 1)
-    if "Service" not in aspect_sentiment_result:
-        aspect_sentiment_result["Service"] = round(max(1.0, avg_sentiment - 0.1), 1)
-    if "Price" not in aspect_sentiment_result:
-        aspect_sentiment_result["Price"] = round(max(1.0, avg_sentiment - 0.3), 1)
+
 
     # -- Keyword extraction
     try:

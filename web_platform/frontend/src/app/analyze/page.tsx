@@ -133,6 +133,7 @@ function AnalyzeContent() {
   const [filterSentiment, setFilterSentiment] = useState('all');
   const [filterLabel, setFilterLabel] = useState('all');
   const [filterRating, setFilterRating] = useState('all');
+  const [filterType, setFilterType] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -298,9 +299,11 @@ function AnalyzeContent() {
       if (filterSentiment !== 'all' && r.sentiment !== filterSentiment) return false;
       if (filterLabel !== 'all' && r.label !== filterLabel) return false;
       if (filterRating !== 'all' && r.rating.toString() !== filterRating) return false;
+      if (filterType === 'with_image' && !r.image_path) return false;
+      if (filterType === 'has_text' && (!r.review_text || r.review_text.trim() === '')) return false;
       return true;
     });
-  }, [result, filterSentiment, filterLabel, filterRating]);
+  }, [result, filterSentiment, filterLabel, filterRating, filterType]);
 
   // Cross-Modal Alert Logic
   const crossModalAlerts = useMemo(() => {
@@ -314,12 +317,17 @@ function AnalyzeContent() {
   // Map ABSA Data
   const aspectData = useMemo(() => {
     if (!metadata.aspectSentiment) return [];
-    return [
-      { subject: 'Sản phẩm', A: metadata.aspectSentiment.Product || 0, fullMark: 5 },
-      { subject: 'Vận chuyển', A: metadata.aspectSentiment.Shipping || 0, fullMark: 5 },
-      { subject: 'Dịch vụ', A: metadata.aspectSentiment.Service || 0, fullMark: 5 },
-      { subject: 'Giá cả', A: metadata.aspectSentiment.Price || 0, fullMark: 5 },
-    ];
+    const mapping: Record<string, string> = {
+      'Product': 'Sản phẩm',
+      'Shipping': 'Vận chuyển',
+      'Service': 'Dịch vụ',
+      'Price': 'Giá cả'
+    };
+    return Object.entries(metadata.aspectSentiment).map(([key, val]) => ({
+      subject: mapping[key] || key,
+      A: val as number,
+      fullMark: 5
+    }));
   }, [metadata]);
 
   return (
@@ -694,6 +702,11 @@ function AnalyzeContent() {
                           <option value="3">3 ⭐</option>
                           <option value="2">2 ⭐</option>
                           <option value="1">1 ⭐</option>
+                        </select>
+                        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none focus:border-blue-500" value={filterType} onChange={e => { setFilterType(e.target.value); setCurrentPage(1); }}>
+                          <option value="all">Mọi hình thức</option>
+                          <option value="has_text">Đánh giá có text</option>
+                          <option value="with_image">Đánh giá có ảnh</option>
                         </select>
                       </div>
 
