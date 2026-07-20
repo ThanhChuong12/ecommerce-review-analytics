@@ -170,7 +170,7 @@ def _write_csv(path: Path, rows: list[dict], fieldnames: list[str]) -> None:
             writer.writerow(row)
 
 
-# Ảnh và video chứa trong folder data/raw_media và file media.csv
+# Downloaded images and videos are stored in data/raw_media directory, and manifest is saved to media.csv
 def download_media(csv_inputs: list[str], timeout: float, seed: int | None) -> None:
     _ensure_dirs()
     if seed is not None:
@@ -264,8 +264,8 @@ def download_media(csv_inputs: list[str], timeout: float, seed: int | None) -> N
     )
 
 
-# Ảnh frame được trích từ các video bỏ vào trong folder data/frames, tạo file
-# images.csv lúc này chỉ chứa các frame từ video
+# Video frames are extracted into data/frames folder, and images.csv
+# is populated with metadata for these frames
 def extract_frames(frames_per_video: int, seed: int | None) -> None:
     _ensure_dirs()
     if seed is not None:
@@ -352,7 +352,7 @@ def extract_frames(frames_per_video: int, seed: int | None) -> None:
         ],
     )
 
-# Xóa ảnh lỗi 
+# Remove corrupted images 
 def validate_images() -> None:
     _ensure_dirs()
 
@@ -382,7 +382,7 @@ def validate_images() -> None:
     print(f"[validate] Valid images: {len(valid_rows)}")
 
 
-# Đưa các ảnh gốc trong media.csv vào trong images.csv
+# Add original downloaded images from media.csv to images.csv
 def build_images_manifest() -> None:
     _ensure_dirs()
 
@@ -604,7 +604,7 @@ def _init_provider(provider: str):
     raise ValueError(f"Unsupported provider: {provider}")
 
 
-# Label ảnh
+# Label images
 def label_images(
     model_name: str,
     provider: str,

@@ -1,26 +1,26 @@
 """
 split_image_dataset.py
 ----------------------
-Tách toàn bộ ảnh trong labeled/labeled/ thành 3 tập vật lý:
-  labeled/train/   — 70%  dùng để train model
-  labeled/val/     — 15%  dùng để early stopping / tune hyperparams
-  labeled/test/    — 15%  dùng để đánh giá cuối cùng (KHÔNG chạm trong training)
+Split all images in labeled/labeled/ into 3 physical subsets:
+  labeled/train/   — 70%  used to train models
+  labeled/val/     — 15%  used for early stopping / tuning hyperparameters
+  labeled/test/    — 15%  used for final evaluation (NOT touched during training)
 
-Dùng StratifiedShuffleSplit để đảm bảo tỉ lệ class giống nhau ở cả 3 tập.
+Uses StratifiedShuffleSplit to ensure class ratios are identical across all 3 subsets.
 
-⚠️  QUAN TRỌNG: Chỉ chạy script này MỘT LẦN DUY NHẤT.
-    Test set phải được cố định trước khi bất kỳ training nào bắt đầu.
-    Nếu chạy lại sẽ bị chặn trừ khi truyền --force.
+⚠️  IMPORTANT: Only run this script ONCE.
+    The test set must be fixed before any training starts.
+    Subsequent runs will be blocked unless --force is specified.
 
-Cách dùng:
+Usage:
     python scripts/split_image_dataset.py
     python scripts/split_image_dataset.py --train 0.70 --val 0.15 --test 0.15
-    python scripts/split_image_dataset.py --dry-run      # xem phân bố mà không copy
-    python scripts/split_image_dataset.py --force        # ghi đè nếu đã split rồi
+    python scripts/split_image_dataset.py --dry-run      # view distribution without copying
+    python scripts/split_image_dataset.py --force        # overwrite if split already exists
 
-Cấu trúc đầu ra:
+Output structure:
     labeled/
-    ├── labeled/        ← giữ nguyên (nguồn gốc)
+    ├── labeled/        ← unchanged (original source)
     ├── train/          intact/ damaged/ wrong_item/ irrelevant/
     ├── val/            intact/ damaged/ wrong_item/ irrelevant/
     └── test/           intact/ damaged/ wrong_item/ irrelevant/
@@ -42,26 +42,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Thư mục gốc project
+# Project root directory
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# Nguồn: thư mục labeled gốc
+# Source: original labeled directory
 SOURCE_DIR = PROJECT_ROOT / "labeled" / "labeled"
 
-# Đích: 3 tập mới
+# Destination: 3 new subsets
 SPLIT_DIRS = {
     "train": PROJECT_ROOT / "labeled" / "train",
     "val":   PROJECT_ROOT / "labeled" / "val",
     "test":  PROJECT_ROOT / "labeled" / "test",
 }
 
-# File lock để tránh chạy lại
+# Manifest lock file to prevent subsequent runs
 SPLIT_MANIFEST = PROJECT_ROOT / "labeled" / "split_manifest.json"
 
-# Class names theo ImageFolder format
+# Class names in ImageFolder format
 CLASS_NAMES = ["intact", "damaged", "wrong_item", "irrelevant"]
 
-# Định dạng ảnh được chấp nhận
+# Allowed image formats
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -70,29 +70,29 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 # ---------------------------------------------------------------------------
 
 def _collect_images(source_dir: Path) -> Tuple[List[Path], List[str]]:
-    """Thu thập tất cả ảnh và nhãn từ source_dir (ImageFolder format)."""
+    """Collect all images and labels from source_dir (ImageFolder format)."""
     all_paths: List[Path] = []
     all_labels: List[str] = []
 
     for cls in CLASS_NAMES:
         cls_dir = source_dir / cls
         if not cls_dir.exists():
-            logger.warning("Không tìm thấy thư mục class: %s — bỏ qua", cls_dir)
+            logger.warning("Class directory not found: %s — skipping", cls_dir)
             continue
         imgs = [p for p in cls_dir.iterdir() if p.suffix.lower() in IMAGE_EXTENSIONS]
         all_paths.extend(imgs)
         all_labels.extend([cls] * len(imgs))
-        logger.info("  %-15s: %6d ảnh", cls, len(imgs))
+        logger.info("  %-15s: %6d images", cls, len(imgs))
 
     return all_paths, all_labels
 
 
 def _print_split_stats(name: str, labels: List[str]) -> None:
-    """In phân bố class của 1 tập."""
+    """Print class distribution for a subset."""
     from collections import Counter
     counts = Counter(labels)
     total = len(labels)
-    logger.info("  %s (%d ảnh):", name, total)
+    logger.info("  %s (%d images):", name, total)
     for cls in CLASS_NAMES:
         n = counts.get(cls, 0)
         pct = n / total * 100 if total > 0 else 0
@@ -105,7 +105,7 @@ def _copy_images(
     split_name: str,
     dry_run: bool,
 ) -> int:
-    """Copy ảnh vào labeled/<split_name>/<class>/. Trả về số ảnh đã copy."""
+    """Copy images into labeled/<split_name>/<class>/. Returns the number of copied images."""
     dest_root = SPLIT_DIRS[split_name]
     copied = 0
     skipped = 0
@@ -125,7 +125,7 @@ def _copy_images(
         copied += 1
 
     if skipped > 0:
-        logger.info("  [%s] %d ảnh đã tồn tại — bỏ qua", split_name, skipped)
+        logger.info("  [%s] %d images already exist — skipping", split_name, skipped)
 
     return copied
 
@@ -142,47 +142,47 @@ def split(
     dry_run: bool,
     force: bool,
 ) -> None:
-    # Kiểm tra tổng tỉ lệ
+    # Verify split ratios sum to 1.0
     total = round(train_ratio + val_ratio + test_ratio, 6)
     if abs(total - 1.0) > 1e-6:
-        logger.error("Tổng tỉ lệ train+val+test phải bằng 1.0, hiện tại = %.4f", total)
+        logger.error("Sum of train+val+test ratios must equal 1.0, currently = %.4f", total)
         sys.exit(1)
 
-    # Kiểm tra đã split chưa
+    # Check if already split
     if SPLIT_MANIFEST.exists() and not force:
         logger.error(
-            "Dataset đã được split trước đó!\n"
+            "Dataset has already been split!\n"
             "  Manifest: %s\n"
-            "  Dùng --force để ghi đè (KHÔNG khuyến nghị sau khi đã train).",
+            "  Use --force to overwrite (NOT recommended after training has started).",
             SPLIT_MANIFEST,
         )
         sys.exit(1)
 
     if not SOURCE_DIR.exists():
         logger.error(
-            "Không tìm thấy thư mục nguồn: %s\n"
-            "Hãy chắc chắn ảnh đã được gán nhãn và copy vào labeled/labeled/",
+            "Source directory not found: %s\n"
+            "Ensure images are labeled and copied to labeled/labeled/",
             SOURCE_DIR,
         )
         sys.exit(1)
 
-    # --- Thu thập ảnh ---
+    # --- Collect images ---
     logger.info("=" * 60)
-    logger.info("Đọc ảnh từ: %s", SOURCE_DIR)
+    logger.info("Reading images from: %s", SOURCE_DIR)
     all_paths, all_labels = _collect_images(SOURCE_DIR)
     total_images = len(all_paths)
 
     if total_images == 0:
-        logger.error("Không tìm thấy ảnh nào trong %s", SOURCE_DIR)
+        logger.error("No images found in %s", SOURCE_DIR)
         sys.exit(1)
 
-    logger.info("Tổng cộng: %d ảnh", total_images)
+    logger.info("Total: %d images", total_images)
     logger.info("=" * 60)
 
-    # --- Chia indices ---
+    # --- Split indices ---
     from sklearn.model_selection import StratifiedShuffleSplit
 
-    # Bước 1: Tách test trước (giữ hoàn toàn sạch)
+    # Step 1: Separate test set first (keeping it completely clean)
     sss_test = StratifiedShuffleSplit(
         n_splits=1, test_size=test_ratio, random_state=seed
     )
@@ -190,7 +190,7 @@ def split(
         sss_test.split(range(total_images), all_labels)
     )
 
-    # Bước 2: Chia trainval → train + val
+    # Step 2: Split trainval → train + val
     val_ratio_adjusted = val_ratio / (train_ratio + val_ratio)
     sss_val = StratifiedShuffleSplit(
         n_splits=1, test_size=val_ratio_adjusted, random_state=seed
@@ -203,36 +203,36 @@ def split(
     train_idx = [trainval_idx[i] for i in train_local_idx]
     val_idx   = [trainval_idx[i] for i in val_local_idx]
 
-    # Tập hợp paths và labels cho mỗi split
+    # Aggregate paths and labels for each split
     splits = {
         "train": ([all_paths[i] for i in train_idx], [all_labels[i] for i in train_idx]),
         "val":   ([all_paths[i] for i in val_idx],   [all_labels[i] for i in val_idx]),
         "test":  ([all_paths[i] for i in test_idx],  [all_labels[i] for i in test_idx]),
     }
 
-    # --- In thống kê ---
-    logger.info("Phân bố sau khi split (seed=%d):", seed)
+    # --- Print statistics ---
+    logger.info("Distribution after split (seed=%d):", seed)
     for split_name, (paths, labels) in splits.items():
         _print_split_stats(split_name, labels)
 
     if dry_run:
         logger.info("=" * 60)
-        logger.info("DRY RUN — Không có file nào được copy.")
-        logger.info("Chạy lại KHÔNG có --dry-run để thực hiện thật.")
+        logger.info("DRY RUN — No files were copied.")
+        logger.info("Re-run WITHOUT --dry-run to perform the actual split.")
         return
 
-    # --- Copy ảnh ---
+    # --- Copy images ---
     logger.info("=" * 60)
-    logger.info("Bắt đầu copy ảnh...")
+    logger.info("Starting image copying...")
 
     total_copied = 0
     for split_name, (paths, labels) in splits.items():
-        logger.info("  Đang copy tập '%s' (%d ảnh)...", split_name, len(paths))
+        logger.info("  Copying '%s' subset (%d images)...", split_name, len(paths))
         copied = _copy_images(paths, labels, split_name, dry_run=False)
         total_copied += copied
-        logger.info("  ✓ %s: %d ảnh đã copy", split_name, copied)
+        logger.info("  ✓ %s: %d images copied", split_name, copied)
 
-    # --- Lưu manifest ---
+    # --- Save manifest ---
     manifest_data = {
         "seed": seed,
         "train_ratio": train_ratio,
@@ -256,29 +256,29 @@ def split(
         json.dump(manifest_data, f, indent=2, ensure_ascii=False)
 
     logger.info("=" * 60)
-    logger.info("✅ Hoàn tất! Đã copy %d / %d ảnh.", total_copied, total_images)
-    logger.info("Manifest lưu tại: %s", SPLIT_MANIFEST)
+    logger.info("✅ Done! Copied %d / %d images.", total_copied, total_images)
+    logger.info("Manifest saved at: %s", SPLIT_MANIFEST)
     logger.info("")
-    logger.info("Các bước tiếp theo:")
+    logger.info("Next steps:")
     logger.info("  1. Train:    python scripts/train_image_baseline.py --data-dir labeled/train")
     logger.info("  2. Evaluate: python scripts/train_image_baseline.py --eval-only --data-dir labeled/test")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Tách dataset ảnh thành train/val/test (chạy 1 lần duy nhất)"
+        description="Split image dataset into train/val/test (run once)"
     )
-    parser.add_argument("--train", type=float, default=0.70, help="Tỉ lệ train (mặc định: 0.70)")
-    parser.add_argument("--val",   type=float, default=0.15, help="Tỉ lệ val   (mặc định: 0.15)")
-    parser.add_argument("--test",  type=float, default=0.15, help="Tỉ lệ test  (mặc định: 0.15)")
-    parser.add_argument("--seed",  type=int,   default=42,   help="Random seed (mặc định: 42)")
+    parser.add_argument("--train", type=float, default=0.70, help="Train ratio (default: 0.70)")
+    parser.add_argument("--val",   type=float, default=0.15, help="Val ratio (default: 0.15)")
+    parser.add_argument("--test",  type=float, default=0.15, help="Test ratio (default: 0.15)")
+    parser.add_argument("--seed",  type=int,   default=42,   help="Random seed (default: 42)")
     parser.add_argument(
         "--dry-run", action="store_true",
-        help="Chỉ in thống kê, không copy file nào",
+        help="Only print statistics, do not copy any files",
     )
     parser.add_argument(
         "--force", action="store_true",
-        help="Ghi đè dù dataset đã split rồi (KHÔNG khuyến nghị sau khi đã train)",
+        help="Overwrite even if dataset has already been split (NOT recommended after training)",
     )
     return parser.parse_args()
 

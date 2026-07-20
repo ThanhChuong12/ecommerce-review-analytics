@@ -1,12 +1,12 @@
 """
 onnx_inference.py
 -----------------
-ONNX Runtime inference wrapper cho các model đã export từ PyTorch.
+ONNX Runtime inference wrapper for models exported from PyTorch.
 
-Thay thế PyTorch inference khi deploy production:
-  - Không cần cài PyTorch (~2GB) → chỉ cần onnxruntime (~50MB)
-  - Inference nhanh hơn 2-3x trên CPU
-  - Hỗ trợ batch inference
+Replaces PyTorch inference when deploying to production:
+  - No need to install PyTorch (~2GB) → only onnxruntime (~50MB) is required
+  - 2-3x faster inference on CPU
+  - Supports batch inference
 
 Usage:
     >>> from ai_engine.image_processing.onnx_inference import OnnxDefectDetector
@@ -30,29 +30,29 @@ from PIL import Image
 
 _logger = logging.getLogger(__name__)
 
-# ImageNet normalization — phải khớp với lúc train
+# ImageNet normalization — must match training setup
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 IMAGE_SIZE = 224
 
-# Default class names (khớp với ImageBaselineModel)
+# Default class names (matches ImageBaselineModel)
 DEFAULT_CLASS_NAMES = ["intact", "damaged", "wrong_item", "irrelevant"]
 
 
 def _preprocess_image(image_path: str) -> np.ndarray:
-    """Tiền xử lý ảnh cho ONNX inference (khớp với _build_transforms(is_train=False)).
+    """Preprocess image for ONNX inference (matches _build_transforms(is_train=False)).
 
     Pipeline: Resize(256) → CenterCrop(224) → ToArray → Normalize(ImageNet)
 
     Args:
-        image_path: Đường dẫn file ảnh.
+        image_path: Path to the image file.
 
     Returns:
-        np.ndarray: shape [1, 3, 224, 224], float32, đã normalize.
+        np.ndarray: Normalized image array with shape [1, 3, 224, 224], float32.
     """
     img = Image.open(image_path).convert("RGB")
 
-    # Resize sao cho cạnh ngắn = 256 (giữ tỷ lệ)
+    # Resize so the shorter side = 256 (keeping aspect ratio)
     w, h = img.size
     if w < h:
         new_w = 256
@@ -76,25 +76,25 @@ def _preprocess_image(image_path: str) -> np.ndarray:
 
 
 class OnnxDefectDetector:
-    """ONNX Runtime inference wrapper cho model nhận diện tình trạng sản phẩm.
+    """ONNX Runtime inference wrapper for product condition detection model.
 
     Attributes:
         session: ONNX Runtime InferenceSession.
-        class_names: Danh sách nhãn output.
-        backbone: Tên backbone gốc (từ metadata).
+        class_names: List of output labels.
+        backbone: Original backbone name (from metadata).
     """
 
     def __init__(self, onnx_path: str, meta_path: str = None):
-        """Khởi tạo ONNX detector.
+        """Initialize ONNX detector.
 
         Args:
-            onnx_path: Đường dẫn file .onnx.
-            meta_path: Đường dẫn file metadata JSON (tự tìm nếu None).
+            onnx_path: Path to the .onnx file.
+            meta_path: Path to the metadata JSON file (searched automatically if None).
         """
         import onnxruntime as ort
 
         if not os.path.exists(onnx_path):
-            raise FileNotFoundError(f"ONNX model không tồn tại: '{onnx_path}'")
+            raise FileNotFoundError(f"ONNX model does not exist: '{onnx_path}'")
 
         self.onnx_path = onnx_path
         self.session = ort.InferenceSession(onnx_path)
@@ -119,10 +119,10 @@ class OnnxDefectDetector:
         )
 
     def predict(self, image_path: str) -> dict:
-        """Dự đoán nhãn cho 1 ảnh.
+        """Predict label for a single image.
 
         Args:
-            image_path: Đường dẫn file ảnh.
+            image_path: Path to the image file.
 
         Returns:
             dict: {
@@ -135,7 +135,7 @@ class OnnxDefectDetector:
             }
         """
         if not os.path.exists(image_path):
-            raise FileNotFoundError(f"Ảnh không tồn tại: '{image_path}'")
+            raise FileNotFoundError(f"Image does not exist: '{image_path}'")
 
         input_array = _preprocess_image(image_path)
 
@@ -160,14 +160,14 @@ class OnnxDefectDetector:
         }
 
     def predict_batch(self, image_paths: list, batch_size: int = 32) -> list:
-        """Dự đoán cho nhiều ảnh (batch inference).
+        """Predict labels for multiple images (batch inference).
 
         Args:
-            image_paths: Danh sách đường dẫn ảnh.
-            batch_size: Số ảnh xử lý mỗi lần forward pass.
+            image_paths: List of image paths.
+            batch_size: Number of images to process per forward pass.
 
         Returns:
-            list[dict]: Kết quả cho mỗi ảnh.
+            list[dict]: Prediction results for each image.
         """
         results = []
 
@@ -182,7 +182,7 @@ class OnnxDefectDetector:
                     arrays.append(arr[0])  # remove batch dim, will stack later
                     valid_paths.append(p)
                 except Exception as exc:
-                    _logger.warning("Bỏ qua ảnh lỗi %s: %s", p, exc)
+                    _logger.warning("Skipping corrupted image %s: %s", p, exc)
 
             if not arrays:
                 continue
@@ -231,10 +231,10 @@ _onnx_detector_path_cache: Optional[str] = None
 
 
 def get_onnx_detector(onnx_path: str = None) -> OnnxDefectDetector:
-    """Singleton factory — load ONNX detector 1 lần duy nhất.
+    """Singleton factory — load ONNX detector exactly once.
 
     Args:
-        onnx_path: Đường dẫn file .onnx. Mặc định từ env ONNX_WEIGHTS_PATH.
+        onnx_path: Path to the .onnx file. Defaults to env ONNX_WEIGHTS_PATH.
 
     Returns:
         OnnxDefectDetector instance (cached).

@@ -1,9 +1,9 @@
-"""Unit tests cho ImageBaselineModel.
+"""Unit tests for ImageBaselineModel.
 
-Chạy:
+Run:
     python -m pytest tests/test_image_baseline.py -v
 
-Không cần GPU hay data thật — dùng dummy tensors và temp dirs.
+Does not require GPU or real data — uses dummy tensors and temp dirs.
 """
 
 import os
@@ -19,7 +19,7 @@ import torch.nn as nn
 
 
 class TestBuildTransforms(unittest.TestCase):
-    """Test pipeline transform ảnh."""
+    """Test image transform pipeline."""
 
     def test_train_transform_output_shape(self):
         from ai_engine.models.image_baseline import _build_transforms
@@ -29,7 +29,7 @@ class TestBuildTransforms(unittest.TestCase):
         transform = _build_transforms(is_train=True)
         img = Image.fromarray(np.random.randint(0, 255, (300, 300, 3), dtype="uint8"))
         tensor = transform(img)
-        # Output phải là (3, 224, 224)
+        # Output must be (3, 224, 224)
         self.assertEqual(tensor.shape, (3, 224, 224))
 
     def test_eval_transform_output_shape(self):
@@ -43,7 +43,7 @@ class TestBuildTransforms(unittest.TestCase):
         self.assertEqual(tensor.shape, (3, 224, 224))
 
     def test_train_transform_is_normalized(self):
-        """Giá trị pixel sau normalize không còn nằm trong [0,1]."""
+        """Pixel values after normalize are no longer in [0,1]."""
         from ai_engine.models.image_baseline import _build_transforms
         from PIL import Image
         import numpy as np
@@ -51,20 +51,20 @@ class TestBuildTransforms(unittest.TestCase):
         transform = _build_transforms(is_train=False)
         img = Image.fromarray(np.zeros((300, 300, 3), dtype="uint8"))
         tensor = transform(img)
-        # Pixel 0 sau normalize với ImageNet mean → âm
+        # Pixel 0 after normalization with ImageNet mean → negative
         self.assertTrue(tensor.min() < 0)
 
 
 class TestBuildBackbone(unittest.TestCase):
-    """Test việc khởi tạo backbone và freeze layers."""
+    """Test backbone initialization and layer freezing."""
 
     def test_resnet50_head_replaced(self):
         from ai_engine.models.image_baseline import _build_backbone, NUM_CLASSES
 
         net, in_features = _build_backbone("resnet50")
-        # in_features phải là 2048
+        # in_features must be 2048
         self.assertEqual(in_features, 2048)
-        # Head mới phải output NUM_CLASSES
+        # New head must output NUM_CLASSES
         dummy = torch.randn(1, 3, 224, 224)
         with torch.no_grad():
             out = net(dummy)
@@ -81,12 +81,12 @@ class TestBuildBackbone(unittest.TestCase):
         self.assertEqual(out.shape, (1, NUM_CLASSES))
 
     def test_backbone_frozen_except_head(self):
-        """Chỉ custom head mới có requires_grad=True."""
+        """Only custom head should have requires_grad=True."""
         from ai_engine.models.image_baseline import _build_backbone
 
         net, _ = _build_backbone("mobilenet_v3")
         trainable = [n for n, p in net.named_parameters() if p.requires_grad]
-        # Các param trainable phải thuộc về classifier (head)
+        # Trainable params must belong to classifier (head)
         self.assertTrue(all("classifier" in n for n in trainable))
 
     def test_invalid_backbone_raises(self):
@@ -97,16 +97,16 @@ class TestBuildBackbone(unittest.TestCase):
 
 
 class TestImageBaselineModelPredict(unittest.TestCase):
-    """Test predict() không cần train thật — dùng backbone mới khởi tạo."""
+    """Test predict() without actual training — using newly initialized backbone."""
 
     def setUp(self):
         from ai_engine.models.image_baseline import ImageBaselineModel
         self.model = ImageBaselineModel(backbone="mobilenet_v3", device="cpu")
-        # Force khởi tạo model (không cần train)
+        # Force model initialization (no training needed)
         self.model._get_model()
 
     def _make_temp_image(self) -> str:
-        """Tạo ảnh JPEG giả vào tempdir."""
+        """Create a mock JPEG image in tempdir."""
         from PIL import Image
         import numpy as np
 
@@ -168,20 +168,20 @@ class TestImageBaselineModelPredict(unittest.TestCase):
 
 
 class TestSaveLoad(unittest.TestCase):
-    """Test lưu và load model weights."""
+    """Test saving and loading model weights."""
 
     def test_save_and_load_roundtrip(self):
         from ai_engine.models.image_baseline import ImageBaselineModel
 
         model = ImageBaselineModel(backbone="mobilenet_v3", device="cpu")
-        model._get_model()  # khởi tạo weights
+        model._get_model()  # initialize weights
 
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "test_model.pt")
             model.save(path)
             self.assertTrue(os.path.exists(path))
 
-            # Load lại và kiểm tra metadata
+            # Reload and check metadata
             loaded = ImageBaselineModel.load(path)
             self.assertEqual(loaded.backbone, "mobilenet_v3")
             self.assertEqual(loaded.class_names, model.class_names)
@@ -201,7 +201,7 @@ class TestSaveLoad(unittest.TestCase):
 
 
 class TestPredictBatch(unittest.TestCase):
-    """Test predict_batch() với nhiều ảnh."""
+    """Test predict_batch() with multiple images."""
 
     def setUp(self):
         from ai_engine.models.image_baseline import ImageBaselineModel
@@ -230,12 +230,12 @@ class TestPredictBatch(unittest.TestCase):
                 os.unlink(p)
 
     def test_batch_skips_invalid_image(self):
-        """File không tồn tại bị bỏ qua, không raise."""
+        """Non-existent files are skipped, not raised."""
         paths = self._make_images(2) + ["invalid_path.jpg"]
         valid_paths = paths[:2]
         try:
             results = self.model.predict_batch(paths)
-            # Chỉ 2 ảnh hợp lệ được trả về
+            # Only 2 valid images are returned
             self.assertEqual(len(results), 2)
         finally:
             for p in valid_paths:

@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Exploratory Data Analysis (EDA) cho Dữ liệu Ảnh Phi Cấu Trúc
+# # Exploratory Data Analysis (EDA) for Unstructured Image Data
 # 
-# Notebook này thực hiện phân tích thống kê mô tả toàn diện (EDA) và ablation study đánh giá tác động của các phương pháp tiền xử lý cho dữ liệu ảnh phi cấu trúc, dựa trên cấu hình đã định nghĩa trong `IMAGE_EDA_CONFIG.md`.
+# This notebook performs a comprehensive descriptive statistical analysis (EDA) and an ablation study to evaluate the impact of preprocessing methods on unstructured image data, based on the configuration defined in `IMAGE_EDA_CONFIG.md`.
 
 # In[1]:
 
@@ -22,7 +22,7 @@ get_ipython().run_line_magic('autoreload', '2')
 
 
 # ## **1. Configuration & Initialization**
-# Thiết lập các biến môi trường và thư mục lưu trữ kết quả đầu ra (artifacts).
+# Set up environment variables and directories for storing outputs (artifacts).
 
 # In[2]:
 
@@ -40,7 +40,7 @@ KNN_K = 5
 
 
 # ## **2. Load Data**
-# Quét thư mục lấy danh sách tập tin ảnh. Thực hiện lấy mẫu phân tầng (stratified sampling) đối với các xử lý nặng, trong khi các tác vụ đếm và quét mã băm (pHash) sẽ chạy trên toàn bộ tập dữ liệu.
+# Scan directory to get list of image files. Perform stratified sampling for heavy processing, while counting and perceptual hash (pHash) scans run on the entire dataset.
 
 # In[3]:
 
@@ -61,7 +61,7 @@ else:
 # ## **Part 1: Descriptive Statistical Analysis (Basic EDA)**
 # 
 # ### **1.1 Pixel Value Distribution**
-# Tính và trực quan hóa phân phối giá trị cường độ điểm ảnh trên toàn tập (histogram, KDE) theo từng kênh màu (Red, Green, Blue).
+# Compute and visualize the pixel intensity value distribution across the entire dataset (histogram, KDE) for each color channel (Red, Green, Blue).
 
 # In[4]:
 
@@ -80,7 +80,7 @@ res_df = utils.analyze_resolution_distribution(
 
 
 # ### **1.2 Class Imbalance**
-# Tính tỉ lệ mỗi lớp và kiểm tra xem có lớp nào chiếm tỉ lệ vượt mức 3x so với lớp ít nhất không (dấu hiệu mất cân bằng nghiêm trọng).
+# Calculate the ratio of each class and check if any class exceeds a 3x ratio compared to the minority class (a sign of severe imbalance).
 
 # In[7]:
 
@@ -92,7 +92,7 @@ print(f"\nIs dataset imbalanced (>3x): {is_imbalanced}")
 
 
 # ### **1.3 Duplicate or nearly duplicate image detection (pHash)**
-# Quét toàn bộ tập dữ liệu, tính hàm băm cảm nhận (perceptual hash). Báo cáo tỉ lệ trùng lặp với ngưỡng Hamming distance = 10.
+# Scan the entire dataset, compute the perceptual hash (pHash). Report duplication rate with a Hamming distance threshold of 10.
 
 # In[8]:
 
@@ -104,7 +104,7 @@ dup_df_analyzed = utils.analyze_duplicate_report(dup_df, OUTPUT_DIR)
 
 
 # ### **1.4 Analysis of overall contrast and brightness**
-# Chuyển ảnh sang dạng Grayscale để tính cường độ trung bình (Mean Intensity) và độ lệch chuẩn (Standard Deviation) đại diện cho độ sáng và độ tương phản của ảnh, trình bày qua boxplot phân lớp.
+# Convert images to Grayscale to compute Mean Intensity and Standard Deviation, representing brightness and contrast, presented via per-class boxplots.
 
 # In[9]:
 
@@ -124,10 +124,10 @@ outlier_df, abnormal_df = utils.detect_brightness_contrast_outliers(
 
 
 # ## **Part 2: Assessing the Impact of Pre-treatment Techniques (Ablation Study)**
-# So sánh kết quả phân loại đơn giản (dùng k-NN) trước và sau khi áp dụng mỗi kỹ thuật tiền xử lý.
+# Compare basic classification results (using k-NN) before and after applying each preprocessing technique.
 
 # ### **2.1 Change the size and quality of the image**
-# Resize về các kích thước 32x32, 64x64, 128x128. Với mỗi kích thước, tính chỉ số hình học cấu trúc (SSIM) và PSNR so với ảnh gốc để định lượng mất mát thông tin.
+# Resize to 32x32, 64x64, 128x128. For each size, compute Structural Similarity Index (SSIM) and PSNR compared to the original image to quantify information loss.
 
 # In[11]:
 
@@ -138,7 +138,7 @@ if len(images) > 0:
 
 
 # ### **2.2 Color Space Conversion**
-# Chuyển đổi sang RGB, Grayscale, HSV, và LAB. Đo lường phương sai giải thích (Explained Variance) bằng PCA (k=50) và khả năng phân loại.
+# Convert to RGB, Grayscale, HSV, and LAB. Measure Explained Variance using PCA (k=50) and classification accuracy.
 
 # In[12]:
 
@@ -149,7 +149,7 @@ if len(images) > 0:
 
 
 # ### **2.3 Normalization**
-# Áp dụng Min-Max [0,1], Min-Max [-1,1], Z-score toàn tập, Z-score theo kênh. Kiểm định sự khác biệt phân phối trước và sau chuẩn hóa thông qua Kolmogorov-Smirnov (KS test).
+# Apply Min-Max [0,1], Min-Max [-1,1], Z-score overall, and channel-wise Z-score. Test distribution difference before and after normalization using Kolmogorov-Smirnov (KS test).
 
 # In[13]:
 
@@ -161,7 +161,7 @@ if len(images) > 0:
 
 
 # ### **2.4 Data Augmentation**
-# Sử dụng Albumentations áp dụng pipeline 5 phép biến đổi. Tác động được đánh giá trực quan thông qua t-SNE (tập gốc so với tập tăng cường).
+# Use Albumentations to apply a pipeline of 5 transformations. The impact is visually evaluated via t-SNE (original vs augmented set).
 
 # In[14]:
 
@@ -173,7 +173,7 @@ if len(images) > 0:
 
 
 # ### **2.5 PCA analysis on image feature space**
-# Giảm chiều không gian đặc trưng thông qua PCA. Xác định ngưỡng thành phần giải thích 90%, 95% và 99% phương sai (Scree plot). Trực quan PCA và t-SNE 2D để xem xét mức độ tách biệt của các lớp.
+# Reduce feature space dimensionality using PCA. Determine components needed for 90%, 95%, and 99% explained variance thresholds (Scree plot). Visualize 2D PCA and t-SNE to assess class separation.
 
 # In[15]:
 
@@ -185,7 +185,7 @@ if len(images) > 0:
 
 
 # ### **2.6 Edge Detection and Local Feature Analysis**
-# Dùng các bộ lọc Sobel, Prewitt, Canny để trích xuất biên cạnh. Tính Edge Density (Mật độ cạnh) và chạy kiểm định One-way ANOVA để xem biến số này có phân biệt rõ các lớp hay không.
+# Use Sobel, Prewitt, and Canny filters to extract edges. Compute Edge Density and run a One-way ANOVA to check if this variable distinguishes the classes.
 
 # In[16]:
 
@@ -205,9 +205,9 @@ if len(images) > 0:
 
 
 # ## **3. Summary and Discussion**
-# 1. **Thay đổi Kích thước ảnh**: (Dựa vào đường cong SSIM, ghi nhận sự sụt giảm chất lượng và biện hộ cho kích thước phù hợp).
-# 2. **Không gian màu**: (Xác nhận xem việc chuyển qua HSV hay LAB có giúp phân biệt class tốt hơn so với RGB không qua PCA và kNN).
-# 3. **Chuẩn hóa**: (Kiểm định KS giúp khẳng định ý nghĩa thống kê của việc đưa đặc trưng về cùng phân phối).
-# 4. **Augmentation**: (t-SNE có thể hiện được mức độ đa dạng hóa của mẫu khi nhiễu và xoay góc được đưa vào, tránh overfitting).
-# 5. **PCA Components**: (Giúp xác định cần giữ lại bao nhiêu chiều để cân bằng hiệu năng và bộ nhớ cho mô hình máy học tiếp theo).
-# 6. **Edge Density**: (ANOVA p-value < 0.05 sẽ cho thấy mức độ chi tiết và kết cấu cạnh là đặc trưng hữu ích cho việc phân loại hư hỏng hàng hóa).
+# 1. **Image Resizing**: (Based on the SSIM curve, noting the quality degradation and justifying a suitable size).
+# 2. **Color Space**: (Confirm if converting to HSV or LAB improves class separability compared to RGB, using PCA and k-NN).
+# 3. **Normalization**: (KS test helps confirm the statistical significance of shifting features to the same distribution).
+# 4. **Augmentation**: (t-SNE shows the diversification of samples when noise and rotation are introduced, helping to avoid overfitting).
+# 5. **PCA Components**: (Helps determine how many dimensions to retain to balance performance and memory for the subsequent machine learning model).
+# 6. **Edge Density**: (ANOVA p-value < 0.05 indicates that edge detail and texture are useful features for defect detection).

@@ -146,8 +146,8 @@ def make_compute_metrics(id2label: Dict[int, str]):
         )
         logger.info("\n%s", report)
 
-        # F1 theo từng lớp: giúp nhìn rõ lớp thiểu số (Neutral/Negative) có học được không,
-        # vì macro-F1 tổng có thể che giấu việc một lớp hiếm gần như bằng 0.
+        # Per-class F1: helps monitor if the minority classes (Neutral/Negative) are being learned,
+        # since the overall macro-F1 can mask the case where a rare class F1 is close to zero.
         per_class_f1 = f1_score(
             labels, preds, average=None, labels=list(range(NUM_LABELS)), zero_division=0
         )
@@ -450,7 +450,7 @@ def main() -> None:
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        eval_dataset={"val": val_dataset, "train": train_dataset},  # evaluate cả 2 mỗi epoch
+        eval_dataset={"val": val_dataset, "train": train_dataset},  # evaluate both datasets each epoch
         processing_class=tokenizer,
         data_collator=collator,
         compute_metrics=make_compute_metrics(ID_TO_LABEL),
@@ -498,7 +498,7 @@ def main() -> None:
         json.dump(test_metrics, f, indent=2, ensure_ascii=False)
     logger.info("Đã lưu kết quả Test ra %s", eval_path)
 
-    # ---- Vẽ biểu đồ (Learning Curves & Confusion Matrix) -------------------
+    # ---- Plot Learning Curves & Confusion Matrix ---------------------------
     plot_out_dir = REPO_ROOT / "artifacts" / "plots"
     plot_out_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Vẽ biểu đồ Learning Curves và Confusion Matrix...")
@@ -526,7 +526,7 @@ def main() -> None:
     plt.savefig(plot_out_dir / "phobert_loss_curve.png", dpi=300)
     plt.close()
 
-    # Plot F1-Score Curve (cả train và val)
+    # Plot F1-Score Curve (both train and val)
     plt.figure(figsize=(8, 6))
     if train_f1 and epochs_val:
         plt.plot(epochs_val, train_f1, label='Điểm F1 huấn luyện', marker='o', color='#1f77b4')
@@ -548,15 +548,15 @@ def main() -> None:
 
     cm = confusion_matrix(y_true, y_pred)
 
-    # Thứ tự hiển thị: cột (trái→phải) = tích cực, trung lập, tiêu cực
-    #             hàng (dưới→trên) = tích cực, trung lập, tiêu cực
-    #             → từ trên xuống: tiêu cực, trung lập, tích cực
+    # Display order: column (left→right) = positive, neutral, negative
+    #                row (bottom→top) = positive, neutral, negative
+    #                → top-down: negative, neutral, positive
     col_order = [LABEL_MAP['tích cực'], LABEL_MAP['trung lập'], LABEL_MAP['tiêu cực']]
     row_order = [LABEL_MAP['tiêu cực'], LABEL_MAP['trung lập'], LABEL_MAP['tích cực']]
 
     cm_reordered = cm[np.ix_(row_order, col_order)]
-    x_labels = [ID_TO_LABEL[i] for i in col_order]   # tích cực | trung lập | tiêu cực
-    y_labels = [ID_TO_LABEL[i] for i in row_order]   # tiêu cực | trung lập | tích cực (trên→dưới)
+    x_labels = [ID_TO_LABEL[i] for i in col_order]   # positive | neutral | negative
+    y_labels = [ID_TO_LABEL[i] for i in row_order]   # negative | neutral | positive (top→bottom)
 
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm_reordered, annot=True, fmt='d', cmap='Blues',

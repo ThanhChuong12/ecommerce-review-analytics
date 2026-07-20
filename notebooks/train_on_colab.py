@@ -2,22 +2,22 @@
 # COLAB TRAINING — MobileNetV3 Defect Detection (4-class)
 # Ecommerce Review Analytics
 # ============================================================
-# TRƯỚC KHI CHẠY:
+# BEFORE RUNNING:
 #   1. Runtime → Change runtime type → T4 GPU
-#   2. Upload lên Google Drive (thư mục gốc My Drive):
-#        - labeled_data.zip       (ảnh đã gán nhãn)
-#        - image_baseline.py      (bản đã fix bugs — lấy từ ai_engine/models/)
+#   2. Upload to Google Drive (root directory My Drive):
+#        - labeled_data.zip       (labeled images)
+#        - image_baseline.py      (bug-fixed version — retrieved from ai_engine/models/)
 # ============================================================
 
 
 # %% [markdown]
 # # MobileNetV3 Defect Detection — Colab Training
 # **Classes:** intact | damaged | wrong_item | irrelevant
-# **Dataset:** ~27,743 ảnh (ImageFolder format)
-# **Estimated time:** ~20-40 phút (T4 GPU)
+# **Dataset:** ~27,743 images (ImageFolder format)
+# **Estimated time:** ~20-40 minutes (T4 GPU)
 
 
-# %% --- CELL 1: Kiểm tra GPU ---
+# %% --- CELL 1: Check GPU ---
 import torch
 
 print(f"PyTorch: {torch.__version__}")
@@ -45,17 +45,17 @@ os.chdir(REPO_DIR)
 print("Working dir:", os.getcwd())
 
 
-# %% --- CELL 3: Cài dependencies ---
+# %% --- CELL 3: Install dependencies ---
 os.system("pip install -q albumentations opencv-python-headless scikit-learn Pillow")
 print("Dependencies installed.")
 
 
-# %% --- CELL 4: Apply bug fixes cho image_baseline.py ---
-# FIX: Code trên main chưa có 4 bug fixes của MobileNetV3.
-# Cần upload file image_baseline.py (đã fix) lên Google Drive trước.
+# %% --- CELL 4: Apply bug fixes for image_baseline.py ---
+# FIX: Code on main does not have the 4 bug fixes for MobileNetV3.
+# Need to upload the image_baseline.py file (fixed) to Google Drive first.
 #
-# Cách lấy file đã fix trên máy local:
-#   ai_engine\models\image_baseline.py  →  upload lên Google Drive
+# How to get the fixed file on local machine:
+#   ai_engine\models\image_baseline.py  →  upload to Google Drive
 # -------------------------------------------------------
 import shutil
 from google.colab import drive
@@ -74,9 +74,9 @@ else:
     print("   Tiếp tục với code gốc (có thể có bugs).")
 
 
-# %% --- CELL 5: Giải nén data ---
-# Upload labeled_data.zip lên Google Drive trước (thư mục gốc My Drive)
-# Cách tạo zip đúng cấu trúc (chạy trên máy local):
+# %% --- CELL 5: Extract data ---
+# Upload labeled_data.zip to Google Drive first (root directory My Drive)
+# How to create zip with correct structure (run on local machine):
 #   Compress-Archive -Path "labeled\labeled" -DestinationPath "labeled_data.zip"
 # -------------------------------------------------------
 import zipfile
@@ -94,7 +94,7 @@ if not os.path.exists(EXTRACT_DIR):
 else:
     print("Data đã tồn tại, bỏ qua giải nén.")
 
-# Kiểm tra số ảnh mỗi class
+# Check number of images in each class
 print("\nDataset summary:")
 total = 0
 for cls in ["intact", "damaged", "wrong_item", "irrelevant"]:
@@ -107,7 +107,7 @@ print(f"  {'TOTAL':15s}: {total:,} ảnh")
 
 
 # %% --- CELL 6: Train ---
-# FIX: Dùng subprocess thay os.system() để hiển thị log real-time
+# FIX: Use subprocess instead of os.system() to display real-time logs
 import subprocess, sys
 
 cmd = [
@@ -127,7 +127,7 @@ print("=" * 60)
 print("Training kết thúc với exit code:", result.returncode)
 
 
-# %% --- CELL 7: Lưu model về Google Drive ---
+# %% --- CELL 7: Save model to Google Drive ---
 MODEL_SRC   = "ai_engine/models/weights/mobilenet_v3_defect.pt"
 RESULTS_SRC = "ai_engine/models/results/image_baseline_results.json"
 
@@ -145,7 +145,7 @@ if os.path.exists(RESULTS_SRC):
     print(f"✅ Results saved → {DRIVE_SAVE_DIR}/image_baseline_results.json")
 
 
-# %% --- CELL 8 (optional): Download model trực tiếp về máy ---
+# %% --- CELL 8 (optional): Download model directly to local machine ---
 from google.colab import files
 if os.path.exists(MODEL_SRC):
     files.download(MODEL_SRC)

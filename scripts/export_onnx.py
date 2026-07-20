@@ -1,20 +1,20 @@
 """
 export_onnx.py
 --------------
-Export model PyTorch (MobileNetV3 / ResNet50) sang ONNX format
-để tối ưu tốc độ inference bằng ONNX Runtime.
+Export PyTorch models (MobileNetV3 / ResNet50) to ONNX format
+to optimize inference speed using ONNX Runtime.
 
 Usage:
-    # Export MobileNetV3 (mặc định)
+    # Export MobileNetV3 (default)
     python scripts/export_onnx.py
 
-    # Export với tuỳ chỉnh
+    # Export with custom options
     python scripts/export_onnx.py \
         --weights ai_engine/models/weights/mobilenet_v3_defect.pt \
         --output ai_engine/models/weights/mobilenet_v3_defect.onnx \
         --opset 17
 
-    # Benchmark so sánh PyTorch vs ONNX
+    # Benchmark comparing PyTorch vs ONNX
     python scripts/export_onnx.py --benchmark
 
 Dependencies:
@@ -26,7 +26,7 @@ import time
 import argparse
 from pathlib import Path
 
-# Thêm root project vào sys.path
+# Add project root to sys.path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import torch
@@ -34,15 +34,15 @@ import numpy as np
 
 
 def export_to_onnx(weights_path: str, output_path: str, opset_version: int = 17) -> str:
-    """Export model PyTorch sang ONNX.
+    """Export PyTorch model to ONNX.
 
     Args:
-        weights_path: Đường dẫn file .pt (từ ImageBaselineModel.save()).
-        output_path: Đường dẫn file .onnx đầu ra.
+        weights_path: Path to the .pt file (from ImageBaselineModel.save()).
+        output_path: Path for output .onnx file.
         opset_version: ONNX opset version (17 recommended).
 
     Returns:
-        str: Đường dẫn file ONNX đã tạo.
+        str: Path of the generated ONNX file.
     """
     from ai_engine.models.image_baseline import ImageBaselineModel
 
@@ -56,7 +56,7 @@ def export_to_onnx(weights_path: str, output_path: str, opset_version: int = 17)
     backbone = baseline.backbone
     print(f"       Backbone: {backbone} | Classes: {class_names}")
 
-    # Dummy input — phải khớp kích thước inference: [batch, 3, 224, 224]
+    # Dummy input — must match inference size: [batch, 3, 224, 224]
     dummy_input = torch.randn(1, 3, 224, 224)
 
     print(f"[2/4] Exporting to ONNX (opset={opset_version})...")
@@ -70,12 +70,12 @@ def export_to_onnx(weights_path: str, output_path: str, opset_version: int = 17)
         input_names=["image"],
         output_names=["logits"],
         dynamic_axes={
-            "image": {0: "batch_size"},     # hỗ trợ batch size linh hoạt
+            "image": {0: "batch_size"},     # support dynamic batch size
             "logits": {0: "batch_size"},
         },
     )
 
-    # Lưu metadata (class_names, backbone) vào file JSON kèm theo
+    # Save metadata (class_names, backbone) to accompanying JSON file
     import json
     meta_path = output_path.replace(".onnx", "_meta.json")
     with open(meta_path, "w", encoding="utf-8") as f:
@@ -116,12 +116,12 @@ def export_to_onnx(weights_path: str, output_path: str, opset_version: int = 17)
 
 
 def benchmark(weights_path: str, onnx_path: str, n_runs: int = 100):
-    """Benchmark so sánh tốc độ PyTorch vs ONNX Runtime.
+    """Benchmark speed comparison between PyTorch vs ONNX Runtime.
 
     Args:
-        weights_path: File .pt gốc.
-        onnx_path: File .onnx đã export.
-        n_runs: Số lần chạy inference để tính trung bình.
+        weights_path: Path to the original .pt file.
+        onnx_path: Path to the exported .onnx file.
+        n_runs: Number of inference runs to compute average.
     """
     import onnxruntime as ort
     from ai_engine.models.image_baseline import ImageBaselineModel
@@ -210,7 +210,7 @@ def main():
     parser.add_argument("--benchmark-runs", type=int, default=100, help="Number of benchmark runs")
     args = parser.parse_args()
 
-    # Output mặc định: đổi .pt → .onnx
+    # Default output: change .pt → .onnx
     if args.output is None:
         args.output = str(Path(args.weights).with_suffix(".onnx"))
 

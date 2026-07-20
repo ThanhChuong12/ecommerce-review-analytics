@@ -69,14 +69,14 @@ def main():
     output_dir = REPO_ROOT / "artifacts" / "model" / "tuned" / "phobert_tuning"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Load data — load_datasets trả về (train, val, test); tuning chỉ cần train + val.
+    # 1. Load data — load_datasets returns (train, val, test); tuning only requires train + val.
     train_df, val_df, _test_df = load_datasets(
         text_column="cleaned_text", label_column="sentiment_label"
     )
 
-    # Subsample CÓ PHÂN TẦNG (stratified) để tuning nhanh. sample_size <= 0 nghĩa là dùng toàn bộ.
-    # Stratify là bắt buộc ở đây: với phân bố ~94/5/1, subsample ngẫu nhiên có thể xoá sạch
-    # lớp hiếm khiến eval_f1_macro chỉ còn là nhiễu, dẫn tới chọn sai siêu tham số.
+    # Stratified subsampling for fast tuning. sample_size <= 0 means use all data.
+    # Stratification is mandatory here: with a ~94/5/1 class distribution, random subsampling
+    # could drop minority classes completely, rendering eval_f1_macro noisy and leading to wrong hyperparameters.
     if args.sample_size and len(train_df) > args.sample_size:
         train_df, _ = train_test_split(
             train_df,
@@ -131,9 +131,9 @@ def main():
         output_dir=str(output_dir),
         num_train_epochs=args.epochs,
         eval_strategy="epoch",
-        save_strategy="no",          # Không lưu checkpoint khi tune → tránh đầy đĩa
+        save_strategy="no",          # Do not save checkpoints during tuning to avoid running out of disk space
         logging_strategy="epoch",
-        load_best_model_at_end=False,  # Phải False khi save_strategy="no"
+        load_best_model_at_end=False,  # Must be False when save_strategy="no"
         metric_for_best_model="eval_f1_macro",
         greater_is_better=True,
         fp16=torch.cuda.is_available(),
@@ -141,10 +141,10 @@ def main():
         disable_tqdm=False,
     )
 
-    # gamma sẽ được Optuna ghi đè trực tiếp lên trainer.gamma trong mỗi trial (xem optuna_hp_space)
+    # gamma will be overridden by Optuna directly on trainer.gamma in each trial (see optuna_hp_space)
     trainer = FocalLossTrainer(
         class_counts=class_counts,
-        gamma=2.0,  # giá trị khởi tạo, không quan trọng vì sẽ bị ghi đè mỗi trial
+        gamma=2.0,  # initialization value, overridden in each trial
         num_classes=NUM_LABELS,
         model_init=model_init,
         args=training_args,
@@ -157,9 +157,9 @@ def main():
     )
 
     def optuna_hp_space(trial):
-        # Ghi đè trực tiếp self.gamma của trainer. Đối tượng trainer được tái sử dụng
-        # qua các trial (chỉ model bị tạo lại bởi model_init), nên FocalLossTrainer.compute_loss
-        # sẽ đọc đúng gamma mới ở mỗi trial. gamma vẫn được Optuna lưu vào best_params.
+        # Directly override self.gamma of trainer. The trainer object is reused
+        # across trials (only the model is re-initialized by model_init), so FocalLossTrainer.compute_loss
+        # will read the updated gamma for each trial. gamma is still tracked by Optuna in best_params.
         trainer.gamma = trial.suggest_float("gamma", 1.0, 3.0)
         return {
             "learning_rate": trial.suggest_float("learning_rate", 1e-5, 5e-5, log=True),
@@ -169,7 +169,7 @@ def main():
             "per_device_train_batch_size": trial.suggest_categorical("per_device_train_batch_size", [16, 32]),
         }
 
-    # Tối ưu trực tiếp theo macro-F1 (mặc định của HF là tổng các metric — kém rõ ràng).
+    # Optimize directly on macro-F1 (default in HF is sum of metrics, which is less clear).
     def compute_objective(metrics):
         return metrics["eval_f1_macro"]
 

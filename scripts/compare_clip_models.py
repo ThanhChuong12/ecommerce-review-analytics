@@ -1,10 +1,10 @@
 """
 compare_clip_models.py
 ======================
-So sánh các CLIP model variants với bộ prompts mới.
-Chạy trên 50 ảnh/class để xác định model + prompt tốt nhất.
+Compare CLIP model variants with new prompt sets.
+Run on 50 images/class to determine the best model + prompt.
 
-Usage (từ project root):
+Usage (from project root):
     python scripts/compare_clip_models.py
     python scripts/compare_clip_models.py --per-class 20
     python scripts/compare_clip_models.py --models vit-b-32 vit-b-16
@@ -59,7 +59,7 @@ def collect_samples(per_class: int) -> list[dict]:
 
 
 def evaluate_model(model_name: str, data: list) -> dict:
-    """Evaluate 1 model trên data, trả về metrics."""
+    """Evaluate 1 model on data, return metrics."""
     from ai_engine.image_processing.zero_shot_clip import classify_image, reload_model
 
     print(f"\n  Loading {model_name}...")
@@ -90,7 +90,7 @@ def evaluate_model(model_name: str, data: list) -> dict:
     total = len(data)
     avg_ms = total_ms / total if total > 0 else 0
 
-    # Tính metrics quan trọng
+    # Compute important metrics
     product_classes = ["intact", "damaged", "wrong_item"]
     product_keep = sum(per_class[c]["correct"] for c in product_classes)
     product_total = sum(per_class[c]["total"] for c in product_classes)
@@ -119,7 +119,7 @@ def evaluate_model(model_name: str, data: list) -> dict:
             }
             for cls in CLASSES
         },
-        "total_time_27k": avg_ms * 27743 / 1000 / 60,  # phút cho full dataset
+        "total_time_27k": avg_ms * 27743 / 1000 / 60,  # minutes for full dataset
     }
 
 
@@ -149,7 +149,7 @@ def main():
         r = evaluate_model(model_name, data)
         results.append(r)
 
-        # In kết quả ngay
+        # Print results immediately
         print(f"\n  Results for {short_name}:")
         print(f"    Overall Accuracy   : {r['accuracy']:.1%}")
         print(f"    Product Recall     : {r['product_recall']:.1%}")
@@ -161,7 +161,7 @@ def main():
             c = r["per_class"][cls]
             print(f"    {cls:<12}: {c['correct']}/{c['total']} ({c['acc']:.0%})")
 
-    # ── Bảng so sánh ──
+    # ── Comparison table ──
     print(f"\n{'='*80}")
     print(f"  📊 BẢNG SO SÁNH")
     print(f"{'='*80}")

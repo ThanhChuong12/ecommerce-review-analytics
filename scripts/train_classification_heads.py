@@ -350,7 +350,7 @@ def main():
 
     # ════════════════════════════════════════════════════════════════════════
     #  IMAGE DEFECT HEAD (BINARY: no-defect vs defect)
-    #  Giống pipeline cũ ResNet50: intact=0 (no-defect), còn lại=1 (defect)
+    #  Same as the old ResNet50 pipeline: intact=0 (no-defect), others=1 (defect)
     # ════════════════════════════════════════════════════════════════════════
     logger.info(SEP)
     logger.info("  TRAINING IMAGE DEFECT HEAD (BINARY)")

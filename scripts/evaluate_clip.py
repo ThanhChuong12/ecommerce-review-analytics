@@ -1,13 +1,13 @@
 """
 evaluate_clip.py
 ================
-Đánh giá CLIP zero-shot trên tập test của dataset labeled.
-Đọc cấu trúc thư mục test/{class_name}/*.jpg và so sánh
-với prediction của CLIP.
+Evaluate CLIP zero-shot on the test split of the labeled dataset.
+Read the folder structure test/{class_name}/*.jpg and compare
+with predictions from CLIP.
 
-Usage (từ project root):
+Usage (from project root):
     python scripts/evaluate_clip.py
-    python scripts/evaluate_clip.py --sample 200   # chỉ test 200 ảnh (nhanh hơn)
+    python scripts/evaluate_clip.py --sample 200   # only test 200 images (faster)
     python scripts/evaluate_clip.py --threshold 0.45
 """
 
@@ -21,14 +21,14 @@ import io
 from collections import defaultdict
 from pathlib import Path
 
-# Fix UTF-8 stdout trên Windows
+# Fix UTF-8 stdout on Windows
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST_DIR = ROOT / "labeled" / "test"
 
-# Thêm ai_engine vào path
+# Add ai_engine to path
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "ai_engine"))
 
@@ -36,7 +36,7 @@ CLASSES = ["intact", "damaged", "wrong_item", "irrelevant"]
 
 
 def collect_test_images(sample: int | None = None) -> list[dict]:
-    """Thu thập tất cả ảnh từ test/ với nhãn ground-truth từ tên folder."""
+    """Collect all images from test/ with ground-truth label from folder name."""
     data = []
     for cls in CLASSES:
         cls_dir = TEST_DIR / cls
@@ -58,13 +58,13 @@ def collect_test_images(sample: int | None = None) -> list[dict]:
 
 def clip_predict(image_path: str, threshold: float) -> str:
     """
-    Dùng CLIP để phân loại ảnh thành 1 trong 4 class:
+    Use CLIP to classify an image into one of 4 classes:
     intact, damaged, wrong_item, irrelevant.
 
     Logic:
-    1. CLIP tính P(irrelevant) vs P(relevant)
-    2. Nếu P(irrelevant) >= threshold → 'irrelevant'
-    3. Nếu relevant → trả về 'relevant' (CLIP không phân biệt damaged/wrong_item/intact)
+    1. CLIP computes P(irrelevant) vs P(relevant)
+    2. If P(irrelevant) >= threshold → 'irrelevant'
+    3. If relevant → return 'relevant' (CLIP does not distinguish damaged/wrong_item/intact)
     """
     from ai_engine.image_processing.zero_shot_clip import classify_image_detail
     result = classify_image_detail(image_path)
@@ -74,13 +74,13 @@ def clip_predict(image_path: str, threshold: float) -> str:
     if result["irrelevant_score"] >= threshold:
         return "irrelevant"
     else:
-        # CLIP chỉ phân biệt relevant vs irrelevant
-        # Không thể predict damaged/wrong_item/intact từ CLIP 2-class
+        # CLIP only distinguishes between relevant and irrelevant
+        # Cannot predict damaged/wrong_item/intact from a 2-class CLIP model
         return "relevant"
 
 
 def run_evaluation(sample: int | None, threshold: float) -> dict:
-    """Chạy toàn bộ evaluation và tính metrics."""
+    """Run the entire evaluation and compute metrics."""
 
     print(f"\n{'='*60}")
     print("  CLIP ZERO-SHOT EVALUATION")
@@ -89,11 +89,11 @@ def run_evaluation(sample: int | None, threshold: float) -> dict:
     print(f"  Threshold: {threshold}")
     print(f"  Sample   : {sample or 'ALL'}")
 
-    # Thu thập dữ liệu
+    # Collect data
     data = collect_test_images(sample)
     print(f"\n  Tổng ảnh sẽ test: {len(data)}")
 
-    # Đếm phân bố class
+    # Count class distribution
     class_dist = defaultdict(int)
     for d in data:
         class_dist[d["true_label"]] += 1
@@ -101,14 +101,14 @@ def run_evaluation(sample: int | None, threshold: float) -> dict:
     for cls, cnt in sorted(class_dist.items()):
         print(f"    {cls:<15} {cnt:>5} ảnh")
 
-    # Chạy inference
+    # Run inference
     print("\n  Đang chạy CLIP inference...")
     t0 = time.perf_counter()
 
-    # Metrics cho task BINARY: relevant vs irrelevant
+    # Metrics for BINARY task: relevant vs irrelevant
     binary_tp = binary_fp = binary_tn = binary_fn = 0
 
-    # Confusion matrix 4-class (nhưng CLIP chỉ cho binary output)
+    # Confusion matrix 4-class (but CLIP only provides binary output)
     # relevant_classes = intact + damaged + wrong_item
     # irrelevant_classes = irrelevant
     per_class_correct = defaultdict(int)
@@ -132,9 +132,9 @@ def run_evaluation(sample: int | None, threshold: float) -> dict:
             binary_tn += 1
             per_class_correct[true] += 1
         elif not is_irrelevant_true and is_irrelevant_pred:
-            binary_fp += 1  # False alarm: loại nhầm ảnh tốt
+            binary_fp += 1  # False alarm: misclassified product image
         elif is_irrelevant_true and not is_irrelevant_pred:
-            binary_fn += 1  # Miss: bỏ sót ảnh rác
+            binary_fn += 1  # Miss: missed irrelevant image
 
         results.append({
             "path": item["path"],
@@ -151,7 +151,7 @@ def run_evaluation(sample: int | None, threshold: float) -> dict:
 
     elapsed = time.perf_counter() - t0
 
-    # ── Tính metrics ──────────────────────────────────────────────────────────
+    # ── Compute metrics ───────────────────────────────────────────────────────
     total = len(data)
     overall_acc = (binary_tp + binary_tn) / total if total > 0 else 0
 
@@ -165,7 +165,7 @@ def run_evaluation(sample: int | None, threshold: float) -> dict:
 
     f1_macro = (f1_irr + f1_rel) / 2
 
-    # False Positive Rate: CLIP loại nhầm ảnh hợp lệ (intact/damaged/wrong_item)
+    # False Positive Rate: CLIP misclassifies valid images (intact/damaged/wrong_item)
     n_relevant_total = binary_tp + binary_fn + binary_tn + binary_fp - class_dist.get("irrelevant", 0)
     false_alarm_rate = binary_fp / (class_dist.get("intact", 0) + class_dist.get("damaged", 0) + class_dist.get("wrong_item", 0)) if (class_dist.get("intact", 0) + class_dist.get("damaged", 0) + class_dist.get("wrong_item", 0)) > 0 else 0
 
@@ -176,7 +176,7 @@ def run_evaluation(sample: int | None, threshold: float) -> dict:
         correct_cls = per_class_correct[cls]
         per_class_acc[cls] = correct_cls / total_cls if total_cls > 0 else 0.0
 
-    # ── In kết quả ────────────────────────────────────────────────────────────
+    # ── Print results ─────────────────────────────────────────────────────────
     print(f"\n{'='*60}")
     print("  KẾT QUẢ EVALUATION")
     print(f"{'='*60}")
@@ -214,7 +214,7 @@ def run_evaluation(sample: int | None, threshold: float) -> dict:
     print(f"  True: relevant        {binary_tn:<12}   {binary_fp}")
     print(f"  True: irrelevant      {binary_fn:<12}   {binary_tp}")
 
-    # ── Phân tích sai lầm ────────────────────────────────────────────────────
+    # ── Error Analysis ───────────────────────────────────────────────────────
     fp_by_class = defaultdict(int)
     fn_by_class = defaultdict(int)
     for r in results:
@@ -229,7 +229,7 @@ def run_evaluation(sample: int | None, threshold: float) -> dict:
         pct = cnt / per_class_total[cls] * 100 if per_class_total[cls] > 0 else 0
         print(f"  {cls:<15}: {cnt} ảnh bị loại nhầm ({pct:.1f}%)")
 
-    # ── Đánh giá tổng thể ────────────────────────────────────────────────────
+    # ── Overall Evaluation ───────────────────────────────────────────────────
     print(f"\n{'='*60}")
     print("  ĐÁNH GIÁ TỔNG THỂ")
     print(f"{'='*60}")
@@ -262,7 +262,7 @@ def run_evaluation(sample: int | None, threshold: float) -> dict:
     else:
         print("  ✅ CLIP hoạt động ổn ở vai trò pre-filter")
 
-    # Khuyến nghị threshold
+    # Recommended threshold
     print(f"\n  KHUYẾN NGHỊ:")
     if false_alarm_rate > 0.10:
         print(f"  → Giảm threshold (thử 0.45 hoặc 0.40) để giảm false positive")
@@ -271,7 +271,7 @@ def run_evaluation(sample: int | None, threshold: float) -> dict:
     print(f"  → CLIP hiện tại chỉ làm được BINARY (relevant vs irrelevant)")
     print(f"  → Vẫn cần train model riêng để phân biệt intact/damaged/wrong_item")
 
-    # ── Lưu kết quả ──────────────────────────────────────────────────────────
+    # ── Save results ──────────────────────────────────────────────────────────
     report = {
         "threshold": threshold,
         "total": total,

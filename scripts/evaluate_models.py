@@ -1,32 +1,32 @@
 """
 evaluate_models.py
 ==================
-Khung đánh giá mô hình chuẩn (Evaluation Framework) cho dự án
+Standard model evaluation framework (Evaluation Framework) for the project
 "Multimodal Review Analytics".
 
-Các chỉ số được tính toán:
-  - Confusion Matrix (ma trận nhầm lẫn)
+Calculated metrics:
+  - Confusion Matrix
   - Macro F1-Score
-  - ROC-AUC (One-vs-Rest cho bài toán đa lớp)
+  - ROC-AUC (One-vs-Rest for multiclass tasks)
 
-Hỗ trợ đánh giá hai loại mô hình:
-  1. TextEnsembleModel  — Phân tích cảm xúc (tích cực / tiêu cực / trung lập)
-  2. ResNet50 (PyTorch) — Phát hiện hàng lỗi (defect / no-defect)
+Supports evaluating two model types:
+  1. TextEnsembleModel  — Sentiment analysis (positive / negative / neutral)
+  2. ResNet50 (PyTorch) — Product defect detection (defect / no-defect)
 
-Usage (chạy từ thư mục gốc của project):
-    # Đánh giá mô hình Text Ensemble đã lưu
-    python scripts/evaluate_models.py --mode text \\
-        --model-path ai_engine/models/ensemble_no_smote.pkl \\
-        --data-path data/processed/reviews_labeled.csv \\
+Usage (run from project root):
+    # Evaluate saved Text Ensemble model
+    python scripts/evaluate_models.py --mode text \
+        --model-path ai_engine/models/ensemble_no_smote.pkl \
+        --data-path data/processed/reviews_labeled.csv \
         --text-col cleaned_text --label-col sentiment
 
-    # Đánh giá mô hình ResNet50 đã lưu
-    python scripts/evaluate_models.py --mode image \\
-        --model-path ai_engine/models/resnet50_defect.pth \\
-        --data-path data/processed \\
+    # Evaluate saved ResNet50 model
+    python scripts/evaluate_models.py --mode image \
+        --model-path ai_engine/models/resnet50_defect.pth \
+        --data-path data/processed \
         --batch-size 16
 
-    # In ra tất cả chỉ số, không lưu plot
+    # Print all metrics without saving plots
     python scripts/evaluate_models.py --mode text ... --no-plot
 """
 
@@ -68,20 +68,20 @@ def compute_confusion_matrix(
     y_pred: np.ndarray,
     labels: Optional[List[str]] = None,
 ) -> Tuple[np.ndarray, pd.DataFrame]:
-    """Tính Confusion Matrix và trả về dưới dạng numpy array và DataFrame.
+    """Compute Confusion Matrix and return as numpy array and DataFrame.
 
     Args:
-        y_true: Nhãn thực tế.
-        y_pred: Nhãn dự đoán.
-        labels: Danh sách tên lớp theo thứ tự. Nếu None, tự suy ra từ dữ liệu.
+        y_true: Ground truth labels.
+        y_pred: Predicted labels.
+        labels: List of class names in order. If None, inferred from data.
 
     Returns:
-        (cm_array, cm_df): Ma trận numpy và DataFrame có tên hàng/cột.
+        (cm_array, cm_df): Numpy matrix and DataFrame with row/column names.
     """
     from sklearn.metrics import confusion_matrix
 
     if labels is not None:
-        # Đảm bảo kiểu dữ liệu của labels khớp với y_true
+        # Ensure labels data type matches y_true
         dtype = np.array(y_true).dtype
         try:
             unique_labels = [dtype.type(l) for l in labels]
@@ -105,16 +105,16 @@ def compute_macro_f1(
     labels: Optional[List[str]] = None,
     zero_division: int = 0,
 ) -> Tuple[float, pd.DataFrame]:
-    """Tính Macro F1-Score và báo cáo per-class.
+    """Compute Macro F1-Score and per-class report.
 
     Args:
-        y_true: Nhãn thực tế.
-        y_pred: Nhãn dự đoán.
-        labels: Tên lớp. Nếu None, tự suy ra.
-        zero_division: Giá trị trả về khi denominator = 0 (0 hoặc 1).
+        y_true: Ground truth labels.
+        y_pred: Predicted labels.
+        labels: Class names. If None, inferred.
+        zero_division: Value to return when denominator = 0 (0 or 1).
 
     Returns:
-        (macro_f1, report_df): Điểm Macro F1 tổng thể và DataFrame báo cáo chi tiết.
+        (macro_f1, report_df): Overall Macro F1 score and detailed report DataFrame.
     """
     from sklearn.metrics import classification_report, f1_score
 
@@ -146,18 +146,18 @@ def compute_roc_auc(
     y_proba: np.ndarray,
     class_labels: Optional[List[str]] = None,
 ) -> Tuple[float, dict]:
-    """Tính ROC-AUC theo chiến lược One-vs-Rest (OvR).
+    """Compute ROC-AUC using One-vs-Rest (OvR) strategy.
 
-    Hỗ trợ cả bài toán nhị phân (2 lớp) và đa lớp (> 2 lớp).
+    Supports both binary (2-class) and multiclass (> 2 classes) tasks.
 
     Args:
-        y_true: Nhãn thực tế (dạng số nguyên hoặc chuỗi).
-        y_proba: Xác suất dự đoán, shape (n_samples, n_classes).
-        class_labels: Tên lớp tương ứng với từng cột của y_proba.
-                      Nếu None, tự suy ra từ dữ liệu.
+        y_true: Ground truth labels (integer or string).
+        y_proba: Predicted probabilities, shape (n_samples, n_classes).
+        class_labels: Class names corresponding to columns of y_proba.
+                      If None, inferred from data.
 
     Returns:
-        (macro_auc, per_class_auc_dict): Macro AUC tổng thể và dict AUC từng lớp.
+        (macro_auc, per_class_auc_dict): Overall Macro AUC and per-class AUC dict.
     """
     from sklearn.metrics import roc_auc_score
     from sklearn.preprocessing import LabelBinarizer
@@ -177,10 +177,10 @@ def compute_roc_auc(
     lb.fit(range(n_classes))
     y_bin = lb.transform(y_true_int)
 
-    # Với bài toán nhị phân, LabelBinarizer cho ra (n_samples, 1)
-    # đại diện cho lớp 1 (tức unique_labels[1])
+    # For binary tasks, LabelBinarizer outputs (n_samples, 1)
+    # representing class 1 (i.e. unique_labels[1])
     if n_classes == 2:
-        # y_proba có thể là (n_samples, 2) hoặc (n_samples, 1)
+        # y_proba can be (n_samples, 2) or (n_samples, 1)
         if y_proba.ndim == 2 and y_proba.shape[1] == 2:
             proba_pos = y_proba[:, 1]
         else:
@@ -188,11 +188,11 @@ def compute_roc_auc(
 
         macro_auc = float(roc_auc_score(y_bin, proba_pos))
         per_class_auc = {
-            str(unique_labels[0]): None,      # lớp âm không có AUC riêng trong nhị phân
+            str(unique_labels[0]): None,      # negative class does not have its own AUC in binary
             str(unique_labels[1]): macro_auc,
         }
     else:
-        # Đa lớp: OvR
+        # Multiclass: OvR
         if y_proba.shape[1] != n_classes:
             raise ValueError(
                 f"y_proba có {y_proba.shape[1]} cột nhưng có {n_classes} lớp. "
@@ -226,19 +226,19 @@ def print_full_report(
     save_plot: bool = True,
     plot_dir: str = "reports/figures",
 ) -> dict:
-    """In đầy đủ báo cáo đánh giá và (tuỳ chọn) lưu biểu đồ.
+    """Print full evaluation report and optionally save plots.
 
     Args:
-        model_name: Tên mô hình (dùng trong tiêu đề và tên file).
-        y_true: Nhãn thực tế.
-        y_pred: Nhãn dự đoán.
-        y_proba: Xác suất dự đoán (None = bỏ qua tính ROC-AUC).
-        class_labels: Tên các lớp theo thứ tự.
-        save_plot: Nếu True, lưu biểu đồ Confusion Matrix vào plot_dir.
-        plot_dir: Thư mục lưu biểu đồ.
+        model_name: Model name (used in titles and filenames).
+        y_true: Ground truth labels.
+        y_pred: Predicted labels.
+        y_proba: Predicted probabilities (None = skip ROC-AUC computation).
+        class_labels: Class labels in order.
+        save_plot: If True, save Confusion Matrix plot to plot_dir.
+        plot_dir: Directory to save plots.
 
     Returns:
-        dict chứa các chỉ số: macro_f1, macro_auc, per_class_auc.
+        dict containing metrics: macro_f1, macro_auc, per_class_auc.
     """
     SEP = "=" * 70
 
@@ -277,7 +277,7 @@ def print_full_report(
     else:
         print("\n[3] ROC-AUC: Skipped (no predicted probabilities provided)")
 
-    # ── 4. Lưu biểu đồ Confusion Matrix ─────────────────────────────────────
+    # ── 4. Save Confusion Matrix plot ─────────────────────────────────────
     if save_plot:
         _save_confusion_matrix_plot(cm_array, cm_df, model_name, plot_dir)
 
@@ -291,7 +291,7 @@ def _save_confusion_matrix_plot(
     model_name: str,
     plot_dir: str,
 ) -> None:
-    """Lưu heatmap Confusion Matrix ra file PNG."""
+    """Save Confusion Matrix heatmap as a PNG file."""
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -347,18 +347,18 @@ def evaluate_text_model(
     save_plot: bool = True,
     plot_dir: str = "reports/figures",
 ) -> dict:
-    """Đánh giá TextEnsembleModel đã lưu trên tập test CSV.
+    """Evaluate saved TextEnsembleModel on test CSV.
 
     Args:
-        model_path: Đường dẫn tới file .pkl của TextEnsembleModel.
-        data_path: Đường dẫn tới file CSV chứa cột text và nhãn.
-        text_col: Tên cột chứa văn bản đầu vào.
-        label_col: Tên cột chứa nhãn thực tế.
-        save_plot: Có lưu biểu đồ hay không.
-        plot_dir: Thư mục lưu biểu đồ.
+        model_path: Path to the .pkl file of TextEnsembleModel.
+        data_path: Path to the test CSV containing text and label columns.
+        text_col: Name of the input text column.
+        label_col: Name of the ground truth label column.
+        save_plot: Whether to save the plot.
+        plot_dir: Directory to save the plot.
 
     Returns:
-        dict chứa các chỉ số đánh giá.
+        dict containing evaluation metrics.
     """
     from ai_engine.models.text_baseline import TextEnsembleModel
 
@@ -381,7 +381,7 @@ def evaluate_text_model(
     X = df[text_col]
     y_true = df[label_col].values
 
-    # Dự đoán
+    # Predict
     y_pred = model.predict(X)
     try:
         y_proba = model.predict_proba(X)
@@ -415,18 +415,18 @@ def evaluate_image_model(
     save_plot: bool = True,
     plot_dir: str = "reports/figures",
 ) -> dict:
-    """Đánh giá mô hình ResNet50 defect-detection đã lưu trên Test set (hoặc Validation split).
+    """Evaluate saved ResNet50 defect-detection model on Test set (or Validation split).
 
     Args:
-        model_path: Đường dẫn tới checkpoint .pth.
-        data_path: Thư mục dữ liệu (nếu chứa 'test/' sẽ dùng 'test/').
-        batch_size: Batch size cho DataLoader.
-        val_split: Tỉ lệ validation (nếu chia offline split).
-        save_plot: Có lưu biểu đồ hay không.
-        plot_dir: Thư mục lưu biểu đồ.
+        model_path: Path to the .pth checkpoint.
+        data_path: Data directory (if it contains 'test/', 'test/' will be used).
+        batch_size: Batch size for DataLoader.
+        val_split: Validation split ratio (if offline split).
+        save_plot: Whether to save the plot.
+        plot_dir: Directory to save the plot.
 
     Returns:
-        dict chứa các chỉ số đánh giá.
+        dict containing evaluation metrics.
     """
     import torch
     import torch.nn.functional as F
@@ -591,7 +591,7 @@ def evaluate_spam_model(
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  SECTION 5 — QUICK SANITY-CHECK (chạy trên dữ liệu giả)
+#  SECTION 5 — QUICK SANITY-CHECK (run on synthetic data)
 # ════════════════════════════════════════════════════════════════════════════
 
 

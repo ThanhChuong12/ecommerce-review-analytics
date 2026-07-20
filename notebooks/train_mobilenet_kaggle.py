@@ -3,20 +3,20 @@ train_mobilenet_kaggle.py
 --------------------------
 Kaggle Notebook script — MobileNetV3 Improved Defect Detection (Model 2)
 
-SETUP TRƯỚC KHI CHẠY:
-  Bước 1 — Tạo 2 Kaggle Datasets:
-    [A] image-dataset-split : upload thư mục data\image_dataset_split\ chứa train/, val/, test/
-    [B] mobilenetv3-model2-code-offline : upload file mobilenetv3_model2_code_offline.zip
+SETUP BEFORE RUNNING:
+  Step 1 — Create 2 Kaggle Datasets:
+    [A] image-dataset-split: upload the data\image_dataset_split\ directory containing train/, val/, test/
+    [B] mobilenetv3-model2-code-offline: upload the mobilenetv3_model2_code_offline.zip file
 
-  Bước 2 — Tạo Kaggle Notebook:
+  Step 2 — Create Kaggle Notebook:
     - New Notebook → Script
     - Add Input → [A] labeled-images
     - Add Input → [B] mobilenetv3-model2-code-offline
     - Settings → Accelerator: GPU T4
     - Settings → Internet: OFF
-    - Paste toàn bộ file này vào script
+    - Paste the entire content of this file into the script
 
-  Bước 3 — Chạy notebook
+  Step 3 — Run the notebook
 """
 
 import os
@@ -36,7 +36,7 @@ print("  MobileNetV3 Improved Defect Detection (Model 2) — Kaggle GPU Training
 print("=" * 75)
 
 
-# ── STEP 1: Kiểm tra GPU ───────────────────────────────────────────────────
+# ── STEP 1: Check GPU ──────────────────────────────────────────────────────
 print("\n[Step 1] Checking GPU...")
 import torch
 
@@ -128,16 +128,16 @@ else:
     print(f"{WARN}image_baseline.py not found in extracted workspace!")
 
 
-# ── STEP 4: Cài thêm dependencies ─────────────────────────────────────────
+# ── STEP 4: Install dependencies ─────────────────────────────────────────
 print("\n[Step 4] Installing dependencies...")
 os.system("pip install -q albumentations opencv-python-headless scikit-learn Pillow")
 print(f"{OK}Dependencies ready.")
 
 
-# ── STEP 5: Kiểm tra data ──────────────────────────────────────────────────
+# ── STEP 5: Check data ─────────────────────────────────────────────────────
 print("\n[Step 5] Locating labeled images split...")
 
-# Tìm thư mục chứa train/val/test
+# Find directory containing train/val/test
 TRAIN_DIR = None
 VAL_DIR = None
 TEST_DIR = None
@@ -235,7 +235,7 @@ print("\n[Step 8] Saving outputs...")
 OUTPUT_DIR = Path("/kaggle/working/outputs")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Bản đồ ánh xạ các file kết quả từ Project dir sang outputs dir
+# Map result files from Project dir to outputs dir
 artifact_mapping = {
     "ai_engine/models/weights/mobilenet_v3_model2_improved_defect.pt": "mobilenet_v3_model2_improved_defect.pt",
     "ai_engine/models/results/mobilenet_v3_model2_improved_results.json": "mobilenet_v3_model2_improved_results.json",

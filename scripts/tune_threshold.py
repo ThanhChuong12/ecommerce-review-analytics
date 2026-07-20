@@ -2,10 +2,10 @@
 """
 tune_threshold.py
 -----------------
-Script tìm threshold tối ưu cho ResNet50 Defect Detection.
+Script to find the optimal threshold for ResNet50 Defect Detection.
 
-Chạy inference trên toàn bộ validation set với nhiều threshold khác nhau,
-vẽ Precision-Recall curve và tìm threshold cân bằng tốt nhất.
+Runs inference on the entire validation set across multiple thresholds,
+plots the Precision-Recall curve, and finds the best balanced threshold.
 
 Usage:
     python scripts/tune_threshold.py
@@ -43,8 +43,8 @@ from ai_engine.image_processing.defect_detection import (
 def collect_val_probs(model_path: str, data_dir: str, val_split: float, seed: int,
                       batch_size: int, oversample: int):
     """
-    Load model và chạy inference trên toàn bộ validation set.
-    Trả về (defect_probs, true_labels).
+    Load model and run inference on the entire validation set.
+    Returns (defect_probs, true_labels).
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
@@ -61,12 +61,12 @@ def collect_val_probs(model_path: str, data_dir: str, val_split: float, seed: in
     recall = checkpoint.get("defect_recall", 0.0)
     print(f"Loaded checkpoint: epoch={epoch}, best_defect_f1={f1:.3f}, best_recall={recall:.3f}")
 
-    # Build val loader (KHÔNG oversample)
+    # Build val loader (NO oversampling)
     _, val_loader = get_dataloaders(
         data_dir=data_dir,
         batch_size=batch_size,
         val_split=val_split,
-        oversample_defect=1,  # Val set không oversample
+        oversample_defect=1,  # Do not oversample validation set
         seed=seed,
     )
 
@@ -88,15 +88,15 @@ def collect_val_probs(model_path: str, data_dir: str, val_split: float, seed: in
 
 def find_best_threshold(probs, labels, target_recall: float = None):
     """
-    Tìm threshold tối ưu theo F1 hoặc theo target recall.
+    Find the optimal threshold based on F1 or target recall.
 
     Args:
-        probs: Mảng P(defect) cho từng sample.
-        labels: Nhãn thật (0/1).
-        target_recall: Nếu đặt, tìm threshold nhỏ nhất đạt recall >= target_recall.
+        probs: Array of P(defect) for each sample.
+        labels: Ground truth labels (0/1).
+        target_recall: If set, finds the minimum threshold that achieves recall >= target_recall.
 
     Returns:
-        dict với các thông tin threshold tối ưu.
+        dict containing information on the optimal threshold.
     """
     thresholds = np.arange(0.05, 0.95, 0.025)
 
@@ -119,7 +119,7 @@ def find_best_threshold(probs, labels, target_recall: float = None):
             "tp": int(tp), "fp": int(fp), "fn": int(fn),
         })
 
-    # In bảng kết quả
+    # Print results table
     print(f"\n{'='*75}")
     print(f"  Threshold Sweep — Defect Class Performance")
     print(f"{'='*75}")
@@ -134,18 +134,18 @@ def find_best_threshold(probs, labels, target_recall: float = None):
             f"{r['f1']:>8.4f} | {r['tp']:>4} | {r['fp']:>4} | {r['fn']:>4}{marker}"
         )
 
-    # Tìm threshold tốt nhất
+    # Find best threshold
     if target_recall is not None:
-        # Tìm threshold nhỏ nhất đạt recall >= target
+        # Find the smallest threshold achieving recall >= target
         candidates = [r for r in results if r["recall"] >= target_recall]
         if candidates:
             best = max(candidates, key=lambda r: r["f1"])
             print(f"\n  >> Target recall >= {target_recall}: best threshold = {best['threshold']}")
         else:
             best = max(results, key=lambda r: r["recall"])
-            print(f"\n  [WARNING] Không đạt recall {target_recall}. Best recall = {best['recall']} at threshold={best['threshold']}")
+            print(f"\n  [WARNING] Target recall {target_recall} not met. Best recall = {best['recall']} at threshold={best['threshold']}")
     else:
-        # Tối đa F1
+        # Maximize F1
         best = max(results, key=lambda r: r["f1"])
         print(f"\n  → Best F1 threshold = {best['threshold']} (F1={best['f1']:.4f})")
 
@@ -153,7 +153,7 @@ def find_best_threshold(probs, labels, target_recall: float = None):
 
 
 def print_final_report(probs, labels, threshold: float, model_path: str):
-    """In classification report đầy đủ với threshold đã chọn."""
+    """Print complete classification report with the selected threshold."""
     preds = (probs >= threshold).astype(int)
 
     print(f"\n{'='*70}")
@@ -226,14 +226,14 @@ def main():
     print(f"Val distribution: no-defect={n_normal}, defect={n_defect}")
 
     if args.threshold is not None:
-        # Chỉ evaluate threshold cụ thể
+        # Evaluate a specific threshold only
         print_final_report(probs, labels, args.threshold, args.model_path)
         return
 
     # Threshold sweep
     best, all_results = find_best_threshold(probs, labels, target_recall=args.target_recall)
 
-    # Final report với threshold tốt nhất
+    # Final report with the best threshold
     print_final_report(probs, labels, best["threshold"], args.model_path)
 
     print(f"\n{'='*70}")

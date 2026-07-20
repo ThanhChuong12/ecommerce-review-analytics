@@ -58,10 +58,10 @@ IMAGE_SIZE = 224
 
 
 def _build_transforms(is_train: bool) -> transforms.Compose:
-    """Tạo pipeline transform ảnh cho train hoặc inference.
+    """Create image transform pipeline for training or inference.
 
-    Train: augmentation mạnh để giảm overfitting.
-    Eval/Inference: chỉ resize + center crop + normalize.
+    Train: strong augmentation to reduce overfitting.
+    Eval/Inference: resize + center crop + normalize.
     """
     if is_train:
         return transforms.Compose([
@@ -86,12 +86,12 @@ def _build_transforms(is_train: bool) -> transforms.Compose:
 
 
 def _build_backbone(backbone: str, num_classes: int = 4) -> Tuple[nn.Module, int]:
-    """Load pretrained backbone và trả về (model, số feature của layer cuối).
+    """Load pretrained backbone and return (model, number of features in final layer).
 
-    Chiến lược fine-tuning 2 giai đoạn:
-      - Freeze toàn bộ backbone, chỉ train head (epoch đầu).
-      - Unfreeze last block để backbone adapt domain (epoch sau).
-    Caller tự unfreeze qua _unfreeze_last_block() sau vài epoch.
+    2-stage fine-tuning strategy:
+      - Freeze the entire backbone, train only the head (first epochs).
+      - Unfreeze last block so the backbone adapts to the domain (subsequent epochs).
+    The caller unfreezes it via _unfreeze_last_block() after a few epochs.
     """
     if backbone == "resnet50":
         net = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
@@ -147,8 +147,8 @@ def _build_backbone(backbone: str, num_classes: int = 4) -> Tuple[nn.Module, int
         return net, in_features
 
     raise ValueError(
-        f"Backbone khong hop le: '{backbone}'. "
-        "Chon 'resnet50', 'mobilenet_v3', hoac 'efficientnet_b0'."
+        f"Invalid backbone: '{backbone}'. "
+        "Choose 'resnet50', 'mobilenet_v3', or 'efficientnet_b0'."
     )
 
 
@@ -209,19 +209,19 @@ def _count_params(net: nn.Module, backbone: str) -> dict:
 
 
 def _plot_learning_curves(history: dict, save_dir: str, backbone: str, filename: str | None = None) -> None:
-    """Vẽ biểu đồ Loss, Accuracy, Macro-F1 theo epoch và lưu PNG."""
+    """Plot Loss, Accuracy, Macro-F1 curves by epoch and save as PNG."""
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
-        logger.warning("matplotlib chưa cài — bỏ qua Learning Curves.")
+        logger.warning("matplotlib is not installed — skipping Learning Curves.")
         return
     os.makedirs(save_dir, exist_ok=True)
     ep = range(1, len(history["train_loss"]) + 1)
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     fig.suptitle(f"Learning Curves — {backbone.upper()}", fontsize=13, fontweight="bold")
-
+ 
     # Loss
     axes[0].plot(ep, history["train_loss"], "b-o", markersize=4, label="Train")
     axes[0].plot(ep, history["val_loss"],   "r-o", markersize=4, label="Val")
@@ -251,7 +251,7 @@ def _plot_confusion_matrix(
     all_labels: list, all_preds: list, class_names: list,
     save_dir: str, backbone: str, filename: str | None = None,
 ) -> None:
-    """Vẽ Confusion Matrix (raw + normalized) và lưu PNG."""
+    """Plot Confusion Matrix (raw + normalized) and save as PNG."""
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -259,7 +259,7 @@ def _plot_confusion_matrix(
         import numpy as np
         from sklearn.metrics import confusion_matrix
     except ImportError:
-        logger.warning("matplotlib chưa cài — bỏ qua Confusion Matrix.")
+        logger.warning("matplotlib is not installed — skipping Confusion Matrix.")
         return
     os.makedirs(save_dir, exist_ok=True)
     cm = confusion_matrix(all_labels, all_preds)
@@ -299,7 +299,7 @@ def _save_error_analysis(
     val_paths: list, all_labels: list, all_preds: list,
     class_names: list, save_dir: str, backbone: str, max_samples: int = 20,
 ) -> None:
-    """Lưu JSON + ảnh của các mẫu dự đoán sai để phân tích lỗi."""
+    """Save JSON + images of misclassified samples for error analysis."""
     error_dir = os.path.join(save_dir, f"{backbone}_error_analysis")
     os.makedirs(error_dir, exist_ok=True)
 
@@ -336,11 +336,11 @@ def _save_error_analysis(
                 pass
 
     logger.info(
-        "Error analysis: %d/%d sai (%.1f%%) | %d ảnh saved → %s",
+        "Error analysis: %d/%d incorrect (%.1f%%) | %d images saved → %s",
         len(errors), len(all_labels), summary["error_rate"] * 100, copied, error_dir,
     )
     for pattern, cnt in list(error_pairs.most_common(5)):
-        logger.info("  %s: %d lần", pattern, cnt)
+        logger.info("  %s: %d times", pattern, cnt)
 
 
 class ImageBaselineModel:
@@ -357,7 +357,7 @@ class ImageBaselineModel:
         self.class_names = CLASS_NAMES
         self.model: Optional[nn.Module] = None
         self.threshold: float = 0.5
-        logger.info("ImageBaselineModel khởi tạo — backbone=%s | device=%s | threshold=%.3f", backbone, self.device, self.threshold)
+        logger.info("ImageBaselineModel initialized — backbone=%s | device=%s | threshold=%.3f", backbone, self.device, self.threshold)
 
     def _get_model(self, num_classes: int = 4) -> nn.Module:
         """Initialize model if not present and send to device."""
@@ -385,27 +385,27 @@ class ImageBaselineModel:
         training_history_name: str | None = None,
         threshold_tuning_name: str | None = None,
     ) -> "ImageBaselineModel":
-        """Fine-tune backbone trên dữ liệu ảnh đã gán nhãn.
+        """Fine-tune backbone on labeled image data.
 
-        Cấu trúc thư mục data_dir phải theo ImageFolder format.
+        The data_dir folder structure must follow ImageFolder format.
 
         Args:
-            data_dir: Đường dẫn đến thư mục chứa các subfolder theo nhãn (hoặc train folder).
-            val_dir: Đường dẫn đến thư mục validation (nếu sử dụng phân chia vật lý).
-            epochs: Số epoch tối đa.
-            batch_size: Kích thước mini-batch.
+            data_dir: Path to directory containing subfolders by label (or train folder).
+            val_dir: Path to validation directory (if using a physical split).
+            epochs: Maximum number of epochs.
+            batch_size: Mini-batch size.
             lr: Learning rate.
-            val_split: Tỉ lệ dữ liệu dùng làm validation (khi dùng random split).
-            patience: Số epoch chờ.
-            subset_ratio: Tỉ lệ data train sử dụng.
-            results_dir: Thư mục kết quả.
-            class_weight_mode: Cách tính trọng số lớp cho loss function ('none', 'balanced', 'sqrt').
-            use_sampler: Có dùng WeightedRandomSampler hay không.
-            threshold_mode: Cách chọn threshold tốt nhất trên validation set.
-            learning_curves_name: Tên file lưu learning curves.
-            confusion_matrix_name: Tên file lưu confusion matrix.
-            training_history_name: Tên file lưu training history.
-            threshold_tuning_name: Tên file lưu threshold tuning results.
+            val_split: Validation split ratio (when using random split).
+            patience: Patience epochs for early stopping.
+            subset_ratio: Ratio of training data to use.
+            results_dir: Results directory.
+            class_weight_mode: Class weighting method for loss function ('none', 'balanced', 'sqrt').
+            use_sampler: Whether to use WeightedRandomSampler.
+            threshold_mode: Selection mode for the best threshold on the validation set.
+            learning_curves_name: Filename for learning curves plot.
+            confusion_matrix_name: Filename for confusion matrix plot.
+            training_history_name: Filename for training history.
+            threshold_tuning_name: Filename for threshold tuning results.
         """
         from sklearn.model_selection import StratifiedShuffleSplit
         from sklearn.metrics import classification_report as sk_report
@@ -436,7 +436,7 @@ class ImageBaselineModel:
                 keep_local, _ = next(sss_sub.split(range(len(train_idx)), all_targets))
                 train_idx = [train_idx[i] for i in keep_local]
                 logger.info(
-                    "subset_ratio=%.2f → train set giảm còn %d ảnh",
+                    "subset_ratio=%.2f → training set reduced to %d images",
                     subset_ratio, len(train_idx)
                 )
         else:
@@ -465,7 +465,7 @@ class ImageBaselineModel:
                 keep_local, _ = next(sss_sub.split(range(len(train_idx)), sub_targets))
                 train_idx = [train_idx[i] for i in keep_local]
                 logger.info(
-                    "subset_ratio=%.2f → train set giảm còn %d ảnh (val vẫn %d ảnh)",
+                    "subset_ratio=%.2f → training set reduced to %d images (validation remains %d images)",
                     subset_ratio, len(train_idx), len(val_idx),
                 )
 
@@ -568,7 +568,7 @@ class ImageBaselineModel:
         best_weights_path = os.path.join(tempfile.gettempdir(), f"{self.backbone}_best.pt")
 
         for epoch in range(1, epochs + 1):
-            # Giai đoạn 2: unfreeze last block sau epoch 3
+            # Stage 2: unfreeze last block after epoch 3
             if not backbone_unfrozen and epoch > 3:
                 backbone_params = _unfreeze_last_block(net, self.backbone)
                 if backbone_params:
@@ -584,7 +584,7 @@ class ImageBaselineModel:
                 outputs = net(imgs)
                 loss = criterion(outputs, labels)
                 loss.backward()
-                # FIX: Gradient clipping — tránh explosion khi unfreeze backbone
+                # FIX: Gradient clipping — prevent explosion when unfreezing backbone
                 torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)
                 optimizer.step()
                 train_loss += loss.item() * imgs.size(0)
@@ -598,7 +598,7 @@ class ImageBaselineModel:
                 for imgs, labels in val_loader:
                     imgs, labels = imgs.to(self.device), labels.to(self.device)
                     outputs = net(imgs)
-                    # FIX #4: Dùng val_criterion (không weight) cho early stopping
+                    # FIX #4: Use val_criterion (unweighted) for early stopping
                     loss = val_criterion(outputs, labels)
                     val_loss += loss.item() * imgs.size(0)
                     preds = outputs.argmax(1)
@@ -610,7 +610,7 @@ class ImageBaselineModel:
             train_acc = train_correct / n_train
             val_acc = val_correct / n_val
             val_loss_avg = val_loss / n_val
-            # Tính Macro-F1 để monitor class-imbalanced performance tốt hơn
+            # Calculate Macro-F1 to monitor class-imbalanced performance better
             val_macro_f1 = f1_score(val_all_labels, val_all_preds, average="macro", zero_division=0)
 
             logger.info(
@@ -618,7 +618,7 @@ class ImageBaselineModel:
                 epoch, epochs, train_acc, val_acc, val_loss_avg, val_macro_f1,
             )
 
-            # Ghi history
+            # Log history
             history["train_loss"].append(round(train_loss / n_train, 5))
             history["val_loss"].append(round(val_loss_avg, 5))
             history["train_acc"].append(round(train_acc, 5))
@@ -628,7 +628,7 @@ class ImageBaselineModel:
 
             scheduler.step(val_loss_avg)
 
-            # Checkpoint khi F1 hoặc val_loss tốt nhất
+            # Checkpoint when F1 or val_loss is best
             improved = False
             if val_loss_avg < best_val_loss:
                 best_val_loss = val_loss_avg
@@ -650,10 +650,10 @@ class ImageBaselineModel:
                 logger.info("Early stopping at epoch %d (patience=%d).", epoch, effective_patience)
                 break
 
-        # Restore best weights từ checkpoint
+        # Restore best weights from checkpoint
         net.load_state_dict(torch.load(best_weights_path, map_location=self.device))
 
-        # --- Lưu training history JSON + vẽ Learning Curves ---
+        # --- Save training history JSON + plot Learning Curves ---
         os.makedirs(results_dir, exist_ok=True)
         history_data = {**history, "param_info": param_info, "backbone": self.backbone}
         hist_name = training_history_name if training_history_name else f"{self.backbone}_training_history.json"
@@ -672,7 +672,7 @@ class ImageBaselineModel:
             save_path=tune_path
         )
 
-        # --- Final evaluation trên VAL SET (không bị data leakage) ---
+        # --- Final evaluation on VAL SET (no data leakage) ---
         logger.info("=" * 60)
         logger.info("FINAL EVALUATION — val set only (%d images) using threshold %.3f:", n_val, self.threshold)
         net.eval()
@@ -714,13 +714,13 @@ class ImageBaselineModel:
         )
         logger.info("=" * 60)
 
-        # --- Vẽ Confusion Matrix + Error Analysis ---
+        # --- Plot Confusion Matrix + Error Analysis ---
         _plot_confusion_matrix(all_labels, all_preds, self.class_names, results_dir, self.backbone, filename=confusion_matrix_name)
         _save_error_analysis(val_paths, all_labels, all_preds, self.class_names, results_dir, self.backbone)
 
-        # Lưu val report để train script dùng
+        # Save val report for train script usage
         self._val_report = report_dict
-        logger.info("Training hoàn tất. Best val_loss=%.4f | Selected Threshold=%.3f", best_val_loss, self.threshold)
+        logger.info("Training complete. Best val_loss=%.4f | Selected Threshold=%.3f", best_val_loss, self.threshold)
         return self
 
     def tune_threshold(
@@ -834,22 +834,22 @@ class ImageBaselineModel:
         return best_threshold
 
     def predict(self, image_path: str) -> Dict[str, object]:
-        """Dự đoán nhãn cho một ảnh đơn lẻ.
+        """Predict label for a single image.
 
         Args:
-            image_path: Đường dẫn file ảnh (.jpg/.png).
+            image_path: Path to the image file (.jpg/.png).
 
         Returns:
-            dict với keys:
-              - label (str): Nhãn dự đoán, vd "defect".
-              - confidence (float): Xác suất của nhãn được chọn (0–1).
-              - probabilities (dict): Xác suất đầy đủ cho các nhãn.
-              - inference_ms (float): Thời gian inference tính bằng milli-giây.
+            dict with keys:
+              - label (str): Predicted label, e.g., "defect".
+              - confidence (float): Probability of the predicted label (0–1).
+              - probabilities (dict): Complete class probability dictionary.
+              - inference_ms (float): Inference time in milliseconds.
         """
         from PIL import Image
 
         if not os.path.exists(image_path):
-            raise FileNotFoundError(f"Không tìm thấy ảnh: {image_path}")
+            raise FileNotFoundError(f"Image not found: {image_path}")
 
         net = self._get_model(num_classes=len(self.class_names))
         net.eval()
@@ -894,14 +894,14 @@ class ImageBaselineModel:
         }
 
     def predict_batch(self, image_paths: list[str], batch_size: int = 32) -> list[Dict]:
-        """Dự đoán cho nhiều ảnh cùng lúc — hiệu quả hơn gọi predict() từng cái.
+        """Predict labels for multiple images at once — more efficient than predicting individually.
 
         Args:
-            image_paths: Danh sách đường dẫn ảnh.
-            batch_size: Số ảnh xử lý mỗi lần forward pass.
+            image_paths: List of image paths.
+            batch_size: Number of images to process per forward pass.
 
         Returns:
-            Danh sách dict kết quả, cùng thứ tự với image_paths.
+            List of result dicts, in the same order as image_paths.
         """
         from PIL import Image
 
@@ -929,7 +929,7 @@ class ImageBaselineModel:
                     tensors.append(transform(img))
                     valid_paths.append(p)
                 except Exception as e:
-                    logger.warning("Bỏ qua ảnh lỗi %s: %s", p, e)
+                    logger.warning("Skipping corrupted image %s: %s", p, e)
 
             if not tensors:
                 continue
@@ -968,15 +968,15 @@ class ImageBaselineModel:
         return results
 
     def evaluate(self, data_dir: str, batch_size: int = 32, threshold: float | None = None) -> Dict[str, float]:
-        """Đánh giá model trên tập test (accuracy, per-class accuracy).
+        """Evaluate model on a test set (accuracy, per-class accuracy).
 
         Args:
-            data_dir: Thư mục ảnh dạng ImageFolder (subfolder theo nhãn).
-            batch_size: Batch size cho DataLoader.
-            threshold: Ngưỡng phân loại lớp defect (nếu None, dùng self.threshold hoặc 0.5).
+            data_dir: Test images directory in ImageFolder format (subfolders by label).
+            batch_size: Batch size for DataLoader.
+            threshold: Classification threshold for defect class (if None, uses self.threshold or 0.5).
 
         Returns:
-            dict chứa overall_accuracy và per-class accuracy.
+            dict containing overall_accuracy and per-class accuracy.
         """
         from sklearn.metrics import classification_report
 
@@ -1031,13 +1031,13 @@ class ImageBaselineModel:
         return report
 
     def save(self, filepath: str) -> None:
-        """Lưu state dict + metadata ra file .pt.
+        """Save state dict + metadata to a .pt file.
 
-        Lưu thêm backbone name, class_names và threshold để load lại đúng cấu hình.
-        Hỗ trợ: resnet50 | mobilenet_v3 | efficientnet_b0
+        Saves backbone name, class_names, and threshold to reload the exact configuration.
+        Supports: resnet50 | mobilenet_v3 | efficientnet_b0
         """
         if self.model is None:
-            raise RuntimeError("Model chưa được train. Gọi .fit() trước.")
+            raise RuntimeError("Model is not trained. Call .fit() first.")
         os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
         threshold = getattr(self, "threshold", 0.5)
         torch.save({
@@ -1050,16 +1050,16 @@ class ImageBaselineModel:
 
     @classmethod
     def load(cls, filepath: str) -> "ImageBaselineModel":
-        """Tải model từ file .pt đã lưu bằng .save().
+        """Load model from a saved .pt file.
 
         Args:
-            filepath: Đường dẫn file .pt.
+            filepath: Path to the .pt file.
 
         Returns:
-            ImageBaselineModel đã sẵn sàng cho inference.
+            ImageBaselineModel instance ready for inference.
         """
         if not os.path.exists(filepath):
-            raise FileNotFoundError(f"Không tìm thấy file model: {filepath}")
+            raise FileNotFoundError(f"Model file not found: {filepath}")
 
         checkpoint = torch.load(filepath, map_location="cpu", weights_only=False)
         backbone = checkpoint["backbone"]

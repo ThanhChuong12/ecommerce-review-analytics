@@ -1,16 +1,16 @@
 """
 test_clip_quick.py
 ==================
-Test nhanh CLIP binary classifier (product vs irrelevant) với vài ảnh mỗi class.
-Dùng để verify CLIP hoạt động đúng TRƯỚC KHI gửi thành viên khác train full model.
+Quick test for CLIP binary classifier (product vs irrelevant) with a few images per class.
+Used to verify CLIP performs correctly BEFORE sending it to other members to train the full model.
 
 Pipeline:
     CLIP (binary) → [product] → ResNet50 (defect/no-defect)
-                   → [irrelevant] → loại bỏ
+                   → [irrelevant] → discard
 
-    wrong_item: xử lý ở tầng text review (không phải việc của CLIP)
+    wrong_item: handled at the text review layer (not CLIP's job)
 
-Usage (từ project root):
+Usage (from project root):
     python scripts/test_clip_quick.py
     python scripts/test_clip_quick.py --per-class 10
 """
@@ -34,30 +34,30 @@ sys.path.insert(0, str(ROOT))
 
 CLASSES = ["intact", "damaged", "wrong_item", "irrelevant"]
 
-# CLIP binary: ảnh sản phẩm (product) vs ảnh rác (irrelevant)
-# intact     → product   (sản phẩm nguyên → ResNet50 phán intact)
-# damaged    → product   (hộp hỏng → ResNet50 phán defect)
-# wrong_item → product   (vẫn là ảnh sản phẩm, chỉ sai loại → text xử lý)
-# irrelevant → irrelevant (selfie, food, meme → loại bỏ)
+# CLIP binary: product images (product) vs clutter/non-product images (irrelevant)
+# intact     → product   (normal product → ResNet50 classifies as intact)
+# damaged    → product   (damaged box → ResNet50 classifies as defect)
+# wrong_item → product   (still a product image, just wrong type → handled by text review)
+# irrelevant → irrelevant (selfie, food, meme → discard)
 EXPECTED_CLIP_LABEL = {
     "intact":     "product",
     "damaged":    "product",
-    "wrong_item": "product",      # wrong_item vẫn là ảnh sản phẩm, CLIP giữ lại
+    "wrong_item": "product",      # wrong_item is still a product image, CLIP keeps it
     "irrelevant": "irrelevant",
 }
 
 
 def collect_samples(per_class: int) -> list[dict]:
-    """Thu thập mẫu ảnh ngẫu nhiên từ mỗi class."""
+    """Collect random image samples from each class."""
     data = []
     for cls in CLASSES:
         cls_dir = TEST_DIR / cls
         if not cls_dir.exists():
-            print(f"  ⚠️  Folder không tồn tại: {cls_dir}")
+            print(f"  ⚠️  Directory does not exist: {cls_dir}")
             continue
         imgs = list(cls_dir.glob("*.jpg")) + list(cls_dir.glob("*.png")) + list(cls_dir.glob("*.jpeg"))
         if not imgs:
-            print(f"  ⚠️  Không có ảnh trong {cls_dir}")
+            print(f"  ⚠️  No images in {cls_dir}")
             continue
 
         random.seed(42)
@@ -68,29 +68,29 @@ def collect_samples(per_class: int) -> list[dict]:
 
 
 def run_test(per_class: int = 5) -> None:
-    """Chạy test CLIP binary trên mẫu nhỏ."""
+    """Run CLIP binary test on a small sample subset."""
 
     print(f"\n{'='*70}")
     print("  🧪 CLIP BINARY QUICK TEST (product vs irrelevant)")
     print(f"{'='*70}")
     print(f"  Test dir   : {TEST_DIR}")
-    print(f"  Per class  : {per_class} ảnh")
+    print(f"  Per class  : {per_class} images")
     print(f"  Pipeline   : CLIP → [product] → ResNet50")
-    print(f"               CLIP → [irrelevant] → loại bỏ")
-    print(f"               wrong_item → xử lý ở tầng text review")
+    print(f"               CLIP → [irrelevant] → discard")
+    print(f"               wrong_item → handled at text review layer")
 
     data = collect_samples(per_class)
     total = len(data)
-    print(f"  Tổng mẫu   : {total}")
+    print(f"  Total samples: {total}")
 
-    # Phân bố
+    # Distribution
     class_dist = defaultdict(int)
     for d in data:
         class_dist[d["true_label"]] += 1
-    print(f"\n  Phân bố:")
+    print(f"\n  Distribution:")
     for cls in CLASSES:
         expected = EXPECTED_CLIP_LABEL[cls]
-        print(f"    {cls:<12} → expect '{expected}'  ({class_dist[cls]} ảnh)")
+        print(f"    {cls:<12} → expect '{expected}'  ({class_dist[cls]} images)")
 
     # Load model
     print(f"\n  Loading CLIP model...")
@@ -100,7 +100,7 @@ def run_test(per_class: int = 5) -> None:
     load_time = time.perf_counter() - t0
     print(f"  Import done in {load_time:.1f}s")
 
-    # Chạy inference
+    # Run inference
     print(f"\n{'='*70}")
     correct = 0
     wrong_examples = []
@@ -151,11 +151,11 @@ def run_test(per_class: int = 5) -> None:
             f"({inference_ms:.0f}ms)  {fname}"
         )
 
-    # ── Tổng kết ──
+    # ── Summary ──
     acc = correct / total if total > 0 else 0
 
     print(f"\n{'='*70}")
-    print(f"  📊 KẾT QUẢ TỔNG HỢP")
+    print(f"  📊 SUMMARY RESULTS")
     print(f"{'='*70}")
     print(f"  Overall Accuracy: {correct}/{total} = {acc:.1%}")
 
@@ -173,7 +173,7 @@ def run_test(per_class: int = 5) -> None:
         )
 
     if wrong_examples:
-        print(f"\n  ── Lỗi chi tiết ({len(wrong_examples)} sai) ──")
+        print(f"\n  ── Error Details ({len(wrong_examples)} incorrect) ──")
         for ex in wrong_examples[:15]:
             print(
                 f"  ❌ {ex['path'][:35]:<35}  "
@@ -181,65 +181,65 @@ def run_test(per_class: int = 5) -> None:
                 f"got={ex['predicted']:<12}  {ex['probs']}"
             )
 
-    # ── Đánh giá theo vai trò ──
+    # ── Role Evaluation in Pipeline ──
     print(f"\n{'='*70}")
-    print(f"  🔍 ĐÁNH GIÁ VAI TRÒ CLIP TRONG PIPELINE")
+    print(f"  🔍 ROLE EVALUATION IN PIPELINE")
     print(f"{'='*70}")
 
-    # 1. Giữ ảnh sản phẩm cho ResNet50 (intact + damaged + wrong_item → product)
+    # 1. Keep product images for ResNet50 (intact + damaged + wrong_item → product)
     product_classes = ["intact", "damaged", "wrong_item"]
     product_keep = sum(per_class_stats[c]["correct"] for c in product_classes)
     product_total = sum(per_class_stats[c]["total"] for c in product_classes)
     product_recall = product_keep / product_total if product_total > 0 else 0
     product_lost = product_total - product_keep
 
-    print(f"\n  1. Giữ ảnh sản phẩm cho ResNet50 (intact+damaged+wrong_item → 'product'):")
-    print(f"     Recall = {product_recall:.0%} ({product_keep}/{product_total} ảnh sản phẩm được giữ)")
+    print(f"\n  1. Keep product images for ResNet50 (intact+damaged+wrong_item → 'product'):")
+    print(f"     Recall = {product_recall:.0%} ({product_keep}/{product_total} product images kept)")
     if product_recall >= 0.85:
-        print(f"     ✅ Xuất sắc! CLIP giữ lại gần như toàn bộ ảnh sản phẩm")
+        print(f"     ✅ Excellent! CLIP keeps almost all product images")
     elif product_recall >= 0.70:
-        print(f"     ✅ Tốt. CLIP giữ lại phần lớn ảnh sản phẩm cho ResNet50")
+        print(f"     ✅ Good. CLIP keeps most product images for ResNet50")
     elif product_recall >= 0.50:
-        print(f"     ⚠️  Trung bình. CLIP loại nhầm {product_lost} ảnh sản phẩm")
+        print(f"     ⚠️  Average. CLIP misclassified and discarded {product_lost} product images")
     else:
-        print(f"     ❌ Kém. CLIP loại nhầm quá nhiều ảnh sản phẩm ({product_lost}/{product_total})")
+        print(f"     ❌ Poor. CLIP misclassified and discarded too many product images ({product_lost}/{product_total})")
 
-    # 2. Lọc ảnh rác
+    # 2. Filter irrelevant images
     irr_stats = per_class_stats["irrelevant"]
     irr_recall = irr_stats["correct"] / irr_stats["total"] if irr_stats["total"] > 0 else 0
 
-    print(f"\n  2. Lọc ảnh rác (irrelevant):")
-    print(f"     Recall = {irr_recall:.0%} ({irr_stats['correct']}/{irr_stats['total']} ảnh rác bị loại đúng)")
+    print(f"\n  2. Filter irrelevant images:")
+    print(f"     Recall = {irr_recall:.0%} ({irr_stats['correct']}/{irr_stats['total']} irrelevant images correctly filtered)")
     if irr_recall >= 0.70:
-        print(f"     ✅ CLIP lọc tốt ảnh không liên quan")
+        print(f"     ✅ CLIP filters irrelevant images well")
     elif irr_recall >= 0.50:
-        print(f"     ⚠️  CLIP bắt được một nửa ảnh rác — có thể cần cải thiện prompts")
+        print(f"     ⚠️  CLIP caught half of irrelevant images — prompts might need refinement")
     else:
-        print(f"     ❌ CLIP bỏ sót quá nhiều ảnh rác")
+        print(f"     ❌ CLIP missed too many irrelevant images")
 
-    # 3. False alarm rate (loại nhầm ảnh tốt)
+    # 3. False alarm rate (wrongly filtering good images)
     false_alarms = product_total - product_keep
     false_alarm_rate = false_alarms / product_total if product_total > 0 else 0
-    print(f"\n  3. False alarm (loại nhầm ảnh sản phẩm):")
-    print(f"     Rate = {false_alarm_rate:.0%} ({false_alarms}/{product_total} ảnh sản phẩm bị loại nhầm)")
+    print(f"\n  3. False alarm (wrongly filtering product images):")
+    print(f"     Rate = {false_alarm_rate:.0%} ({false_alarms}/{product_total} product images wrongly discarded)")
     if false_alarm_rate <= 0.10:
-        print(f"     ✅ Rất ít loại nhầm")
+        print(f"     ✅ Very low false alarm rate")
     elif false_alarm_rate <= 0.20:
-        print(f"     ⚠️  Chấp nhận được nhưng có thể cải thiện")
+        print(f"     ⚠️  Acceptable but could be improved")
     else:
-        print(f"     ❌ Loại nhầm quá nhiều ảnh tốt")
+        print(f"     ❌ Discarded too many product images")
 
-    # ── Kết luận ──
+    # ── Conclusion ──
     print(f"\n{'='*70}")
     if product_recall >= 0.70 and irr_recall >= 0.50:
-        print(f"  ✅ CLIP HOẠT ĐỘNG TỐT — Sẵn sàng dùng làm pre-filter cho ResNet50")
-        print(f"     Pipeline: CLIP (lọc irrelevant) → ResNet50 (defect/no-defect)")
+        print(f"  ✅ CLIP PERFORMS WELL — Ready to be used as a pre-filter for ResNet50")
+        print(f"     Pipeline: CLIP (filter irrelevant) → ResNet50 (defect/no-defect)")
     elif product_recall >= 0.50:
-        print(f"  ⚠️  CLIP CẦN CẢI THIỆN — Hoạt động nhưng chưa đủ chính xác")
-        print(f"     → Thử model lớn hơn: clip-vit-large-patch14")
-        print(f"     → Hoặc cải thiện prompts cho phù hợp dataset")
+        print(f"  ⚠️  CLIP NEEDS IMPROVEMENT — Functional but not accurate enough")
+        print(f"     → Try a larger model: clip-vit-large-patch14")
+        print(f"     → Or refine prompts for the dataset")
     else:
-        print(f"  ❌ CLIP KHÔNG HIỆU QUẢ — Cần xem lại thiết kế")
+        print(f"  ❌ CLIP NOT EFFECTIVE — Design needs to be re-evaluated")
     print(f"{'='*70}\n")
 
 
@@ -249,7 +249,7 @@ def main():
     )
     parser.add_argument(
         "--per-class", type=int, default=5,
-        help="Số ảnh test mỗi class (mặc định: 5, tổng ~20 ảnh)"
+        help="Number of test images per class (default: 5, total ~20 images)"
     )
     args = parser.parse_args()
     run_test(args.per_class)

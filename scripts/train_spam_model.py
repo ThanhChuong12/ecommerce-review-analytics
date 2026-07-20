@@ -153,7 +153,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Chuyển đổi max_samples thành số float nếu là chuỗi số
+    # Convert max_samples to float if it is a numeric string
     max_samples_val = args.max_samples
     if max_samples_val != "auto":
         try:

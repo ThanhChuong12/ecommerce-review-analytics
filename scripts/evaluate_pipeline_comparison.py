@@ -1,13 +1,13 @@
 """
 evaluate_pipeline_comparison.py
 ================================
-So sánh pipeline cũ vs pipeline mới (Denoiser) trên cùng test set.
+Compare old pipeline vs new pipeline (Denoiser) on the same test set.
 
-Pipeline cũ text:  PhoBERT fine-tuned → predict trực tiếp (có head gốc)
-Pipeline mới text: PhoBERT embedding → FeatureDenoiser → MLP head mới
+Old text pipeline:  PhoBERT fine-tuned → direct predict (with original head)
+New text pipeline:  PhoBERT embedding → FeatureDenoiser → new MLP head
 
-Pipeline cũ ảnh:   ResNet50 fine-tuned (binary: intact vs defect)
-Pipeline mới ảnh:  ResNet50 embedding → FeatureDenoiser → 4-class MLP head
+Old image pipeline: ResNet50 fine-tuned (binary: intact vs defect)
+New image pipeline: ResNet50 embedding → FeatureDenoiser → 4-class MLP head
 
 Usage:
     py scripts/evaluate_pipeline_comparison.py
@@ -84,7 +84,7 @@ def print_results(title: str, metrics: dict, class_names: list[str]):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  Pipeline cũ TEXT: PhoBERT fine-tuned direct inference
+#  Old TEXT pipeline: PhoBERT fine-tuned direct inference
 # ════════════════════════════════════════════════════════════════════════════
 
 def evaluate_old_text_pipeline(
@@ -150,7 +150,7 @@ def evaluate_old_text_pipeline(
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  Pipeline mới TEXT: Embedding → Denoiser → MLP head
+#  New TEXT pipeline: Embedding → Denoiser → MLP head
 # ════════════════════════════════════════════════════════════════════════════
 
 def evaluate_new_text_pipeline(
@@ -184,7 +184,7 @@ def evaluate_new_text_pipeline(
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  Pipeline cũ ẢNH: ResNet50 binary (intact vs defect)
+#  Old IMAGE pipeline: ResNet50 binary (intact vs defect)
 # ════════════════════════════════════════════════════════════════════════════
 
 def evaluate_old_image_pipeline(
@@ -256,7 +256,7 @@ def evaluate_old_image_pipeline(
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  Pipeline mới ẢNH: Embedding → Denoiser → 4-class MLP head
+#  New IMAGE pipeline: Embedding → Denoiser → 4-class MLP head
 # ════════════════════════════════════════════════════════════════════════════
 
 def evaluate_new_image_pipeline(
@@ -401,7 +401,7 @@ def main():
     print_results("NEW: ResNet50 + Denoiser + MLP head (binary)", new_image, binary_classes)
 
     # ════════════════════════════════════════════════════════════════════════
-    #  TỔNG KẾT SO SÁNH
+    #  COMPARISON SUMMARY
     # ════════════════════════════════════════════════════════════════════════
     print("\n" + "=" * 65)
     print("  TỔNG KẾT SO SÁNH")

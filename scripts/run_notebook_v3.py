@@ -7,26 +7,26 @@ import cv2
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-# Đảm bảo thư mục lưu ảnh tồn tại
+# Ensure the directory for saving images exists
 os.makedirs('../model_report/graphics', exist_ok=True)
 plt.style.use('seaborn-v0_8-whitegrid')
 plt.rcParams['font.family'] = 'sans-serif'
 
 
-# Đọc dữ liệu
+# Read data
 text_df = pd.read_csv('../data/processed/spam_labeled_text.csv')
 print(f"Tổng số mẫu văn bản: {len(text_df)}")
 
 fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-# Biểu đồ Sentiment
+# Sentiment distribution plot
 sentiment_counts = text_df['sentiment_label'].value_counts()
 sns.barplot(x=sentiment_counts.index, y=sentiment_counts.values, palette='viridis', hue=sentiment_counts.index, legend=False, ax=axes[0])
 axes[0].set_title('Phân bố nhãn Cảm xúc (Sentiment)', fontsize=13)
 for i, v in enumerate(sentiment_counts.values):
     axes[0].text(i, v + 100, str(v), ha='center', fontsize=11)
 
-# Biểu đồ Spam
+# Spam distribution plot
 spam_counts = text_df['is_spam'].value_counts()
 spam_counts.index = ['Non-spam (0)', 'Spam (1)']
 sns.barplot(x=spam_counts.index, y=spam_counts.values, palette='Set2', hue=spam_counts.index, legend=False, ax=axes[1])
@@ -58,7 +58,7 @@ plt.tight_layout()
 plt.savefig('../model_report/graphics/text_word_count_boxplot.png', dpi=300)
 plt.show()
 
-# In thống kê cơ bản
+# Print basic descriptive statistics
 display(text_df.groupby('sentiment_label')['word_count'].describe().round(2))
 
 
@@ -109,16 +109,16 @@ import sys
 sys.path.append('../')
 from ai_engine.image_processing.augmentation.transforms import get_defect_transforms
 
-# Chọn thử 1 ảnh bị lỗi (damaged) để minh hoạ
+# Select a damaged image for illustration
 damaged_dir = os.path.join(image_dir, 'damaged')
 sample_img_name = os.listdir(damaged_dir)[0]
 sample_img_path = os.path.join(damaged_dir, sample_img_name)
 
-# Đọc ảnh gốc bằng OpenCV
+# Read original image using OpenCV
 img_bgr = cv2.imread(sample_img_path)
 img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
-# Áp dụng Augmentation (Dùng pipeline lấy từ mã nguồn của nhóm)
+# Apply Augmentation using the project pipeline
 transform_pipeline = get_defect_transforms()
 augmented = transform_pipeline(image=img_rgb)['image']
 img_aug_np = augmented.permute(1, 2, 0).numpy()
@@ -126,7 +126,7 @@ mean = np.array([0.485, 0.456, 0.406])
 std = np.array([0.229, 0.224, 0.225])
 img_aug_display = np.clip(std * img_aug_np + mean, 0, 1)
 
-# Vẽ minh hoạ
+# Plot illustration
 fig, axes = plt.subplots(1, 2, figsize=(10, 5))
 axes[0].imshow(img_rgb)
 axes[0].set_title("Ảnh gốc (Original)")
@@ -141,7 +141,7 @@ plt.savefig('../model_report/graphics/augmentation_demo.png', dpi=300)
 plt.show()
 
 
-# Mô phỏng chia tập dữ liệu Text (Sentiment)
+# Simulate splitting of Text (Sentiment) dataset
 X = text_df.index.values
 y = text_df['sentiment_label'].values
 
