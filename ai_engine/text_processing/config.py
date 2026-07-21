@@ -1,33 +1,17 @@
+"""Configuration module for the NLP text preprocessing pipeline.
+
+Defines regex patterns, dictionary mappings, and stopwords for text normalization.
 """
-Configuration module for the NLP text preprocessing pipeline.
-Contains regex patterns, mappings for text normalization, and system constants.
-"""
+
+from __future__ import annotations
 
 import re
 
-# ==============================================================================
-# REGEX PATTERNS (Pre-compiled for performance)
-# ==============================================================================
+URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")
+HTML_PATTERN = re.compile(r"<.*?>")
+SPECIAL_CHAR_PATTERN = re.compile(r"[^\w\s]")
+WHITESPACE_PATTERN = re.compile(r"\s+")
 
-# Matches HTTP/HTTPS URLs and www.* links
-URL_PATTERN = re.compile(r'https?://\S+|www\.\S+')
-
-# Matches HTML tags
-HTML_PATTERN = re.compile(r'<.*?>')
-
-# Matches special characters, keeping only alphanumeric and whitespace (supports Unicode/Vietnamese)
-# \w matches any word character (equivalent to [a-zA-Z0-9_] plus unicode characters)
-SPECIAL_CHAR_PATTERN = re.compile(r'[^\w\s]')
-
-# Matches multiple spaces to normalize whitespace
-WHITESPACE_PATTERN = re.compile(r'\s+')
-
-
-# ==============================================================================
-# DICTIONARIES & SETS
-# ==============================================================================
-
-# Comprehensive mapping for teen code, social media abbreviations, and e-commerce typos
 TEEN_CODE_DICT = {
     "bvs": "băng vệ sinh",
     "chất": "chất lượng",
@@ -87,7 +71,6 @@ TEEN_CODE_DICT = {
     "zậy": "vậy",
 }
 
-# Mapping specific high-frequency e-commerce emojis directly to Vietnamese text
 EMOJI_DICT = {
     "⭐️": " tuyệt_vời ",
     "⭐": " tuyệt_vời ",
@@ -104,7 +87,6 @@ EMOJI_DICT = {
     "😭": " buồn ",
 }
 
-# Vietnamese filler words without emotional/sentiment weight
 VI_STOPWORDS = {
     "là", "và", "thì", "mà", "được", "bị", "của", "có", "với", "cho", "trong",
     "để", "này", "đó", "đây", "kia", "sau", "khi", "tại", "tới", "từ", "những",

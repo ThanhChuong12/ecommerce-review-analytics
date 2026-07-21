@@ -7,7 +7,7 @@ on:
     branches: [ "main" ]
 
 jobs:
-  # 1. Job kiểm tra Frontend (Cài đặt và Lint)
+  # 1. Frontend Validation Job
   frontend-check:
     name: Frontend Lint Check
     runs-on: ubuntu-latest
@@ -31,10 +31,9 @@ jobs:
       run: |
         cd web_platform/frontend
         npm run lint
-      continue-on-error: true # Cho phép cảnh báo lint không chặn CI nếu chưa cấu hình chặt chẽ
+      continue-on-error: true # Allow non-blocking lint warnings during initial CI setup
 
-
-  # 2. Job kiểm tra Backend Node.js
+  # 2. Backend Validation Job
   backend-check:
     name: Backend Dependency & Syntax Check
     runs-on: ubuntu-latest
@@ -54,7 +53,7 @@ jobs:
         cd web_platform/backend
         npm ci
 
-  # 3. Job kiểm tra AI Engine & Chạy Unit Tests (Python)
+  # 3. AI Engine Test & Validation Job
   python-ai-tests:
     name: Python AI Engine & Unit Tests
     runs-on: ubuntu-latest
@@ -78,4 +77,4 @@ jobs:
 
     - name: Run Unit Tests with pytest
       run: |
-        python -m pytest tests/ -v
+        python -m pytest tests/ -v

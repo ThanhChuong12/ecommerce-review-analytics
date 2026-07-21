@@ -1,8 +1,4 @@
-"""
-spam_model.py
-=============
-Hybrid Spam Detection Model combining rule-based flags with Isolation Forest.
-"""
+"""Hybrid spam detection model combining rule-based flags with Isolation Forest."""
 
 from __future__ import annotations
 
@@ -17,8 +13,6 @@ from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
 from ai_engine.text_processing.spam_filter import (
-    count_chars,
-    count_words,
     get_digit_ratio,
     get_emoji_ratio,
     get_special_char_ratio,
@@ -28,7 +22,6 @@ from ai_engine.text_processing.spam_filter import (
 
 logger = logging.getLogger(__name__)
 
-# ── Rule flag columns (21 flags from spam_filter) ───────────────────────────
 RULE_FLAG_COLS: List[str] = [
     "ai_template", "template_repeat", "mostly_template",
     "xu_farming",
@@ -41,12 +34,12 @@ RULE_FLAG_COLS: List[str] = [
     "rating_mismatch", "duplicate_seeding",
 ]
 
-def extract_structural_features(texts: List[str], ratings: List) -> np.ndarray:
-    """Extract structural features from text."""
-    features = []
-    for text, rating in zip(texts, ratings):
-        text_str = str(text) if text else ""
 
+def extract_structural_features(texts: List[str], ratings: List) -> np.ndarray:
+    """Extract statistical and structural features from raw texts."""
+    features = []
+    for text, _ in zip(texts, ratings):
+        text_str = str(text) if text else ""
         features.append([
             get_emoji_ratio(text_str),
             get_special_char_ratio(text_str),
@@ -56,35 +49,31 @@ def extract_structural_features(texts: List[str], ratings: List) -> np.ndarray:
         ])
     return np.array(features, dtype=np.float32)
 
+
 def build_feature_matrix(
     df_flagged: pd.DataFrame,
     texts: List[str],
     ratings: List,
 ) -> np.ndarray:
-    """Combine rule flags and structural features into a single feature matrix."""
+    """Combine rule-based flags and structural metrics into a single feature matrix."""
     flag_details = df_flagged.attrs.get("flag_details")
     if flag_details is None:
         raise RuntimeError(
-            "flag_details not found in df.attrs. "
-            "Make sure detect_spam() was called before build_feature_matrix()."
+            "flag_details missing in DataFrame attributes. "
+            "Execute detect_spam() prior to build_feature_matrix()."
         )
 
-    # Rule-based binary flags (21 cols) - 0/1 values
     rule_feats = flag_details[RULE_FLAG_COLS].values.astype(np.float32)
-
-    # Rule score aggregate (tong so rule bi vi pham)
     rule_score = rule_feats.sum(axis=1, keepdims=True)
-
-    # Structural features (5 cols)
     struct_feats = extract_structural_features(texts, ratings)
 
     X = np.hstack([rule_feats, rule_score, struct_feats])
-    logger.info("Feature matrix shape: %s", X.shape)
+    logger.info("Built feature matrix with shape: %s", X.shape)
     return X
 
 
 class SpamHybridModel:
-    """Hybrid spam detection model combining rule-based rules and Isolation Forest."""
+    """Isolation Forest anomaly detection model for identifying spam reviews."""
 
     def __init__(
         self,
@@ -101,6 +90,7 @@ class SpamHybridModel:
         self.iforest: IsolationForest | None = None
 
     def fit(self, X: np.ndarray) -> "SpamHybridModel":
+        """Fit scaler and Isolation Forest model on feature matrix."""
         logger.info(
             "Training Isolation Forest (n_estimators=%d, contamination=%.2f)...",
             self.n_estimators, self.contamination,
@@ -114,18 +104,20 @@ class SpamHybridModel:
             n_jobs=-1,
         )
         self.iforest.fit(X_scaled)
-        logger.info("Isolation Forest training complete.")
+        logger.info("Isolation Forest training completed.")
         return self
 
     def predict_anomaly(self, X: np.ndarray) -> np.ndarray:
+        """Predict anomaly status (-1 for anomaly/spam, 1 for normal)."""
         if self.iforest is None:
-            raise RuntimeError("Model is not trained. Call .fit() first.")
+            raise RuntimeError("Model is not fitted. Call fit() first.")
         X_scaled = self.scaler.transform(X)
         return self.iforest.predict(X_scaled)
 
     def anomaly_score(self, X: np.ndarray) -> np.ndarray:
+        """Calculate anomaly scores for feature matrix."""
         if self.iforest is None:
-            raise RuntimeError("Model is not trained. Call .fit() first.")
+            raise RuntimeError("Model is not fitted. Call fit() first.")
         X_scaled = self.scaler.transform(X)
         return self.iforest.score_samples(X_scaled)
 
@@ -134,20 +126,21 @@ class SpamHybridModel:
         X: np.ndarray,
         rule_is_spam: np.ndarray,
     ) -> np.ndarray:
+        """Predict binary spam status (1 for spam, 0 for legitimate)."""
         iforest_pred = self.predict_anomaly(X)
-        iforest_spam = (iforest_pred == -1).astype(int)
-        # User requested to ONLY use the model (Isolation Forest)
-        return iforest_spam
+        return (iforest_pred == -1).astype(int)
 
     def save(self, path: str) -> None:
+        """Persist model instance to disk."""
         save_path = Path(path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         joblib.dump(self, save_path)
-        logger.info("Spam model saved -> %s", save_path)
+        logger.info("Saved spam model to '%s'", save_path)
 
     @classmethod
     def load(cls, path: str) -> "SpamHybridModel":
+        """Load persisted model instance from disk."""
         if not Path(path).exists():
             raise FileNotFoundError(f"Model file not found: {path}")
-        logger.info("Loading spam model <- %s", path)
+        logger.info("Loading spam model from '%s'", path)
         return joblib.load(path)
