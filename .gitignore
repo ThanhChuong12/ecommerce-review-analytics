@@ -1,12 +1,8 @@
-# ===================================================
-# .gitignore — Multimodal Review Analytics Dashboard
-# ===================================================
-
-# --- Secrets & Config ---
+# Secrets & Environment Configuration
 .env
 *.env.local
 
-# --- Python ---
+# Python Build & Virtual Environments
 __pycache__/
 *.py[cod]
 *.pyo
@@ -19,10 +15,10 @@ build/
 .pytest_cache/
 .mypy_cache/
 
-# --- Jupyter ---
+# Jupyter Notebook Checkpoints
 .ipynb_checkpoints/
 
-# --- Node.js ---
+# Node.js Build & Dependencies
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -30,14 +26,14 @@ yarn-error.log*
 .next/
 dist/
 
-# --- Dữ liệu (không commit dữ liệu thô/lớn) ---
+# Raw Data & Scraping Outputs
 data/raw/*
 !data/raw/.gitkeep
 scraping_agent/output/*
 scraping_agent/data/*
 !scraping_agent/output/.gitkeep
 
-# Thư mục xử lý Media & Ảnh
+# Media Processing Directories & Archives
 image_labeling/new_data/
 image_labeling/data/frames/
 image_labeling/data/raw_media/
@@ -45,67 +41,52 @@ image_labeling/data/labeled/
 image_labeling.zip
 data.zip
 data/processed/training_images.zip
-# ai_engine/models/*.pth  ← tắt để push kết quả train
-# Chặn theo định dạng
 
+# Media Formats
 *.mp4
 *.avi
 *.jpg
 *.jpeg
-# *.png
 
-
-# --- Model weights (tắt để push kết quả train) ---
-# ai_engine/models/weights/*.pt
-# ai_engine/models/weights/*.pth
-# ai_engine/models/weights/*.bin
-# ai_engine/models/weights/*.onnx
-
-# --- Labeled dataset (anh lon, khong commit) ---
+# Labeled Datasets
 labeled/
 
-# --- Thu muc test tam thoi ---
+# Temporary Test Directories & Root Scripts
 test_*/
-
-# --- Scratch / one-off scripts (chi o root) ---
 /test_*.py
 /run_eval.py
 
-# --- OS ---
+# Operating System Files
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# --- IDE ---
+# IDE & Agent Tools
 .vscode/
 .idea/
 *.swp
 .claude/
+.agents/
 
-
-# Bỏ qua toàn bộ nội dung trong thư mục models và plots
+# Artifact Models & Plots
 artifacts/models/**/*
-
-# NHƯNG giữ lại file .gitkeep để duy trì cấu trúc thư mục trên GitHub
 !artifacts/models/**/.gitkeep
 !artifacts/plots/**/.gitkeep
-
 /ai_context
 
-# Chặn file zip đóng gói Kaggle
+# Kaggle Packaging Archives
 resnet50_kaggle_train.zip
 kaggle_dataset.zip
 
-# --- Weights và training artifacts (MobileNetV3/ResNet50) ---
+# Model Weights & Training Artifacts
 *.pt
 *.pth
 ai_engine/models/results/*_training_history.json
 ai_engine/models/results/*_error_analysis/
 ai_engine/models/weights/cpu_run_v2/
 
-# --- Data CSV (scraped, không commit) ---
+# Scraped Data & Training Artifacts
 data/*.csv
-# --- Model 2 training artifacts ---
 *.ckpt
 *.zip
 /kaggle/
@@ -113,6 +94,6 @@ data/*.csv
 /reports/figures/
 /reports/figures_model2/
 
-# --- ResNet50 Improve Temp & Split Exclusions ---
+# Temporary Extraction & Split Exclusions
 tmp_extract/
 data/image_dataset_split/
