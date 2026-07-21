@@ -97,3 +97,6 @@ data/*.csv
 # Temporary Extraction & Split Exclusions
 tmp_extract/
 data/image_dataset_split/
+
+# Documentation
+docs/
