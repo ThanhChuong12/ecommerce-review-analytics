@@ -1,10 +1,10 @@
 """
 scripts/split_spam_data.py
 ==========================
-Tiền xử lý và chia tách tập dữ liệu đánh giá Spam (Train/Val/Test).
-- Đầu vào: spam_labeled_text.csv
-- Tỷ lệ: 70/15/15
-- Đặc biệt: Loại bỏ cột nhãn khỏi tập Train để huấn luyện Unsupervised.
+Preprocess and split spam dataset (Train/Val/Test).
+- Input: spam_labeled_text.csv
+- Ratio: 70/15/15
+- Note: Labels are removed from Train set for unsupervised training.
 """
 
 import os
@@ -24,40 +24,40 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 def main():
-    logger.info(f"Đang tải dữ liệu từ: {INPUT_CSV}")
+    logger.info(f"Loading data from: {INPUT_CSV}")
     if not INPUT_CSV.exists():
-        logger.error(f"Không tìm thấy file: {INPUT_CSV}")
+        logger.error(f"File not found: {INPUT_CSV}")
         return
 
     df = pd.read_csv(INPUT_CSV)
     total_samples = len(df)
-    logger.info(f"Tổng số mẫu hiện có: {total_samples}")
+    logger.info(f"Total samples: {total_samples}")
 
     # Shuffle & Split 70-15-15
     # train: 70%, temp: 30%
     train_df, temp_df = train_test_split(df, test_size=0.30, random_state=42)
-    # val: 50% của temp (15%), test: 50% của temp (15%)
+    # val: 50% of temp (15%), test: 50% of temp (15%)
     val_df, test_df = train_test_split(temp_df, test_size=0.50, random_state=42)
 
-    logger.info("Đang xử lý cấu trúc nhãn cho các tập dữ liệu...")
+    logger.info("Processing labels for datasets...")
     
-    # ── MỤC TIÊU BẢO MẬT: Tập Train KHÔNG được chứa nhãn (Unsupervised) ──
-    # Xóa cột 'is_spam' (hoặc bất kỳ cột nhãn nào liên quan) nếu có
+    # ── Train set MUST NOT contain labels (Unsupervised) ──
+    # Drop 'is_spam' column if it exists
     if "is_spam" in train_df.columns:
         train_df = train_df.drop(columns=["is_spam"])
     
-    # Tập Val và Test giữ nguyên nhãn để phục vụ đánh giá (Evaluation)
+    # Val and Test sets keep labels for evaluation
     
-    logger.info(f"Tập Train (Không nhãn): {len(train_df)} mẫu")
-    logger.info(f"Tập Val   (Có nhãn)   : {len(val_df)} mẫu")
-    logger.info(f"Tập Test  (Có nhãn)   : {len(test_df)} mẫu")
+    logger.info(f"Train set (Unlabeled): {len(train_df)} samples")
+    logger.info(f"Val set   (Labeled)  : {len(val_df)} samples")
+    logger.info(f"Test set  (Labeled)  : {len(test_df)} samples")
 
-    # Lưu file
+    # Save files
     train_df.to_csv(OUT_TRAIN, index=False, encoding="utf-8-sig")
     val_df.to_csv(OUT_VAL, index=False, encoding="utf-8-sig")
     test_df.to_csv(OUT_TEST, index=False, encoding="utf-8-sig")
 
-    logger.info("Hoàn tất chia tách và lưu file dữ liệu!")
+    logger.info("Dataset split and saving completed!")
 
 if __name__ == "__main__":
     main()

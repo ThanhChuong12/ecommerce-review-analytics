@@ -1,29 +1,27 @@
 """
 tune_spam_model.py
 ==================
-Tinh chỉnh siêu tham số cho SpamHybridModel (Rule-based + Isolation Forest).
+Hyperparameter tuning for SpamHybridModel (Rule-based + Isolation Forest).
 
-Vì Isolation Forest là unsupervised (không có nhãn ground-truth thật),
-chiến lược tuning dùng nhãn rule-based `is_spam` làm **proxy ground-truth**
-để đánh giá mức độ đồng thuận giữa IForest và bộ quy tắc.
+Since Isolation Forest is unsupervised (no real ground-truth labels),
+tuning strategy uses rule-based `is_spam` labels as a **proxy ground-truth**
+to evaluate the agreement between IForest and the rules.
 
-Các tham số được tuning:
+Parameters tuned:
   1. IsolationForest:
-       - contamination  : [0.05, 0.08, 0.10, 0.12, 0.15, 0.20]
-       - n_estimators   : [100, 150, 200, 300]
-       - max_samples    : ["auto", 0.7, 1.0]
+       - contamination
+       - n_estimators
+       - max_samples
   2. Rule-based:
-       - dup_threshold  : [0.75, 0.80, 0.85, 0.90]  (cosine similarity cho duplicate seeding)
+       - dup_threshold
 
 Output:
-  - Bảng so sánh tất cả cấu hình (precision, recall, F1 vs rule-based)
-  - Best config lưu vào artifacts/metrics/spam_tuning_results.json
-  - Best model lưu vào artifacts/models/tuned/tuned_spam_iforest.pkl
+  - Comparison table for all configs
+  - Best config saved to artifacts/metrics/spam_tuning_results.json
+  - Best model saved to artifacts/models/tuned/tuned_spam_iforest.pkl
 
-Usage (từ thư mục gốc):
-    py scripts/tune_spam_model.py
-    py scripts/tune_spam_model.py --data-path data/processed/reviews_flagged.csv
-    py scripts/tune_spam_model.py --quick  # nhanh hơn, grid nhỏ hơn
+Usage:
+    python scripts/tune_spam_model.py [--quick]
 """
 
 from __future__ import annotations
@@ -87,7 +85,7 @@ _RANDOM_STATE = 42
 
 @dataclass
 class SpamTuningConfig:
-    """Một cấu hình tham số cần thử."""
+    """One hyperparameter config to test."""
     contamination: float
     n_estimators: int
     max_samples: object   # "auto" | float
@@ -96,7 +94,7 @@ class SpamTuningConfig:
 
 @dataclass
 class SpamTuningResult:
-    """Kết quả đánh giá một cấu hình."""
+    """Evaluation result for a config."""
     contamination: float
     n_estimators: int
     max_samples: object
@@ -119,14 +117,7 @@ class SpamTuningResult:
 # ── Grid definitions ──────────────────────────────────────────────────────────
 
 def get_spam_grid(quick: bool = False) -> List[SpamTuningConfig]:
-    """Trả về danh sách cấu hình cần thử.
-
-    Args:
-        quick: Nếu True, dùng grid nhỏ hơn.
-
-    Returns:
-        Danh sách SpamTuningConfig.
-    """
+    """Returns list of configs to test."""
     if quick:
         contaminations = [0.08, 0.10, 0.15]
         n_estimators_list = [100, 200]
@@ -156,28 +147,18 @@ def get_spam_grid(quick: bool = False) -> List[SpamTuningConfig]:
 # ── Data loading ──────────────────────────────────────────────────────────────
 
 def load_spam_data(data_path: str) -> pd.DataFrame:
-    """Tải dữ liệu đã có cột rule-based `is_spam`.
-
-    Nếu file chưa có cột `is_spam`, sẽ chạy detect_spam() để tạo.
-
-    Args:
-        data_path: Đường dẫn tới CSV.
-
-    Returns:
-        DataFrame có cột: text, rating, is_spam.
-
-    Raises:
-        FileNotFoundError: Nếu file không tồn tại.
+    """Load data with rule-based `is_spam` column.
+    Runs detect_spam() if the column is missing.
     """
     path = Path(data_path)
     if not path.exists():
-        raise FileNotFoundError(f"Không tìm thấy file: {path.resolve()}")
+        raise FileNotFoundError(f"File not found: {path.resolve()}")
 
-    logger.info("Đang tải dữ liệu từ: %s", path)
+    logger.info("Loading data from: %s", path)
     df = pd.read_csv(path, encoding="utf-8-sig")
     logger.info("Loaded %d rows, columns: %s", len(df), df.columns.tolist())
 
-    # Chuẩn hóa tên cột
+    # Normalize column names
     if "text" not in df.columns:
         # Tìm cột text có thể có tên khác
         text_candidates = [c for c in df.columns if "text" in c.lower() or "review" in c.lower()]
@@ -194,10 +175,10 @@ def load_spam_data(data_path: str) -> pd.DataFrame:
     df["text"] = df["text"].fillna("").astype(str)
     df["rating"] = pd.to_numeric(df.get("rating", pd.Series([3] * len(df))), errors="coerce").fillna(3)
 
-    # Loại bỏ rows quá ngắn hoặc rỗng
+    # Remove empty or too short rows
     before = len(df)
     df = df[df["text"].str.strip().str.len() > 0].reset_index(drop=True)
-    logger.info("Sau khi loại bỏ empty text: %d rows (bỏ %d)", len(df), before - len(df))
+    logger.info("After removing empty text: %d rows (dropped %d)", len(df), before - len(df))
 
     # Giới hạn mẫu để tuning nhanh (lấy tối đa 5000 rows để tránh OOM)
     # (Đã comment lại theo yêu cầu chạy FULL toàn bộ dữ liệu của user)
@@ -216,20 +197,7 @@ def evaluate_config(
     X_precomputed: Optional[np.ndarray] = None,
     df_flagged_cache: Optional[Dict[float, pd.DataFrame]] = None,
 ) -> SpamTuningResult:
-    """Đánh giá một cấu hình tham số.
-
-    Nếu dup_threshold giống cấu hình trước, dùng lại df_flagged từ cache
-    để tránh chạy lại detect_spam() tốn thời gian.
-
-    Args:
-        config: Cấu hình cần đánh giá.
-        df: DataFrame gốc (text, rating).
-        X_precomputed: Feature matrix đã tính (nếu dup_threshold không đổi).
-        df_flagged_cache: Cache {dup_threshold → df_flagged} để tái sử dụng.
-
-    Returns:
-        SpamTuningResult với đầy đủ metrics.
-    """
+    """Evaluate a hyperparameter config."""
     t0 = time.perf_counter()
 
     # Step 1: Rule-based detection (có thể dùng cache)
@@ -307,11 +275,11 @@ def evaluate_config(
 # ── Print results ─────────────────────────────────────────────────────────────
 
 def print_top_results(results: List[SpamTuningResult], top_n: int = 10) -> None:
-    """In top N cấu hình tốt nhất (theo IForest F1)."""
+    """Print top N configs based on IForest F1."""
     sorted_r = sorted(results, key=lambda r: r.iforest_f1, reverse=True)[:top_n]
 
-    print("\n" + "=" * 100)
-    print("  TOP {} CẤU HÌNH TỐT NHẤT — SpamHybridModel Tuning".format(top_n).center(100))
+    print("\\n" + "=" * 100)
+    print("  TOP {} BEST CONFIGS - SpamHybridModel Tuning".format(top_n).center(100))
     print("=" * 100)
 
     col_widths = [8, 8, 8, 8, 10, 10, 10, 12, 12, 12]
@@ -360,17 +328,8 @@ def train_and_save_best(
     df: pd.DataFrame,
     artifacts_dir: str,
 ) -> str:
-    """Train best config trên toàn bộ data và lưu model.
-
-    Args:
-        best: Cấu hình tốt nhất.
-        df: DataFrame gốc.
-        artifacts_dir: Thư mục lưu.
-
-    Returns:
-        Đường dẫn file .pkl đã lưu.
-    """
-    logger.info("Training best config trên toàn bộ %d samples...", len(df))
+    """Train best config on all data and save model."""
+    logger.info("Training best config on all %d samples...", len(df))
 
     df_flagged = detect_spam(df[["text", "rating"]], dup_threshold=best.dup_threshold)
     X = build_feature_matrix(df_flagged, df["text"].tolist(), df["rating"].tolist())
@@ -398,7 +357,7 @@ def train_and_save_best(
     os.makedirs(artifacts_dir, exist_ok=True)
     save_path = str(Path(artifacts_dir) / "tuned_spam_iforest.pkl")
     model.save(save_path)
-    logger.info("Best spam model đã lưu → %s", save_path)
+    logger.info("Best spam model saved to %s", save_path)
     return save_path
 
 
@@ -409,16 +368,7 @@ def save_spam_metrics(
     best: SpamTuningResult,
     metrics_dir: str,
 ) -> str:
-    """Lưu kết quả tuning spam ra JSON.
-
-    Args:
-        results: Toàn bộ kết quả.
-        best: Cấu hình tốt nhất.
-        metrics_dir: Thư mục lưu.
-
-    Returns:
-        Đường dẫn JSON.
-    """
+    """Save tuning metrics to JSON."""
     import os
     os.makedirs(metrics_dir, exist_ok=True)
     out_path = str(Path(metrics_dir) / "spam_tuning_results.json")
@@ -474,7 +424,7 @@ def parse_args() -> argparse.Namespace:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    """Pipeline: tải data → sweep configs → báo cáo → lưu best model."""
+    """Pipeline: load data -> sweep configs -> report -> save best model."""
     args = parse_args()
 
     logger.info("=" * 70)
@@ -486,12 +436,12 @@ def main() -> None:
     try:
         df = load_spam_data(args.data_path)
     except (FileNotFoundError, ValueError) as exc:
-        logger.error("Lỗi tải data: %s", exc)
+        logger.error("Data loading error: %s", exc)
         sys.exit(1)
 
-    # 2. Lấy grid
+    # 2. Get grid
     configs = get_spam_grid(quick=args.quick)
-    logger.info("Bắt đầu sweep %d cấu hình...", len(configs))
+    logger.info("Starting sweep of %d configs...", len(configs))
 
     # 3. Cache để tránh chạy lại detect_spam() cho cùng dup_threshold
     df_flagged_cache: Dict[float, pd.DataFrame] = {}
@@ -564,13 +514,13 @@ def main() -> None:
 
             n_done += 1
             if n_done % 20 == 0 or n_done == len(configs):
-                logger.info("  Đã chạy %d/%d cấu hình...", n_done, len(configs))
+                logger.info("  Ran %d/%d configs...", n_done, len(configs))
 
         except Exception as exc:
-            logger.warning("  Lỗi với config %s: %s", config, exc)
+            logger.warning("  Error with config %s: %s", config, exc)
 
     if not results:
-        logger.error("Không có cấu hình nào chạy được.")
+        logger.error("No successful configs run.")
         sys.exit(1)
 
     # 4. Báo cáo
@@ -579,17 +529,17 @@ def main() -> None:
     # 5. Lưu metrics
     best = max(results, key=lambda r: r.iforest_f1)
     metrics_path = save_spam_metrics(results, best, args.metrics_dir)
-    logger.info("Metrics đã lưu → %s", metrics_path)
+    logger.info("Saved metrics to %s", metrics_path)
 
-    # 6. Lưu best model
+    # 6. Save best model
     if not args.no_save_model:
         try:
             save_path = train_and_save_best(best, df, args.artifacts_dir)
-            logger.info("Best model đã lưu → %s", save_path)
+            logger.info("Saved best model to %s", save_path)
         except Exception as exc:
-            logger.error("Không thể lưu best model: %s", exc, exc_info=True)
+            logger.error("Could not save best model: %s", exc, exc_info=True)
 
-    logger.info("Hoàn thành Spam Tuning!")
+    logger.info("Spam Tuning completed!")
 
 
 if __name__ == "__main__":

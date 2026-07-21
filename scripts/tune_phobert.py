@@ -1,8 +1,8 @@
 """
 tune_phobert.py
 ===============
-Tuning siêu tham số cho PhoBERT bằng Optuna.
-Lưu kết quả tốt nhất ra file JSON.
+Hyperparameter tuning for PhoBERT using Optuna.
+Saves best parameters to JSON.
 """
 
 import argparse
@@ -49,15 +49,15 @@ logger = logging.getLogger(__name__)
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Tuning siêu tham số PhoBERT bằng Optuna.")
-    parser.add_argument("--n_trials", type=int, default=10, help="Số lần thử nghiệm (trials) của Optuna.")
-    parser.add_argument("--epochs", type=int, default=3, help="Số epoch tối đa mỗi lần thử.")
-    parser.add_argument("--max_length", type=int, default=256, help="Độ dài token tối đa (phải khớp với lúc train).")
+    parser = argparse.ArgumentParser(description="PhoBERT hyperparameter tuning via Optuna.")
+    parser.add_argument("--n_trials", type=int, default=10, help="Number of Optuna trials.")
+    parser.add_argument("--epochs", type=int, default=3, help="Max epochs per trial.")
+    parser.add_argument("--max_length", type=int, default=256, help="Max token length.")
     parser.add_argument(
         "--sample_size",
         type=int,
         default=0,
-        help="Giới hạn số mẫu train để tuning nhanh. 0 = dùng toàn bộ (khuyến nghị với dữ liệu lệch lớp nặng).",
+        help="Train sample limit for fast tuning. 0 = use all (recommended for heavy class imbalance).",
     )
     return parser.parse_args()
 
@@ -95,7 +95,7 @@ def main():
                 random_state=42,
             )
             val_df = val_df.reset_index(drop=True)
-    logger.info("Tuning trên → train: %d, val: %d", len(train_df), len(val_df))
+    logger.info("Tuning on -> train: %d, val: %d", len(train_df), len(val_df))
     train_int_labels = [LABEL_MAP[lbl] for lbl in train_df["sentiment_label"]]
     class_counts = compute_class_counts(train_int_labels)
 
@@ -173,7 +173,7 @@ def main():
     def compute_objective(metrics):
         return metrics["eval_f1_macro"]
 
-    logger.info("Bắt đầu quá trình Tuning với %d trials...", args.n_trials)
+    logger.info("Starting tuning with %d trials...", args.n_trials)
     best_run = trainer.hyperparameter_search(
         direction="maximize",
         backend="optuna",
@@ -182,7 +182,7 @@ def main():
         n_trials=args.n_trials,
     )
 
-    logger.info("Hoàn thành Tuning! Best Run: %s", best_run)
+    logger.info("Tuning complete! Best Run: %s", best_run)
 
     # Save to JSON
     best_params = best_run.hyperparameters
@@ -191,7 +191,7 @@ def main():
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(best_params, f, indent=2, ensure_ascii=False)
         
-    logger.info("Đã lưu tham số tốt nhất ra: %s", out_json)
+    logger.info("Saved best parameters to: %s", out_json)
 
 
 if __name__ == "__main__":

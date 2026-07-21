@@ -1,21 +1,9 @@
 """
 Custom HuggingFace Trainer with Focal Loss for Imbalanced Sentiment Data.
 
-This module provides ``FocalLossTrainer``, a subclass of HuggingFace's
-``transformers.Trainer`` that replaces the default cross-entropy loss with
-a class-weighted Focal Loss.  Focal Loss down-weights easy (well-classified)
-examples and focuses learning on hard, misclassified ones, which is
-especially beneficial for the severely skewed dataset (≈94 % Positive,
-≈5 % Negative, ≈1 % Neutral).
-
-Key design choices:
-    * **Dynamic alpha** – class weights are computed from inverse class
-      frequencies at runtime if not provided explicitly, eliminating magic
-      hard-coded constants.
-    * **Device synchronisation** – ``alpha`` and ``labels`` are always moved
-      to the same device as the model's logits, preventing CPU/GPU crashes.
-    * **Numerical stability** – predicted probabilities are clamped before
-      the log to avoid ``log(0)`` producing ``-inf`` in the loss.
+Provides FocalLossTrainer with class-weighted Focal Loss to handle severely
+skewed datasets. Features dynamic alpha computation, device synchronization, 
+and numerical stability.
 """
 
 import logging
@@ -37,29 +25,13 @@ logger = logging.getLogger(__name__)
 class FocalLoss(nn.Module):
     """Multi-class Focal Loss with per-class alpha weighting.
 
-    Focal Loss was introduced by Lin et al. (2017) for dense object
-    detection, but generalises well to any classification problem with class
-    imbalance.  For a sample with true class ``c``, the loss is:
-
-        FL = -alpha_c * (1 - p_c)^gamma * log(p_c)
-
-    where ``p_c`` is the model's predicted probability for the true class.
+    FL = -alpha_c * (1 - p_c)^gamma * log(p_c)
 
     Args:
-        alpha: 1-D tensor of per-class weights of shape ``(num_classes,)``.
-            Higher values penalise misclassification of that class more
-            heavily.  Will be normalised to sum to ``num_classes`` so the
-            effective learning rate scale is preserved.
-        gamma: Focusing parameter ≥ 0.  ``gamma=0`` reduces to weighted
-            cross-entropy.  ``gamma=2`` is the value recommended in the
-            original paper and works well in practice.
-        num_classes: Number of output classes.
-        eps: Small constant added for numerical stability when clamping
-            probabilities before taking ``log``.
-
-    References:
-        Lin, T.-Y. et al. (2017). Focal Loss for Dense Object Detection.
-        arXiv:1708.02002.
+        alpha: Per-class weights tensor (normalized to sum to num_classes).
+        gamma: Focusing parameter (default: 2.0).
+        num_classes: Number of classes.
+        eps: Small constant for numerical stability.
     """
 
     def __init__(
@@ -123,49 +95,17 @@ class FocalLoss(nn.Module):
 # ---------------------------------------------------------------------------
 
 class FocalLossTrainer(Trainer):
-    """HuggingFace Trainer that uses class-weighted Focal Loss.
+    """Trainer using class-weighted Focal Loss.
 
-    Overrides ``compute_loss`` to replace cross-entropy with Focal Loss,
-    which is better suited to the ~94/5/1 class imbalance of the Vietnamese
-    e-commerce sentiment dataset.
-
-    Alpha weights can be:
-
-    1. **Provided explicitly** – Pass a pre-computed ``alpha`` tensor whose
-       values reflect domain knowledge or a separate calibration run.
-    2. **Computed from data** – Pass ``class_counts`` (a list/dict of sample
-       counts per class) and the trainer will use inverse-frequency weighting
-       (``alpha_c = total / (num_classes * count_c)``).
-    3. **Both omitted** – Equal weights are used (``alpha = [1, 1, 1]``),
-       which degrades to unweighted Focal Loss.
+    Alpha weights can be explicit, computed from class_counts (inverse-frequency),
+    or default to uniform.
 
     Args:
-        alpha: Optional 1-D ``torch.Tensor`` of shape ``(num_classes,)`` with
-            pre-computed class weights.  Takes precedence over
-            ``class_counts``.
-        class_counts: Optional mapping from class index (int) to sample
-            count (int).  Used to compute inverse-frequency alpha when
-            ``alpha`` is not given.
-        gamma: Focal Loss focusing parameter.  Defaults to 2.0.
-        num_classes: Number of sentiment classes.  Defaults to 3.
-        **kwargs: All remaining keyword arguments are forwarded to the base
-            ``Trainer.__init__``.
-
-    Example::
-
-        counts = {0: 44_490, 1: 2_360, 2: 470}   # rough distribution
-        trainer = FocalLossTrainer(
-            class_counts=counts,
-            gamma=2.0,
-            num_classes=3,
-            model=model,
-            args=training_args,
-            train_dataset=train_dataset,
-            eval_dataset=val_dataset,
-            tokenizer=tokenizer,
-            data_collator=collator,
-            compute_metrics=compute_metrics,
-        )
+        alpha: Explicit class weights tensor.
+        class_counts: Dict of counts per class (used if alpha is None).
+        gamma: Focusing parameter.
+        num_classes: Number of classes.
+        **kwargs: Passed to Trainer.
     """
 
     def __init__(
@@ -208,24 +148,9 @@ class FocalLossTrainer(Trainer):
         class_counts: Optional[Dict[int, int]],
         num_classes: int,
     ) -> torch.Tensor:
-        """Determine the alpha tensor from available information.
-
-        Priority:
-            1. Explicit ``alpha`` tensor – used as-is.
-            2. ``class_counts`` dict – inverse-frequency weighting.
-            3. Fallback – uniform weights (ones).
-
-        Args:
-            alpha: Optional explicit weights.
-            class_counts: Optional {class_idx: count} mapping.
-            num_classes: Number of classes (used for shape validation and
-                fallback creation).
-
-        Returns:
-            A ``torch.FloatTensor`` of shape ``(num_classes,)`` on CPU.
-
-        Raises:
-            ValueError: If ``alpha`` has the wrong length.
+        """Resolve alpha tensor: 1. explicit alpha -> 2. inverse counts -> 3. uniform.
+        
+        Returns: FloatTensor of shape (num_classes,) on CPU.
         """
         if alpha is not None:
             alpha = alpha.float()
@@ -272,23 +197,9 @@ class FocalLossTrainer(Trainer):
         return_outputs: bool = False,
         **kwargs,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, SequenceClassifierOutput]]:
-        """Compute Focal Loss for a batch of inputs.
+        """Compute Focal Loss for a batch.
 
-        Replaces HuggingFace's default cross-entropy loss.  The model is
-        called with ``labels`` removed from ``inputs`` so we can extract the
-        raw logits and compute our custom loss.
-
-        Args:
-            model: The sequence classification model.
-            inputs: Batch dictionary containing ``input_ids``,
-                ``attention_mask``, and ``labels``.
-            return_outputs: If ``True``, also return the model's
-                ``SequenceClassifierOutput`` alongside the loss scalar.
-            **kwargs: Absorbed for forward-compatibility with future
-                HuggingFace Trainer signatures.
-
-        Returns:
-            ``loss`` if ``return_outputs=False``, else ``(loss, outputs)``.
+        Pops labels from inputs to extract raw logits, then computes custom loss.
         """
         # Pop labels before forwarding – we compute loss ourselves.
         labels = inputs.pop("labels")

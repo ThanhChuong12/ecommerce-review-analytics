@@ -6,7 +6,7 @@ import logging
 import pandas as pd
 from pathlib import Path
 
-# Thêm thư mục gốc vào sys.path để import ai_engine
+# Add root directory to sys.path to import ai_engine
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -19,31 +19,31 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 def main():
-    logger.info(f"Đọc dữ liệu từ: {INPUT_CSV}")
+    logger.info(f"Reading data from: {INPUT_CSV}")
     try:
         df = pd.read_csv(INPUT_CSV)
     except FileNotFoundError:
-        logger.error(f"Không tìm thấy file: {INPUT_CSV}")
+        logger.error(f"File not found: {INPUT_CSV}")
         return
 
-    logger.info(f"Tổng số mẫu: {len(df)}")
+    logger.info(f"Total samples: {len(df)}")
     
-    # Chạy bộ lọc rule-based spam
-    logger.info("Bắt đầu chạy bộ lọc spam...")
+    # Run rule-based spam filter
+    logger.info("Running spam filter...")
     df_flagged = detect_spam(df, dup_threshold=0.85)
     
-    # In thống kê
+    # Print statistics
     stats = summarize_spam(df_flagged)
     logger.info("=" * 50)
-    logger.info("THỐNG KÊ SPAM:")
-    logger.info(f" - Tổng review: {stats['total_reviews']}")
+    logger.info("SPAM STATISTICS:")
+    logger.info(f" - Total reviews: {stats['total_reviews']}")
     logger.info(f" - Spam: {stats['spam_count']} ({stats['spam_pct']}%)")
-    logger.info(f" - Sạch: {stats['clean_count']} ({stats['clean_pct']}%)")
+    logger.info(f" - Clean: {stats['clean_count']} ({stats['clean_pct']}%)")
     logger.info("=" * 50)
 
-    # Lưu kết quả
+    # Save results
     df_flagged.to_csv(OUTPUT_CSV, index=False, encoding="utf-8-sig")
-    logger.info(f"Đã lưu kết quả hoàn chỉnh ra: {OUTPUT_CSV}")
+    logger.info(f"Saved complete results to: {OUTPUT_CSV}")
 
 if __name__ == "__main__":
     main()

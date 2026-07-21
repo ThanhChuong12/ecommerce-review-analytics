@@ -1,28 +1,11 @@
 """
 lime_error_analysis.py
 ======================
-Phân tích lỗi (Error Analysis) dùng LIME cho bài toán phân tích cảm xúc.
+Error analysis using LIME for sentiment classification.
+Finds misclassified examples and explains them.
 
-Yêu cầu bài báo cáo:
-  - Lấy 1-2 ví dụ cụ thể mà Baseline / PhoBERT đoán sai.
-  - Dùng LIME để đưa ra giả thuyết tại sao sai.
-
-Cách chạy (từ thư mục gốc):
-    # Phân tích cả 2 model:
-    py scripts/lime_error_analysis.py
-
-    # Chỉ Baseline:
-    py scripts/lime_error_analysis.py --model baseline
-
-    # Chỉ PhoBERT:
-    py scripts/lime_error_analysis.py --model phobert
-
-    # Xem N ví dụ sai (default: 2):
-    py scripts/lime_error_analysis.py --n-examples 3
-
-Output:
-  - In giải thích ra console
-  - Lưu HTML report vào artifacts/lime/ (mở bằng trình duyệt để xem highlight từ)
+Usage:
+  python scripts/lime_error_analysis.py [--n-examples 3]
 """
 
 from __future__ import annotations
@@ -64,19 +47,17 @@ LABEL_ORDER = ["tích cực", "tiêu cực", "trung lập"]  # thứ tự nhất
 # ══════════════════════════════════════════════════════════════════════════════
 
 class BaselineWrapper:
-    """Bọc TextEnsembleModel để LIME có thể gọi predict_proba(list[str])."""
+    """Wrapper for TextEnsembleModel to allow predict_proba(list[str])."""
 
     def __init__(self, model_path: str):
         import joblib
-        logger.info("Đang load Baseline model từ %s ...", model_path)
+        logger.info("Loading Baseline model from %s ...", model_path)
         obj = joblib.load(model_path)
 
-        # model pkl có thể là TextEnsembleModel hoặc Pipeline trực tiếp
+        # Handle both TextEnsembleModel and Pipeline
         if hasattr(obj, "pipeline") and obj.pipeline is not None:
-            # TextEnsembleModel wrapper
             self.pipeline = obj.pipeline
         else:
-            # imblearn Pipeline trực tiếp
             self.pipeline = obj
 
         self.classes_ = self.pipeline.classes_
@@ -112,14 +93,8 @@ def find_wrong_predictions(
     n: int = 2,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """Lấy N câu đầu tiên mà model dự đoán sai.
-
-    Ưu tiên lấy các loại lỗi đa dạng:
-      - Câu ngắn (< 10 từ): dễ bị sai do thiếu ngữ cảnh
-      - Câu có emoji/icon: mỉa mai, khó phân loại
-      - Câu trung lập bị đoán nhầm: class khó nhất
-    """
-    logger.info("Đang dự đoán trên %d mẫu test ...", len(df))
+    """Get first N misclassified examples, prioritizing neutral misclassifications."""
+    logger.info("Predicting on %d test samples ...", len(df))
     texts = df[text_col].fillna("").astype(str).tolist()
     labels_true = df[label_col].tolist()
 
@@ -130,9 +105,9 @@ def find_wrong_predictions(
     df_eval["wrong"] = df_eval[label_col] != df_eval["predicted"]
 
     wrong_df = df_eval[df_eval["wrong"]].copy()
-    logger.info("Tổng câu đoán sai: %d / %d", len(wrong_df), len(df))
+    logger.info("Total misclassifications: %d / %d", len(wrong_df), len(df))
 
-    # Ưu tiên lấy câu trung lập bị đoán sai (class khó nhất)
+    # Prioritize misclassified neutral examples
     neutral_wrong = wrong_df[wrong_df[label_col] == "trung lập"]
     non_neutral_wrong = wrong_df[wrong_df[label_col] != "trung lập"]
 
@@ -162,15 +137,13 @@ def run_lime_on_sample(
     num_features: int = 8,
     num_samples: int = 500,
 ) -> dict:
-    """Chạy LIME cho 1 câu và in giải thích chi tiết.
-
-    Returns:
-        dict với top features và scores.
+    """Run LIME for one sample and print explanation.
+    Returns dict with top features and scores.
     """
     try:
         from lime.lime_text import LimeTextExplainer
     except ImportError:
-        logger.error("LIME chưa cài! Chạy: pip install lime")
+        logger.error("LIME not installed! Run: pip install lime")
         sys.exit(1)
 
     explainer = LimeTextExplainer(class_names=class_names, random_state=42)
@@ -179,7 +152,7 @@ def run_lime_on_sample(
     target_idx = label_to_idx.get(pred_label, 0)  # Giải thích tại sao model đoán pred_label
 
     logger.info(
-        "[LIME] Đang tạo explanation cho câu #%d (target class: '%s') ...",
+        "[LIME] Generating explanation for sample #%d (target class: '%s') ...",
         sample_idx, pred_label
     )
     exp = explainer.explain_instance(
@@ -193,22 +166,22 @@ def run_lime_on_sample(
     # ── In ra console ─────────────────────────────────────────────────────────
     SEP = "=" * 70
     print(f"\n{SEP}")
-    print(f"  [{model_name}] VÍ DỤ #{sample_idx}")
+    print(f"  [{model_name}] EXAMPLE #{sample_idx}")
     print(SEP)
-    print(f"  VĂN BẢN  : {text[:200]}{'...' if len(text) > 200 else ''}")
-    print(f"  NHÃN THẬT: {true_label}")
-    print(f"  MÔ HÌNH ĐOÁN: {pred_label}  ← SAI")
-    print(f"\n  [LIME] Các từ ảnh hưởng đến dự đoán '{pred_label}':")
-    print(f"  {'Từ/cụm':<25} {'Ảnh hưởng':>12}  {'Hướng'}")
+    print(f"  TEXT     : {text[:200]}{'...' if len(text) > 200 else ''}")
+    print(f"  TRUE     : {true_label}")
+    print(f"  PREDICTED: {pred_label}  <- WRONG")
+    print(f"\\n  [LIME] Features affecting prediction '{pred_label}':")
+    print(f"  {'Feature':<25} {'Weight':>12}  {'Direction'}")
     print(f"  {'-'*25} {'-'*12}  {'-'*10}")
 
     features = exp.as_list(label=target_idx)
     for feat, weight in features:
-        direction = "→ ủng hộ" if weight > 0 else "→ phản đối"
+        direction = "-> supports" if weight > 0 else "-> opposes"
         print(f"  {feat:<25} {weight:>+12.4f}  {direction}")
 
-    # ── Giả thuyết tự động ────────────────────────────────────────────────────
-    print(f"\n  [GIẢ THUYẾT]")
+    # ── Hypotheses ────────────────────────────────────────────────────────────
+    print(f"\\n  [HYPOTHESES]")
     pos_feats = [(f, w) for f, w in features if w > 0]
     neg_feats = [(f, w) for f, w in features if w < 0]
 
@@ -233,31 +206,28 @@ def run_lime_on_sample(
 
     if has_emoji and true_label in ["tiêu cực", "trung lập"]:
         hypotheses.append(
-            "⚠️  Câu chứa emoji — model có thể bị nhầm emoji mang ý tích cực "
-            "trong khi người dùng dùng theo kiểu mỉa mai hoặc ngữ cảnh phức tạp."
+            "⚠️  Contains emojis — model might confuse emojis with positive sentiment "
+            "despite complex/sarcastic context."
         )
     if has_negation and pos_feats:
         hypotheses.append(
-            "⚠️  Câu có từ phủ định (không/chưa/ko) kết hợp với từ tích cực "
-            f"('{pos_feats[0][0]}') — TF-IDF xử lý từng từ riêng lẻ nên "
-            "bỏ qua cấu trúc phủ định → model bị nhiễu đặc trưng."
+            "⚠️  Contains negation near positive word "
+            f"('{pos_feats[0][0]}') — TF-IDF misses negation scope, causing noise."
         )
     if word_count < 8 and true_label == "trung lập":
         hypotheses.append(
-            f"⚠️  Câu rất ngắn ({word_count} từ) — ít đặc trưng → model thiên "
-            "về class đa số (tích cực) thay vì nhận ra sắc thái trung lập."
+            f"⚠️  Very short sentence ({word_count} words) — lacks features, so model defaults "
+            "to majority class (positive) instead of neutral."
         )
     if neg_feats and true_label == "tích cực":
         neg_words_str = ", ".join([f"'{f}'" for f, _ in neg_feats[:2]])
         hypotheses.append(
-            f"⚠️  Từ {neg_words_str} kéo model về hướng tiêu cực — "
-            "có thể là từ khóa hiếm gặp trong ngữ cảnh phê bình nhưng thực ra "
-            "câu tổng thể vẫn tích cực."
+            f"⚠️  Words {neg_words_str} push model towards negative, "
+            "but overall sentence is positive."
         )
     if not hypotheses:
         hypotheses.append(
-            "⚠️  Không phát hiện pattern rõ ràng — có thể do từ vựng mơ hồ "
-            "hoặc câu có cấu trúc phức tạp (câu điều kiện, so sánh, ẩn dụ)."
+            "⚠️  No clear pattern detected — possibly ambiguous vocabulary or complex structure."
         )
 
     for h in hypotheses:
@@ -313,13 +283,13 @@ def main():
     args = parser.parse_args()
 
     # ── Load data ─────────────────────────────────────────────────────────────
-    logger.info("Đọc dữ liệu test từ: %s", args.test_csv)
+    logger.info("Reading test data from: %s", args.test_csv)
     df = pd.read_csv(args.test_csv)
     df[args.text_col] = df[args.text_col].fillna("").astype(str)
 
-    # ── Chạy Baseline ─────────────────────────────────────────────────────────
-    print("\n" + "█" * 70)
-    print("  PHÂN TÍCH LỖI: BASELINE (TF-IDF + Voting Ensemble)")
+    # ── Run Baseline ──────────────────────────────────────────────────────────
+    print("\\n" + "█" * 70)
+    print("  ERROR ANALYSIS: BASELINE (TF-IDF + Voting Ensemble)")
     print("█" * 70)
 
     baseline = BaselineWrapper(args.baseline_path)
@@ -340,7 +310,7 @@ def main():
             num_samples=args.num_samples,
         )
 
-    print("\n✅ Xong!")
+    print("\\n✅ Done!")
 
 
 if __name__ == "__main__":

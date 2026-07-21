@@ -1,24 +1,21 @@
 """
 tune_text_hyperparams.py
 ========================
-Tinh chỉnh siêu tham số (Hyperparameter Tuning) bằng GridSearchCV
-cho các mô hình Text Baseline trong dự án ecommerce-review-analytics.
+Hyperparameter tuning using GridSearchCV for Text Baseline models.
 
-Các mô hình được tuning:
+Tuned models:
   1. Logistic Regression  + TF-IDF
   2. LinearSVC (Calibrated) + TF-IDF
   3. Random Forest          + TF-IDF
-  4. Ensemble tốt nhất từ các mô hình trên
+  4. Best ensemble of the above
 
-Chiến lược:
-  - Tất cả Grid Search chạy trên StratifiedKFold(5) với scoring='f1_macro'
-  - Sau khi tìm best params, retrain trên toàn bộ train set
-  - Lưu best model và báo cáo kết quả vào artifacts/
+Strategy:
+  - All Grid Search runs on StratifiedKFold(5) with scoring='f1_macro'
+  - After finding best params, retrain on the entire train set
+  - Save best model and report results to artifacts/
 
-Usage (từ thư mục gốc project):
-    python scripts/tune_text_hyperparams.py
-    python scripts/tune_text_hyperparams.py --cv 3 --n-jobs -1
-    python scripts/tune_text_hyperparams.py --quick   # quick mode: nhỏ hơn grid
+Usage:
+    python scripts/tune_text_hyperparams.py [--quick]
 """
 
 from __future__ import annotations
@@ -91,11 +88,11 @@ _RANDOM_STATE = 42
 
 @dataclass
 class TuningResult:
-    """Lưu kết quả tuning của một mô hình."""
+    """Stores tuning results for a model."""
     model_name: str
     best_params: Dict[str, Any]
-    cv_best_f1: float        # F1 trên cross-validation (best_score_)
-    test_macro_f1: float     # F1 trên tập test hold-out 20%
+    cv_best_f1: float        # F1 on cross-validation
+    test_macro_f1: float     # F1 on test set
     test_weighted_f1: float
     elapsed_seconds: float
     save_path: str
@@ -104,11 +101,7 @@ class TuningResult:
 # ── Full Grid Definitions ─────────────────────────────────────────────────────
 
 def get_grids(quick: bool = False) -> Dict[str, Tuple[ImbPipeline, List[Dict]]]:
-    """Trả về dict {tên_mô_hình: (pipeline, param_grid)}.
-
-    Args:
-        quick: Nếu True, dùng grid nhỏ hơn (chạy nhanh hơn cho dev/debug).
-    """
+    """Returns dict {model_name: (pipeline, param_grid)}."""
     # ── TF-IDF common options ────────────────────────────────────────────────
     tfidf_base = TfidfVectorizer(sublinear_tf=True, min_df=2, max_df=0.90)
 
@@ -223,11 +216,11 @@ def get_grids(quick: bool = False) -> Dict[str, Tuple[ImbPipeline, List[Dict]]]:
         ]
 
     # ════════════════════════════════════════════
-    # 4. SMOTE variants (ImbPipeline: tfidf → smote → clf)
-    # Áp dụng SMOTE chỉ trên training folds (ImbPipeline handles this correctly)
+    # 4. SMOTE variants (ImbPipeline: tfidf -> smote -> clf)
+    # Apply SMOTE only on training folds
     # ════════════════════════════════════════════
     if quick:
-        smote_k_grid = [3]        # ít mẫu minority → k nhỏ
+        smote_k_grid = [3]        # small k for small minority samples
     else:
         smote_k_grid = [3, 5]
 
@@ -274,32 +267,21 @@ def get_grids(quick: bool = False) -> Dict[str, Tuple[ImbPipeline, List[Dict]]]:
 # ── Load data ─────────────────────────────────────────────────────────────────
 
 def load_data(data_path: str) -> Tuple[pd.Series, pd.Series]:
-    """Tải dữ liệu từ CSV.
-
-    Args:
-        data_path: Đường dẫn tới file CSV.
-
-    Returns:
-        (X, y) — Series văn bản và nhãn.
-
-    Raises:
-        FileNotFoundError: Nếu file không tồn tại.
-        KeyError: Nếu thiếu cột.
-    """
+    """Load data from CSV."""
     if not os.path.exists(data_path):
-        raise FileNotFoundError(f"Không tìm thấy file dữ liệu: {data_path}")
+        raise FileNotFoundError(f"Data file not found: {data_path}")
 
-    logger.info("Đang tải dữ liệu từ: %s", data_path)
+    logger.info("Loading data from: %s", data_path)
     df = pd.read_csv(data_path, encoding="utf-8-sig")
 
     missing = {_TEXT_COL, _LABEL_COL} - set(df.columns)
     if missing:
-        raise KeyError(f"Thiếu cột: {missing}. Các cột hiện có: {list(df.columns)}")
+        raise KeyError(f"Missing columns: {missing}. Existing columns: {list(df.columns)}")
 
     before = len(df)
     df = df.dropna(subset=[_TEXT_COL, _LABEL_COL])
-    logger.info("Đã tải %d mẫu (loại bỏ %d NaN).", len(df), before - len(df))
-    logger.info("Phân phối nhãn:\n%s", df[_LABEL_COL].value_counts().to_string())
+    logger.info("Loaded %d samples (dropped %d NaNs).", len(df), before - len(df))
+    logger.info("Label distribution:\\n%s", df[_LABEL_COL].value_counts().to_string())
     return df[_TEXT_COL], df[_LABEL_COL]
 
 
@@ -317,23 +299,7 @@ def tune_one_model(
     n_jobs: int,
     artifacts_dir: str,
 ) -> TuningResult:
-    """Chạy GridSearchCV cho một mô hình rồi đánh giá trên test set.
-
-    Args:
-        name: Tên mô hình (dùng để đặt tên file).
-        pipeline: Pipeline scikit-learn / imbalanced-learn.
-        param_grid: Danh sách dict tham số để grid search.
-        X_train: Văn bản train.
-        y_train: Nhãn train.
-        X_test: Văn bản test.
-        y_test: Nhãn test.
-        cv: Số fold cross-validation.
-        n_jobs: Số workers song song (-1 = tất cả CPU).
-        artifacts_dir: Thư mục lưu model đã tuned.
-
-    Returns:
-        TuningResult với đầy đủ metrics.
-    """
+    """Run GridSearchCV for a model and evaluate on test set."""
     logger.info("\n%s\n  TUNING: %s\n%s", "=" * 65, name, "=" * 65)
 
     skf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=_RANDOM_STATE)
@@ -345,7 +311,7 @@ def tune_one_model(
         cv=skf,
         n_jobs=n_jobs,
         verbose=1,
-        refit=True,          # tự retrain best model trên toàn train set
+        refit=True,          # retrain best model on all train data
         return_train_score=False,
         error_score="raise",
     )
@@ -379,7 +345,7 @@ def tune_one_model(
     os.makedirs(artifacts_dir, exist_ok=True)
     save_path = os.path.join(artifacts_dir, f"tuned_{name.lower()}.pkl")
     joblib.dump(grid_search.best_estimator_, save_path)
-    logger.info("  Model đã lưu → %s", save_path)
+    logger.info("  Model saved to %s", save_path)
 
     return TuningResult(
         model_name=name,
@@ -395,14 +361,14 @@ def tune_one_model(
 # ── Print summary table ───────────────────────────────────────────────────────
 
 def print_summary(results: List[TuningResult]) -> None:
-    """In bảng tổng kết so sánh các mô hình đã tuned."""
+    """Print summary table for tuned models."""
     col_widths = [22, 12, 14, 14, 12]
     headers = ["Model", "CV F1", "Test Macro-F1", "Weighted-F1", "Time (s)"]
     sep = "+" + "+".join("-" * (w + 2) for w in col_widths) + "+"
     row_fmt = "|" + "|".join(f" {{:<{w}}} " for w in col_widths) + "|"
 
-    print("\n" + "=" * 80)
-    print("  KẾT QUẢ HYPERPARAMETER TUNING — Text Baseline Models".center(80))
+    print("\\n" + "=" * 80)
+    print("  HYPERPARAMETER TUNING RESULTS - Text Baseline Models".center(80))
     print("=" * 80)
     print(sep)
     print(row_fmt.format(*headers))
@@ -419,7 +385,7 @@ def print_summary(results: List[TuningResult]) -> None:
 
     print(sep)
     best = max(results, key=lambda r: r.test_macro_f1)
-    print(f"\n  ★ Mô hình tốt nhất: {best.model_name} "
+    print(f"\\n  ★ Best model: {best.model_name} "
           f"(Test Macro-F1 = {best.test_macro_f1:.4f})")
     print(f"     Best params: {best.best_params}")
     print("=" * 80 + "\n")
@@ -428,15 +394,7 @@ def print_summary(results: List[TuningResult]) -> None:
 # ── Save metrics JSON ─────────────────────────────────────────────────────────
 
 def save_metrics(results: List[TuningResult], metrics_dir: str) -> str:
-    """Lưu kết quả tuning ra file JSON.
-
-    Args:
-        results: Danh sách TuningResult.
-        metrics_dir: Thư mục lưu.
-
-    Returns:
-        Đường dẫn tới file JSON đã lưu.
-    """
+    """Save tuning results to JSON."""
     os.makedirs(metrics_dir, exist_ok=True)
     out_path = os.path.join(metrics_dir, "text_hyperparameter_tuning_results.json")
 
@@ -447,7 +405,7 @@ def save_metrics(results: List[TuningResult], metrics_dir: str) -> str:
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
 
-    logger.info("Metrics đã lưu → %s", out_path)
+    logger.info("Metrics saved to %s", out_path)
     return out_path
 
 
@@ -461,29 +419,14 @@ def build_and_save_tuned_ensemble(
     y_test: pd.Series,
     artifacts_dir: str,
 ) -> Optional[TuningResult]:
-    """Tạo VotingClassifier từ 3 mô hình đã tuned và đánh giá trên test set.
-
-    Sử dụng soft voting với trọng số tỉ lệ với Test Macro-F1 của từng mô hình.
-    Lưu ensemble đã fit vào artifacts_dir.
-
-    Args:
-        results: Danh sách TuningResult (đã có best_params).
-        X_train: Văn bản train.
-        y_train: Nhãn train.
-        X_test: Văn bản test.
-        y_test: Nhãn test.
-        artifacts_dir: Thư mục lưu.
-
-    Returns:
-        TuningResult của ensemble, hoặc None nếu không thể tạo.
-    """
+    """Create VotingClassifier from 3 tuned models and evaluate on test set."""
     logger.info("\n%s\n  BUILDING TUNED ENSEMBLE\n%s", "=" * 65, "=" * 65)
 
     try:
         result_map = {r.model_name: r for r in results}
         grids = get_grids(quick=False)
 
-        # Lấy best params cho mỗi mô hình
+        # Get best params for each model
         def _make_lr(params: Dict) -> ImbPipeline:
             tfidf = TfidfVectorizer(
                 sublinear_tf=True, min_df=2, max_df=0.90,
@@ -531,19 +474,19 @@ def build_and_save_tuned_ensemble(
             )
             return ImbPipeline([("tfidf", tfidf), ("clf", clf)])
 
-        # Lấy kết quả bằng tiền tố để hỗ trợ cả bản SMOTE và không SMOTE
+        # Get results by prefix to support SMOTE and non-SMOTE versions
         lr_res = next((r for r in results if r.model_name.startswith("LogisticRegression")), None)
         svm_res = next((r for r in results if r.model_name.startswith("LinearSVC")), None)
         rf_res = next((r for r in results if r.model_name.startswith("RandomForest")), None)
 
         if not (lr_res and svm_res and rf_res):
-            raise KeyError("Không đủ 3 base models (LR, SVM, RF) để tạo ensemble.")
+            raise KeyError("Not enough base models (LR, SVM, RF) for ensemble.")
 
-        # Voting weights dựa trên Test Macro-F1
+        # Voting weights based on Test Macro-F1
         weights = [lr_res.test_macro_f1, svm_res.test_macro_f1, rf_res.test_macro_f1]
         logger.info("  Ensemble weights [LR, SVM, RF]: %s", [round(w, 4) for w in weights])
 
-        # Hỗ trợ thêm SMOTE vào pipeline nếu trong best_params có smote__k_neighbors
+        # Add SMOTE to pipeline if best_params contains smote__k_neighbors
         def _add_smote(pipe, params):
             if "smote__k_neighbors" in params:
                 from imblearn.over_sampling import SMOTE
@@ -554,18 +497,18 @@ def build_and_save_tuned_ensemble(
         svm_pipe = _add_smote(_make_svm(svm_res.best_params), svm_res.best_params)
         rf_pipe = _add_smote(_make_rf(rf_res.best_params), rf_res.best_params)
 
-        # Soft Voting Ensemble — NOTE: cần transform về dense feature trước
-        # Vì VotingClassifier không hỗ trợ trực tiếp pipeline với sparse output
-        # nên ta tách bước TF-IDF ra và dùng một shared vectorizer
+        # Soft Voting Ensemble
+        # VotingClassifier doesn't directly support pipeline with sparse output
+        # so we extract TF-IDF step and use a shared vectorizer
 
-        # Lấy best TF-IDF params từ LR (tốt nhất) để dùng chung
+        # Get best TF-IDF params from LR (best) to share
         best_tfidf_params = {
             k.replace("tfidf__", ""): v
             for k, v in lr_res.best_params.items()
             if k.startswith("tfidf__")
         }
 
-        # Rebuild estimators để dùng trong VotingClassifier (không có tfidf step riêng)
+        # Rebuild estimators to use in VotingClassifier (without separate tfidf step)
         lr_only = LogisticRegression(
             class_weight="balanced", max_iter=1_500, random_state=_RANDOM_STATE,
             C=lr_res.best_params.get("clf__C", 1.0),
@@ -622,7 +565,7 @@ def build_and_save_tuned_ensemble(
 
         save_path = os.path.join(artifacts_dir, "tuned_voting_ensemble.pkl")
         joblib.dump(ensemble_pipeline, save_path)
-        logger.info("  Ensemble đã lưu → %s", save_path)
+        logger.info("  Ensemble saved to %s", save_path)
 
         return TuningResult(
             model_name="TunedVotingEnsemble",
@@ -635,7 +578,7 @@ def build_and_save_tuned_ensemble(
         )
 
     except Exception as exc:
-        logger.error("Không thể tạo tuned ensemble: %s", exc, exc_info=True)
+        logger.error("Could not create tuned ensemble: %s", exc, exc_info=True)
         return None
 
 
@@ -646,53 +589,20 @@ def parse_args() -> argparse.Namespace:
         description="GridSearchCV Hyperparameter Tuning — Text Baseline Models",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument(
-        "--data-path",
-        type=str,
-        default=_DATA_PATH,
-        help=f"Đường dẫn CSV dữ liệu (default: {_DATA_PATH})",
-    )
-    parser.add_argument(
-        "--cv",
-        type=int,
-        default=5,
-        help="Số fold StratifiedKFold (default: 5)",
-    )
-    parser.add_argument(
-        "--n-jobs",
-        type=int,
-        default=-1,
-        help="Số workers song song (-1 = tất cả CPU, default: -1)",
-    )
-    parser.add_argument(
-        "--quick",
-        action="store_true",
-        help="Chạy grid nhỏ để debug nhanh (ít tham số hơn)",
-    )
-    parser.add_argument(
-        "--no-ensemble",
-        action="store_true",
-        help="Bỏ qua bước xây dựng ensemble cuối",
-    )
-    parser.add_argument(
-        "--artifacts-dir",
-        type=str,
-        default=_ARTIFACTS_DIR,
-        help=f"Thư mục lưu model (default: {_ARTIFACTS_DIR})",
-    )
-    parser.add_argument(
-        "--metrics-dir",
-        type=str,
-        default=_METRICS_DIR,
-        help=f"Thư mục lưu metrics JSON (default: {_METRICS_DIR})",
-    )
+    parser.add_argument("--data-path", type=str, default=_DATA_PATH, help="Data CSV path")
+    parser.add_argument("--cv", type=int, default=5, help="Number of StratifiedKFold folds")
+    parser.add_argument("--n-jobs", type=int, default=-1, help="Parallel workers")
+    parser.add_argument("--quick", action="store_true", help="Quick mode (smaller grid)")
+    parser.add_argument("--no-ensemble", action="store_true", help="Skip ensemble step")
+    parser.add_argument("--artifacts-dir", type=str, default=_ARTIFACTS_DIR, help="Model output dir")
+    parser.add_argument("--metrics-dir", type=str, default=_METRICS_DIR, help="Metrics output dir")
     return parser.parse_args()
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    """Pipeline chính: tải dữ liệu → GridSearch từng mô hình → Ensemble → Báo cáo."""
+    """Main pipeline: load data -> GridSearch each model -> Ensemble -> Report."""
     args = parse_args()
 
     logger.info("=" * 70)
@@ -701,28 +611,28 @@ def main() -> None:
                 "QUICK" if args.quick else "FULL", args.cv, args.n_jobs)
     logger.info("=" * 70)
 
-    # 1. Tải dữ liệu cắt sẵn
+    # 1. Load pre-split data
     try:
         # X, y = load_data(args.data_path)
         X_train, y_train = load_data("data/processed/processed_labeled_text_train.csv")
         X_test, y_test = load_data("data/processed/processed_labeled_text_test.csv")
     except (FileNotFoundError, KeyError) as exc:
-        logger.error("Lỗi tải dữ liệu: %s", exc)
+        logger.error("Data loading error: %s", exc)
         sys.exit(1)
 
-    # 2. Stratified train/test split (Đã comment vì sử dụng dữ liệu cắt sẵn)
+    # 2. Stratified train/test split (commented out due to pre-split data)
     # X_train, X_test, y_train, y_test = train_test_split(
     #     X, y,
     #     test_size=_TEST_SIZE,
     #     random_state=_RANDOM_STATE,
     #     stratify=y,
     # )
-    logger.info("Train: %d mẫu | Test: %d mẫu", len(X_train), len(X_test))
+    logger.info("Train: %d samples | Test: %d samples", len(X_train), len(X_test))
 
-    # 3. Lấy grids
+    # 3. Get grids
     grids = get_grids(quick=args.quick)
 
-    # 4. Chạy GridSearchCV cho từng mô hình
+    # 4. Run GridSearchCV for each model
     results: List[TuningResult] = []
     for model_name, (pipeline, param_grid) in grids.items():
         try:
@@ -740,14 +650,14 @@ def main() -> None:
             )
             results.append(result)
         except Exception as exc:
-            logger.error("Lỗi khi tuning %s: %s", model_name, exc, exc_info=True)
+            logger.error("Error tuning %s: %s", model_name, exc, exc_info=True)
 
     if not results:
-        logger.error("Không có mô hình nào được tune thành công. Dừng.")
+        logger.error("No successful models tuned. Exiting.")
         sys.exit(1)
 
-    # 5. Xây dựng Tuned Ensemble từ best variant mỗi base model
-    # Với mỗi base model (LR, SVM, RF), chọn variant tốt nhất (SMOTE vs không)
+    # 5. Build Tuned Ensemble from best variant of each base model
+    # For each base model (LR, SVM, RF), pick best variant (SMOTE or not)
     if not args.no_ensemble:
         base_models = ["LogisticRegression", "LinearSVC_Calibrated", "RandomForest"]
         best_per_base: List[TuningResult] = []
@@ -760,7 +670,7 @@ def main() -> None:
                 best = max(candidates, key=lambda r: r.test_macro_f1)
                 best_per_base.append(best)
                 logger.info(
-                    "  Best variant cho %s: %s (F1=%.4f)",
+                    "  Best variant for %s: %s (F1=%.4f)",
                     base, best.model_name, best.test_macro_f1
                 )
 
@@ -776,12 +686,12 @@ def main() -> None:
             if ensemble_result:
                 results.append(ensemble_result)
 
-    # 6. In bảng tổng kết
+    # 6. Print summary
     print_summary(results)
 
-    # 7. Lưu metrics
+    # 7. Save metrics
     metrics_path = save_metrics(results, args.metrics_dir)
-    logger.info("Hoàn thành! Metrics đã lưu tại: %s", metrics_path)
+    logger.info("Completed! Metrics saved to: %s", metrics_path)
 
 
 if __name__ == "__main__":

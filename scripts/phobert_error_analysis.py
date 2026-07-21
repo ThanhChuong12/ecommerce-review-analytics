@@ -1,20 +1,13 @@
 """
 phobert_error_analysis.py
 =========================
-Phân tích lỗi PhoBERT dùng Captum Integrated Gradients.
+Error analysis for PhoBERT using Captum Integrated Gradients.
 
-Khác với LIME (black-box, bag-of-words), Integrated Gradients tính
-gradient truyền ngược qua toàn bộ 12 lớp Transformer → attribution
-score phản ánh đúng cơ chế internal của PhoBERT (attention, context).
+Unlike LIME, Integrated Gradients computes gradients backwards through
+all Transformer layers -> attribution score reflects internal mechanism.
 
-Cách chạy (từ thư mục gốc):
-    py scripts/phobert_error_analysis.py
-
-    # Xem N ví dụ sai (default: 2):
-    py scripts/phobert_error_analysis.py --n-examples 3
-
-    # Dùng N câu test để tìm câu sai (default: 100):
-    py scripts/phobert_error_analysis.py --sample-size 200
+Usage:
+  python scripts/phobert_error_analysis.py [--n-examples 3] [--sample-size 200]
 """
 
 from __future__ import annotations
@@ -54,13 +47,13 @@ LABELS      = ["tích cực", "tiêu cực", "trung lập"]
 # ══════════════════════════════════════════════════════════════════════════════
 
 def load_phobert(model_dir: str):
-    """Load PhoBERT model và tokenizer."""
+    """Load PhoBERT model and tokenizer."""
     import torch
     import torch.nn.functional as F
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
     device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info("Đang load PhoBERT từ %s (device: %s) ...", model_dir, device)
+    logger.info("Loading PhoBERT from %s (device: %s) ...", model_dir, device)
 
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
     model     = AutoModelForSequenceClassification.from_pretrained(model_dir)
@@ -75,7 +68,7 @@ def load_phobert(model_dir: str):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def predict_batch(texts: list[str], model, tokenizer, device, batch_size: int = 16) -> np.ndarray:
-    """Dự đoán xác suất theo batch để tránh OOM."""
+    """Predict probabilities in batches to avoid OOM."""
     import torch
     import torch.nn.functional as F
 
@@ -105,21 +98,19 @@ def find_wrong_predictions(
     sample_size: int = 100,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """Lấy sample_size câu, dự đoán, trả về N câu sai.
-
-    Ưu tiên lấy 1 câu 'trung lập' bị đoán sai (class khó nhất)
-    và 1 câu loại khác.
+    """Sample texts, predict, and return N misclassified examples.
+    Prioritizes neutral misclassifications.
     """
     df_sample = df.sample(min(sample_size, len(df)), random_state=seed).copy()
     texts = df_sample[text_col].fillna("").astype(str).tolist()
 
-    logger.info("Đang dự đoán %d câu ...", len(texts))
+    logger.info("Predicting %d texts ...", len(texts))
     proba = predict_batch(texts, model, tokenizer, device)
     df_sample["predicted"] = [LABELS[i] for i in proba.argmax(axis=1)]
     df_sample["wrong"]     = df_sample[label_col] != df_sample["predicted"]
 
     wrong_df = df_sample[df_sample["wrong"]].copy()
-    logger.info("Câu đoán sai: %d / %d", len(wrong_df), len(df_sample))
+    logger.info("Misclassifications: %d / %d", len(wrong_df), len(df_sample))
 
     neutral_wrong     = wrong_df[wrong_df[label_col] == "trung lập"]
     non_neutral_wrong = wrong_df[wrong_df[label_col] != "trung lập"]
@@ -146,12 +137,9 @@ def explain_with_ig(
     device,
     top_k: int = 8,
 ) -> list[tuple[str, float]]:
-    """Tính Integrated Gradients cho 1 câu.
-
+    """Compute Integrated Gradients for one text.
     Returns:
-        List (word, score) sắp xếp theo |score| giảm dần.
-        score > 0 → ủng hộ target class
-        score < 0 → phản đối target class
+        List of (word, score) sorted by |score| descending.
     """
     import torch
     from captum.attr import LayerIntegratedGradients
@@ -192,7 +180,7 @@ def explain_with_ig(
     tokens  = tokenizer.convert_ids_to_tokens(input_ids[0].cpu().tolist())
     special = {tokenizer.cls_token, tokenizer.sep_token, tokenizer.pad_token}
 
-    # Gộp subword (@@) thành từ hoàn chỉnh
+    # Merge subwords (@@) into complete words
     word_scores: list[tuple[str, float]] = []
     cur_word, cur_score = "", 0.0
     for token, score in zip(tokens, attr):
@@ -207,7 +195,7 @@ def explain_with_ig(
             word_scores.append((cur_word.replace("_", " "), cur_score))
             cur_word, cur_score = "", 0.0
 
-    # Sắp xếp theo |score| giảm dần, lấy top_k
+    # Sort by |score| descending and take top_k
     word_scores.sort(key=lambda x: abs(x[1]), reverse=True)
     return word_scores[:top_k]
 
@@ -223,24 +211,24 @@ def analyze_sample(
     word_scores: list[tuple[str, float]],
     sample_idx: int,
 ) -> None:
-    """In kết quả phân tích và giả thuyết tự động."""
+    """Print analysis results and hypotheses."""
     SEP = "=" * 70
-    print(f"\n{SEP}")
-    print(f"  [PhoBERT — Integrated Gradients] VÍ DỤ #{sample_idx}")
+    print(f"\\n{SEP}")
+    print(f"  [PhoBERT - IG] EXAMPLE #{sample_idx}")
     print(SEP)
-    print(f"  VĂN BẢN  : {text[:200]}{'...' if len(text) > 200 else ''}")
-    print(f"  NHÃN THẬT: {true_label}")
-    print(f"  MÔ HÌNH ĐOÁN: {pred_label}  ← SAI")
+    print(f"  TEXT     : {text[:200]}{'...' if len(text) > 200 else ''}")
+    print(f"  TRUE     : {true_label}")
+    print(f"  PREDICTED: {pred_label}  <- WRONG")
 
-    print(f"\n  [IG] Attribution score → dự đoán '{pred_label}':")
-    print(f"  {'Từ':<22} {'Score':>9}  Hướng")
+    print(f"\\n  [IG] Attribution scores for '{pred_label}':")
+    print(f"  {'Word':<22} {'Score':>9}  Direction")
     print(f"  {'-'*22} {'-'*9}  {'-'*10}")
     for word, score in word_scores:
-        direction = "→ ủng hộ" if score > 0 else "→ phản đối"
+        direction = "-> supports" if score > 0 else "-> opposes"
         print(f"  {word:<22} {score:>+9.4f}  {direction}")
 
-    # ── Giả thuyết tự động ────────────────────────────────────────────────────
-    print(f"\n  [GIẢ THUYẾT]")
+    # ── Hypotheses ────────────────────────────────────────────────────────────
+    print(f"\\n  [HYPOTHESES]")
     pos_feats = [(w, s) for w, s in word_scores if s > 0]
     neg_feats = [(w, s) for w, s in word_scores if s < 0]
 
@@ -258,31 +246,30 @@ def analyze_sample(
     hypotheses = []
     if has_emoji and true_label in ["tiêu cực", "trung lập"]:
         hypotheses.append(
-            "⚠️  Câu chứa emoji — PhoBERT có thể hiểu lầm emoji tích cực "
-            "trong ngữ cảnh mỉa mai hoặc phàn nàn."
+            "⚠️  Contains emojis — model might confuse positive emojis "
+            "in a sarcastic/complaint context."
         )
     if has_negation and pos_feats:
         hypotheses.append(
-            f"⚠️  Câu có từ phủ định kết hợp với từ tích cực "
+            f"⚠️  Contains negation near positive word "
             f"('{pos_feats[0][0]}' score={pos_feats[0][1]:+.3f}) — "
-            "PhoBERT bắt được context nhưng vẫn bị bias bởi từ tích cực nổi bật."
+            "PhoBERT caught context but is still biased by the positive word."
         )
     if word_count < 8 and true_label == "trung lập":
         hypotheses.append(
-            f"⚠️  Câu rất ngắn ({word_count} từ) — ít context → PhoBERT "
-            "thiên về class đa số (tích cực)."
+            f"⚠️  Very short sentence ({word_count} words) — lacks context, "
+            "so model defaults to majority class (positive)."
         )
     if neg_feats and true_label == "tích cực":
         neg_str = ", ".join([f"'{w}'" for w, _ in neg_feats[:2]])
         hypotheses.append(
-            f"⚠️  Từ {neg_str} kéo mạnh về hướng phản đối dự đoán — "
-            "có thể là từ kỹ thuật/chuyên ngành hiếm gặp trong training data."
+            f"⚠️  Words {neg_str} push strongly against prediction — "
+            "might be rare technical terms in training data."
         )
     if not hypotheses:
         hypotheses.append(
-            "⚠️  Không phát hiện pattern rõ ràng — có thể do câu có "
-            "cấu trúc phức tạp (điều kiện, so sánh, ẩn dụ) "
-            "hoặc ngữ cảnh đa nghĩa mà PhoBERT chưa học được."
+            "⚠️  No clear pattern detected — possibly complex structure "
+            "or ambiguous context."
         )
 
     for h in hypotheses:
@@ -297,7 +284,7 @@ def analyze_sample(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Phân tích lỗi PhoBERT bằng Captum Integrated Gradients"
+        description="PhoBERT Error Analysis using Captum Integrated Gradients"
     )
     parser.add_argument(
         "--phobert-dir", default=str(PHOBERT_DIR),
@@ -340,13 +327,13 @@ def main():
     model, tokenizer, device = load_phobert(args.phobert_dir)
 
     # ── Load data ─────────────────────────────────────────────────────────────
-    logger.info("Đọc dữ liệu test từ: %s", args.test_csv)
+    logger.info("Reading test data from: %s", args.test_csv)
     df = pd.read_csv(args.test_csv)
     df[args.text_col] = df[args.text_col].fillna("").astype(str)
 
-    # ── Tìm câu sai ───────────────────────────────────────────────────────────
-    print("\n" + "█" * 70)
-    print("  PHÂN TÍCH LỖI: PHOBERT (Integrated Gradients)")
+    # ── Find misclassifications ───────────────────────────────────────────────
+    print("\\n" + "█" * 70)
+    print("  ERROR ANALYSIS: PHOBERT (Integrated Gradients)")
     print("█" * 70)
 
     wrong_df = find_wrong_predictions(
@@ -363,7 +350,7 @@ def main():
         pred_idx   = LABELS.index(pred_label)
 
         logger.info(
-            "[IG] Đang tính attribution cho câu #%d (target: '%s') ...",
+            "[IG] Computing attribution for sample #%d (target: '%s') ...",
             i, pred_label
         )
         word_scores = explain_with_ig(
@@ -383,7 +370,7 @@ def main():
             sample_idx=i,
         )
 
-    print("✅ Xong!")
+    print("✅ Done!")
 
 
 if __name__ == "__main__":

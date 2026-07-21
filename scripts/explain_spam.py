@@ -1,23 +1,11 @@
 """
 explain_spam.py
 ===============
-Load model Isolation Forest đã train sẵn, chạy inference trên CSV, và
-xuất kết quả với 2 cột bổ sung:
+Load pre-trained Isolation Forest model, run inference on CSV, and output
+results with additional explanation columns (spam_source, spam_rules).
 
-  spam_source  : "rule" | "iforest" | "both" | ""
-  spam_rules   : danh sách tên rule bị triggered, e.g. "ai_template, xu_farming"
-
-KHÔNG train lại model — chỉ load pkl rồi predict.
-
-Usage (chạy từ thư mục gốc):
-    py scripts/explain_spam.py --data-path data/processed/processed_labeled_all.csv
-    py scripts/explain_spam.py \\
-        --data-path data/processed/processed_labeled_all.csv \\
-        --model-path artifacts/spam/tuned_spam_iforest.pkl \\
-        --output-csv artifacts/spam/spam_explained.csv
-
-Sau khi chạy, mở CSV và lọc theo cột spam_source hoặc spam_rules để xem
-từng câu bị flag bởi nguồn nào.
+Usage:
+  python scripts/explain_spam.py --data-path <path> [--model-path <path>] [--output-csv <path>]
 """
 
 from __future__ import annotations
@@ -70,7 +58,7 @@ def build_spam_source_cols(
     df_flagged: pd.DataFrame,
     iforest_pred,          # np.ndarray -1/1
 ) -> pd.DataFrame:
-    """Trả về DataFrame gồm 2 cột: spam_source và spam_rules."""
+    """Return DataFrame with spam_source and spam_rules columns."""
     flag_details = df_flagged.attrs.get("flag_details")
     rule_arr = df_flagged["is_spam"].values.astype(bool)
     iforest_arr = (iforest_pred == -1)
@@ -100,37 +88,36 @@ def main() -> None:
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
     parser = argparse.ArgumentParser(
-        description="Spam inference: load pre-trained IForest model + rule-based, "
-                    "output spam_source & spam_rules columns."
+        description="Spam inference with explanation columns (spam_source, spam_rules)."
     )
     parser.add_argument(
         "--data-path", required=True,
-        help="CSV input với cột 'text' và 'rating'",
+        help="Input CSV with text and rating columns",
     )
     parser.add_argument(
         "--model-path", default=str(DEFAULT_MODEL),
-        help=f"Đường dẫn tới model pkl (default: {DEFAULT_MODEL})",
+        help=f"Path to model pkl (default: {DEFAULT_MODEL})",
     )
     parser.add_argument(
         "--output-csv", default=str(DEFAULT_OUTPUT),
-        help=f"Đường dẫn CSV output (default: {DEFAULT_OUTPUT})",
+        help=f"Output CSV path (default: {DEFAULT_OUTPUT})",
     )
     parser.add_argument(
         "--text-col", default="text",
-        help="Tên cột văn bản (default: text)",
+        help="Text column name (default: text)",
     )
     parser.add_argument(
         "--rating-col", default="rating",
-        help="Tên cột rating (default: rating)",
+        help="Rating column name (default: rating)",
     )
     parser.add_argument(
         "--dup-threshold", type=float, default=0.85,
-        help="Cosine threshold cho duplicate seeding (default: 0.85)",
+        help="Cosine threshold for duplicate seeding (default: 0.85)",
     )
     args = parser.parse_args()
 
     # ── Load data ─────────────────────────────────────────────────────────────
-    logger.info("Đọc dữ liệu từ: %s", args.data_path)
+    logger.info("Reading data from: %s", args.data_path)
     df = pd.read_csv(args.data_path)
 
     for col in [args.text_col, args.rating_col]:
@@ -141,25 +128,25 @@ def main() -> None:
         df = df.rename(columns={args.text_col: "text", args.rating_col: "rating"})
 
     df["text"] = df["text"].fillna("").astype(str)
-    logger.info("Tổng mẫu: %d", len(df))
+    logger.info("Total samples: %d", len(df))
 
     # ── Load model ────────────────────────────────────────────────────────────
     model_path = args.model_path
-    logger.info("Load model từ: %s", model_path)
+    logger.info("Loading model from: %s", model_path)
     model: SpamHybridModel = SpamHybridModel.load(model_path)
 
     # ── Step 1: Rule-based ────────────────────────────────────────────────────
-    logger.info("Chạy rule-based spam detection...")
+    logger.info("Running rule-based spam detection...")
     df_flagged = detect_spam(df, dup_threshold=args.dup_threshold)
 
     # ── Step 2: Feature matrix ────────────────────────────────────────────────
-    logger.info("Xây dựng feature matrix...")
+    logger.info("Building feature matrix...")
     texts = df_flagged["text"].tolist()
     ratings = df_flagged["rating"].tolist()
     X = build_feature_matrix(df_flagged, texts, ratings)
 
-    # ── Step 3: IForest predict (không train lại) ─────────────────────────────
-    logger.info("Dự đoán anomaly bằng model cũ...")
+    # ── Step 3: IForest predict (no retraining) ───────────────────────────────
+    logger.info("Predicting anomalies...")
     iforest_pred = model.predict_anomaly(X)
     anomaly_scores = model.anomaly_score(X)
 
@@ -175,7 +162,7 @@ def main() -> None:
     # ── Step 4: Build source + rule columns ───────────────────────────────────
     extra_cols = build_spam_source_cols(df_flagged, iforest_pred)
 
-    # ── Step 5: Report nhanh ──────────────────────────────────────────────────
+    # ── Step 5: Quick report ──────────────────────────────────────────────────
     total = len(df_flagged)
     n_rule = int(rule_spam.sum())
     n_iforest = int(iforest_spam.sum())
@@ -185,10 +172,10 @@ def main() -> None:
     print("\n" + "=" * 60)
     print("  SPAM EXPLAIN REPORT")
     print("=" * 60)
-    print(f"  Tổng review       : {total:>8,}")
+    print(f"  Total reviews     : {total:>8,}")
     print(f"  Rule-based spam   : {n_rule:>8,}  ({n_rule/total*100:.1f}%)")
     print(f"  IForest anomaly   : {n_iforest:>8,}  ({n_iforest/total*100:.1f}%)")
-    print(f"  Cả hai (both)     : {n_both:>8,}  ({n_both/total*100:.1f}%)")
+    print(f"  Both              : {n_both:>8,}  ({n_both/total*100:.1f}%)")
     print(f"  Final spam (union): {n_final:>8,}  ({n_final/total*100:.1f}%)")
     print(f"  Clean             : {total-n_final:>8,}  ({(total-n_final)/total*100:.1f}%)")
     print("=" * 60 + "\n")
@@ -205,7 +192,7 @@ def main() -> None:
                     print(f"  {col:<30} {cnt:>8,}  {cnt/total*100:>5.1f}%")
         print()
 
-    # ── Step 6: Lưu CSV ───────────────────────────────────────────────────────
+    # ── Step 6: Save CSV ──────────────────────────────────────────────────────
     flag_details = df_flagged.attrs.get("flag_details")
     out_df = df_flagged[["text", "rating", "is_spam",
                           "iforest_anomaly", "anomaly_score", "final_spam"]].copy()
@@ -216,9 +203,9 @@ def main() -> None:
     out_path = Path(args.output_csv)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(out_path, index=False, encoding="utf-8-sig")
-    logger.info("CSV đã lưu -> %s", out_path)
+    logger.info("Saved CSV to %s", out_path)
     logger.info(
-        "Cột spam_source: rule=%d, iforest=%d, both=%d",
+        "spam_source breakdown: rule=%d, iforest=%d, both=%d",
         int((extra_cols["spam_source"] == "rule").sum()),
         int((extra_cols["spam_source"] == "iforest").sum()),
         n_both,

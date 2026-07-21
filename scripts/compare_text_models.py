@@ -1,37 +1,16 @@
 """
 compare_models.py
 =================
-Khung đánh giá so sánh hiệu năng thực tế giữa:
-  - Text Baseline (Weighted Soft-Voting Ensemble: LR + SVM + RF + TF-IDF)
-  - PhoBERT (vinai/phobert-base-v2 fine-tuned cho sentiment)
+Performance comparison framework for Text Baseline vs PhoBERT on hold-out test set.
 
-Metrics tính toán trên cùng một hold-out test set:
-  - Macro F1-Score, Weighted F1-Score, Accuracy
-  - Per-class F1, Precision, Recall
-  - ROC-AUC (One-vs-Rest)
-  - Inference latency (ms/sample trung bình)
-  - Confusion Matrix (lưu thành file PNG)
+Outputs:
+  - Console table
+  - JSON report in artifacts/metrics/
+  - Confusion matrix PNGs in artifacts/plots/
 
-Output:
-  - In bảng so sánh ra console
-  - Lưu JSON report: artifacts/metrics/model_comparison_report.json
-  - Lưu confusion matrix PNGs: artifacts/plots/
-
-Usage (từ thư mục gốc):
-    # So sánh với model đã train
-    python scripts/compare_models.py \\
-        --baseline-path artifacts/models/baselines/ensemble_no_smote_auto_weights.pkl \\
-        --phobert-path ai_engine/models/weights/phobert_best \\
-        --data-path data/processed/processed_labeled_reviews.csv
-
-    # Chỉ chạy với baseline (chưa có PhoBERT)
-    python scripts/compare_models.py \\
-        --baseline-path artifacts/models/baselines/ensemble_no_smote_auto_weights.pkl \\
-        --data-path data/processed/processed_labeled_reviews.csv \\
-        --no-phobert
-
-    # Sanity check với dữ liệu giả (không cần file model)
-    python scripts/compare_models.py --sanity
+Usage:
+  python scripts/compare_models.py --baseline-path <path> --phobert-path <path>
+  python scripts/compare_models.py --sanity
 """
 
 from __future__ import annotations
@@ -89,7 +68,7 @@ _RANDOM_STATE = 42
 _METRICS_DIR = str(_PROJECT_ROOT / "artifacts" / "metrics")
 _PLOTS_DIR = str(_PROJECT_ROOT / "artifacts" / "plots")
 
-# Label mapping: Vietnamese string → integer (dùng cho PhoBERT)
+# Label mapping: string -> int (for PhoBERT)
 _LABEL_MAP = {
     "tích cực": 0,
     "tiêu cực": 1,
@@ -102,7 +81,7 @@ _ID_TO_LABEL = {v: k for k, v in _LABEL_MAP.items()}
 
 @dataclass
 class ModelReport:
-    """Kết quả đánh giá đầy đủ của một mô hình."""
+    """Evaluation report for a model."""
     model_name: str
     macro_f1: float
     weighted_f1: float
@@ -111,24 +90,17 @@ class ModelReport:
     per_class_f1: Dict[str, float]
     per_class_precision: Dict[str, float]
     per_class_recall: Dict[str, float]
-    latency_ms_mean: float          # Thời gian inference trung bình (ms/sample)
+    latency_ms_mean: float          # Mean inference time (ms/sample)
     latency_ms_p95: float           # P95 latency
     n_samples: int
-    target_met: bool                 # F1 macro ≥ 0.82 (target của dự án)
+    target_met: bool                # F1 macro >= 0.82
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _compute_roc_auc_multiclass(y_true_str, y_proba, class_labels) -> Optional[float]:
-    """Tính macro OvR ROC-AUC cho bài toán đa lớp.
-
-    Args:
-        y_true_str: Nhãn thực tế (string).
-        y_proba: Xác suất dự đoán shape (n_samples, n_classes).
-        class_labels: Danh sách tên lớp theo đúng thứ tự cột.
-
-    Returns:
-        Macro AUC hoặc None nếu không tính được.
+    """Compute macro OvR ROC-AUC for multi-class classification.
+    Returns None if computation fails.
     """
     try:
         lb = LabelBinarizer()
@@ -147,16 +119,8 @@ def _measure_latency(
     n_warmup: int = 5,
     n_repeat: int = 50,
 ) -> Tuple[float, float]:
-    """Đo latency inference theo ms/sample.
-
-    Args:
-        predict_fn: Hàm nhận X và trả về predictions.
-        X_sample: Mẫu dữ liệu để đo (nên dùng một batch nhỏ).
-        n_warmup: Số lần chạy warmup (không tính vào kết quả).
-        n_repeat: Số lần đo để lấy trung bình.
-
-    Returns:
-        (mean_ms, p95_ms): Latency trung bình và P95 tính theo ms/sample.
+    """Measure inference latency (ms/sample).
+    Returns (mean_ms, p95_ms).
     """
     n = len(X_sample) if hasattr(X_sample, '__len__') else 1
 
@@ -179,16 +143,8 @@ def _save_confusion_matrix_plot(
     model_name: str,
     plots_dir: str,
 ) -> Optional[str]:
-    """Lưu Confusion Matrix dạng heatmap PNG.
-
-    Args:
-        cm: Numpy array confusion matrix.
-        class_labels: Tên các lớp.
-        model_name: Tên mô hình (dùng cho tiêu đề & tên file).
-        plots_dir: Thư mục lưu.
-
-    Returns:
-        Đường dẫn file PNG đã lưu, hoặc None nếu lỗi.
+    """Save confusion matrix as a heatmap PNG.
+    Returns the file path or None if failed.
     """
     try:
         import matplotlib
@@ -210,8 +166,8 @@ def _save_confusion_matrix_plot(
             linewidths=0.5,
             linecolor="white",
         )
-        ax.set_xlabel("Nhãn dự đoán", fontsize=12)
-        ax.set_ylabel("Nhãn thực tế", fontsize=12)
+        ax.set_xlabel("Predicted Label", fontsize=12)
+        ax.set_ylabel("True Label", fontsize=12)
         ax.set_title(f"Confusion Matrix — {model_name}", fontsize=14, fontweight="bold")
         plt.tight_layout()
 
@@ -220,15 +176,15 @@ def _save_confusion_matrix_plot(
         out_path = os.path.join(plots_dir, f"cm_{safe_name}.png")
         plt.savefig(out_path, dpi=150)
         plt.close(fig)
-        logger.info("Confusion Matrix đã lưu → %s", out_path)
+        logger.info("Saved confusion matrix to %s", out_path)
         return out_path
     except ImportError:
-        logger.warning("matplotlib/seaborn chưa cài. Bỏ qua vẽ biểu đồ.")
+        logger.warning("matplotlib/seaborn not installed. Skipping plot.")
         return None
 
 
 def _print_model_section(report: ModelReport) -> None:
-    """In chi tiết đánh giá của một mô hình."""
+    """Print evaluation details for a model."""
     sep = "─" * 60
     target_icon = "✅" if report.target_met else "❌"
 
@@ -243,7 +199,7 @@ def _print_model_section(report: ModelReport) -> None:
     print(f"  {'Latency (P95)':<20}: {report.latency_ms_p95:.2f} ms/sample")
     print(f"  {'Test samples':<20}: {report.n_samples}")
     print(f"\n  Per-class metrics:")
-    header = f"    {'Lớp':<15} {'F1':>8} {'Precision':>12} {'Recall':>10}"
+    header = f"    {'Class':<15} {'F1':>8} {'Precision':>12} {'Recall':>10}"
     print(header)
     print("    " + "─" * 48)
     for cls in report.per_class_f1:
@@ -264,18 +220,7 @@ def evaluate_baseline(
     class_labels: List[str],
     plots_dir: str,
 ) -> ModelReport:
-    """Đánh giá TextEnsembleModel (baseline).
-
-    Args:
-        model_path: Đường dẫn tới file .pkl.
-        X_test: Văn bản test (pd.Series).
-        y_test_str: Nhãn thực tế dạng string.
-        class_labels: Danh sách tên lớp.
-        plots_dir: Thư mục lưu confusion matrix.
-
-    Returns:
-        ModelReport đầy đủ.
-    """
+    """Evaluate TextEnsembleModel (baseline) and return ModelReport."""
     import joblib
     logger.info("Đang tải Baseline từ: %s", model_path)
     model = joblib.load(model_path)
@@ -353,20 +298,7 @@ def evaluate_phobert(
     batch_size: int = 32,
     max_length: int = 256,
 ) -> ModelReport:
-    """Đánh giá PhoBERT fine-tuned model.
-
-    Args:
-        model_dir: Thư mục chứa checkpoint PhoBERT (saved_model hoặc checkpoint).
-        X_test: Văn bản test (pd.Series).
-        y_test_str: Nhãn thực tế dạng string.
-        class_labels: Danh sách tên lớp (theo đúng thứ tự LABEL_MAP).
-        plots_dir: Thư mục lưu confusion matrix.
-        batch_size: Batch size cho inference.
-        max_length: Độ dài token tối đa.
-
-    Returns:
-        ModelReport đầy đủ.
-    """
+    """Evaluate fine-tuned PhoBERT model and return ModelReport."""
     logger.info("Đang tải PhoBERT từ: %s", model_dir)
 
     try:
