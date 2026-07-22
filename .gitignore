@@ -90,7 +90,11 @@ data/*.csv
 *.ckpt
 *.zip
 /kaggle/
-/data/
+!/data/
+/data/*
+!/data/processed/
+!/data/sample_images/
+!/data/images/
 /reports/figures/
 /reports/figures_model2/
 
